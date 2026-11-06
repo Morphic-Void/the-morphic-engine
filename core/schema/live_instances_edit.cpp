@@ -232,8 +232,12 @@ bool CLiveInstances::baseline(const std::uint32_t index, CByteBuffer& defaults,
     }
     const CDocumentRead document{ m_document };
     detail::SValueDiagnostic error;
-    if (!detail::construct_value(*m_binding.resolved(), document, record.type, {}, defaults.data(), defaults.size(),
-        detail::EConstructionMode::instance, error)) return report_value(error, diagnostic);
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    if (!detail::construct_value(work_budget, *m_binding.resolved(), document, record.type, {}, defaults.data(), defaults.size(),
+        detail::EConstructionMode::instance, error))
+    {
+        return report_value(error, diagnostic);
+    }
     bytes = defaults.data();
     return true;
 }
@@ -451,7 +455,8 @@ bool CLiveInstances::specialise(const CInstanceHandle instance, const SInstanceS
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
     }
-    if (!detail::construct_alternative(types, document, record.type, SOccurrence{ patch },
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    if (!detail::construct_alternative(work_budget, types, document, record.type, SOccurrence{ patch },
         record.extent ? m_payload.data() + record.offset : nullptr, record.extent, encoded.data(), encoded.size(), error))
     {
         cleanup();
@@ -723,7 +728,8 @@ CInstanceHandle CLiveInstances::capture_base(const CStringView& type, const CStr
     }
     const CDocumentRead document{ m_document };
     detail::SValueDiagnostic error;
-    if (!detail::construct_value(*types, document, index, {}, defaults.data(), defaults.size(), detail::EConstructionMode::instance, error))
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    if (!detail::construct_value(work_budget, *types, document, index, {}, defaults.data(), defaults.size(), detail::EConstructionMode::instance, error))
     {
         diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
         return {};

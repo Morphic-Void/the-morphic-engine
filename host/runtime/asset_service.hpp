@@ -95,10 +95,28 @@ public:
     void request_reference(const BundleReferenceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request_release(const AssetReleaseRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
+    void request_schema(const SchemaPrepareRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept;
     void complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
 
 private:
+    enum class ESchemaPhase { preparing, publishing, acquired, retiring, reclaiming };
+    struct SSchemaOperation
+    {
+        CAssetBackingLease backing;
+        CAssetId source;
+        SchemaConditioning work;
+        SClientRecord* client{ nullptr };
+        std::int32_t client_slot{ -1 };
+        CAssetAcquisitionId acquisition;
+        ESchemaPhase phase{ ESchemaPhase::preparing };
+    };
+    void progress_schemas() noexcept;
+    void complete_schema(const SchemaConditionResult& result, const std::int32_t slot,
+        threading::CThreadPackage& worker) noexcept;
+    [[nodiscard]] bool release_schema(const CAssetAcquisitionId acquisition, SClientRecord& client) noexcept;
+    TUnorderedCollection<SSchemaOperation> m_schemas;
+
     enum class EPhase : std::uint8_t
     {
         loading = 0,
@@ -210,6 +228,7 @@ private:
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;
     bool m_failed{ false };
+    bool m_workers_stopped{ false };
 };
 
 }   //  namespace host

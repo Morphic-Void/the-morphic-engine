@@ -261,9 +261,9 @@ struct SValueStorage
 class CValueWriter
 {
 public:
-    CValueWriter(const CResolvedTypes& schema, const CDocumentRead& document,
+    CValueWriter(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
         const EWriteMode mode, SValueDiagnostic& diagnostic, const bool checking = false) noexcept :
-        m_schema(schema), m_document(document), m_mode(mode), m_diagnostic(diagnostic), m_checking(checking) {}
+        m_work_budget(work_budget), m_schema(schema), m_document(document), m_mode(mode), m_diagnostic(diagnostic), m_checking(checking) {}
 
     [[nodiscard]] bool matches() const noexcept { return m_matches; }
 
@@ -300,6 +300,7 @@ private:
     [[nodiscard]] bool bit_structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
         const SValueStorage& storage, const bool singleton_element) noexcept;
 
+    CValueWorkBudget& m_work_budget;
     const CResolvedTypes& m_schema;
     const CDocumentRead& m_document;
     const EWriteMode m_mode;
@@ -832,6 +833,10 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
     const SValueStorage& storage, const std::size_t destination_size,
     const unsigned depth, const bool singleton_element) noexcept
 {
+    if (!m_work_budget.try_consume())
+    {
+        return fail(EReason::storage_limit, source, type);
+    }
     if (depth >= document_limits::k_max_recursion_depth)
     {
         return fail(EReason::storage_limit, source, type);
@@ -1120,7 +1125,7 @@ bool validate_declaration(const CResolvedTypes& schema, const CDocumentRead& doc
 //  Construction and comparison entry points
 //==============================================================================
 
-bool construct_value(const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
+bool construct_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,
     const EConstructionMode mode, SValueDiagnostic& diagnostic, const bool singleton_element) noexcept
 {
@@ -1134,12 +1139,12 @@ bool construct_value(const CResolvedTypes& schema, const CDocumentRead& document
         diagnostic = { EReason::invalid_input, declaration, type };
         return false;
     }
-    CValueWriter writer{ schema, document,
+    CValueWriter writer{ work_budget, schema, document,
         ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic };
     return writer.write(type, {}, declaration, { destination, destination, nullptr }, static_cast<std::size_t>(layout.size), 0u, singleton_element);
 }
 
-bool construct_alternative(const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
+bool construct_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence declaration, const std::uint8_t* const base, const std::size_t base_size,
     std::uint8_t* const destination, const std::size_t destination_size, SValueDiagnostic& diagnostic) noexcept
 {
@@ -1163,11 +1168,11 @@ bool construct_alternative(const CResolvedTypes& schema, const CDocumentRead& do
     {
         std::memcpy(destination, base, static_cast<std::size_t>(layout.size));
     }
-    CValueWriter writer{ schema, document, EWriteMode::alternative, diagnostic };
+    CValueWriter writer{ work_budget, schema, document, EWriteMode::alternative, diagnostic };
     return writer.write(type, {}, declaration, { destination, destination, nullptr }, static_cast<std::size_t>(layout.size), 0u);
 }
 
-bool check_value(const CResolvedTypes& schema, const CDocumentRead& document,
+bool check_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t size, const EConstructionMode mode, bool& matches, SValueDiagnostic& diagnostic,
     const bool singleton_element) noexcept
@@ -1183,7 +1188,7 @@ bool check_value(const CResolvedTypes& schema, const CDocumentRead& document,
         diagnostic = { EReason::invalid_input, declaration, type };
         return false;
     }
-    CValueWriter writer{ schema, document,
+    CValueWriter writer{ work_budget, schema, document,
         ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic, true };
     if (!writer.write(type, {}, declaration, { nullptr, bytes, nullptr }, static_cast<std::size_t>(layout.size), 0u, singleton_element))
     {
@@ -1193,7 +1198,7 @@ bool check_value(const CResolvedTypes& schema, const CDocumentRead& document,
     return true;
 }
 
-bool check_alternative(const CResolvedTypes& schema, const CDocumentRead& document,
+bool check_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, const std::uint8_t* const bytes, const std::size_t size,
     bool& matches, SValueDiagnostic& diagnostic) noexcept
@@ -1205,7 +1210,7 @@ bool check_alternative(const CResolvedTypes& schema, const CDocumentRead& docume
     {
         return false;
     }
-    CValueWriter writer{ schema, document, EWriteMode::alternative, diagnostic, true };
+    CValueWriter writer{ work_budget, schema, document, EWriteMode::alternative, diagnostic, true };
     if (!writer.write(type, {}, declaration, { nullptr, bytes, base }, static_cast<std::size_t>(layout.size), 0u))
     {
         return false;

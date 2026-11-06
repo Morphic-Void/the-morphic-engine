@@ -130,7 +130,8 @@ bool CHost::workers_failed() noexcept
 {
     for (std::uint32_t index = 0u; index < m_worker_count; ++index)
     {
-        if ((worker_package(index) == nullptr) || (worker_package(index)->query_state() == threading::EThreadRunState::Failed))
+        if ((worker_package(index) == nullptr) || (worker_package(index)->query_state() == threading::EThreadRunState::Failed) ||
+            worker_package(index)->pod_delivery_poisoned())
         {
             return true;
         }
@@ -672,6 +673,7 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     BundleReferenceRequest reference;
     AssetAcquireRequest acquire;
     AssetReleaseRequest release;
+    SchemaPrepareRequest prepare_schema;
     services::OpenServiceRequest open;
     services::CloseServiceRequest close;
     services::ServiceRequest command;
@@ -743,6 +745,16 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     else if (message.copy_payload_to(notification))
     {
         m_service_router.register_notification(client, notification, slot);
+    }
+    else if (message.copy_payload_to(prepare_schema))
+    {
+        if (m_work_admission_closed || m_workers_unavailable)
+        {
+            SchemaPrepareResult result;
+            result.status = m_work_admission_closed ? EAssetStatus::busy : EAssetStatus::delivery_failed;
+            if (!client.reply(threading::make_pod_message(slot, result))) m_runtime_failed = true;
+        }
+        else m_asset_service.request_schema(prepare_schema, slot, client);
     }
     else if (message.copy_payload_to(acquire))
     {

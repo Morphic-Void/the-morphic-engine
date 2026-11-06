@@ -10,6 +10,7 @@
 //  Synthetic input records through real routing, notifications and borrow cleanup.
 
 #include <cstring>
+#include <cstdio>
 #include <thread>
 #include <chrono>
 #include "platform/runtime/platform_runtime.hpp"
@@ -19,6 +20,7 @@
 #include "tests/support/test_context.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "services/service_borrow_client.hpp"
+#include "tests/support/input_schema.hpp"
 
 namespace platform::runtime
 {
@@ -156,6 +158,75 @@ struct SFixture
     std::uint32_t history_count{ 0u };
     bool completion_busy{ false };
     modules::SProgress progress;
+    CAssetRepository assets;
+    schema::CPreparedSchema conditioned;
+    std::string source;
+    threading::CErasedPodMsg host_requests[4];
+    unsigned host_request_count{}, schema_requests{}, schema_releases{};
+    bool hold_schema{ false }, hold_release{ false }, post_busy{ false };
+    EAssetStatus schema_status{ EAssetStatus::success };
+
+    static EServiceStatus MV_STD_ABI_CALL post(void* const context, const threading::CErasedPodMsg* const message) noexcept
+    {
+        SFixture& self = *static_cast<SFixture*>(context);
+        if (self.post_busy || (self.host_request_count == 4u)) return EServiceStatus::busy;
+        self.host_requests[self.host_request_count++] = *message;
+        return EServiceStatus::success;
+    }
+    static EServiceStatus MV_STD_ABI_CALL commit(void* const context, const ServiceReply* const reply) noexcept
+    {
+        SFixture& self = *static_cast<SFixture*>(context);
+        return self.completion_busy ? EServiceStatus::busy : self.router.commit_resource(self.provider, *reply);
+    }
+    CAssetId schema_source(const unsigned extra = 0u)
+    {
+        source = tests::input_schema(extra);
+        TEST_EXPECT(tests, assets.initialise());
+        return assets.insert(CErasedOwner::create<RawAssetTransfer>());
+    }
+    void host_step() noexcept
+    {
+        if (!host_request_count) return;
+        const threading::CErasedPodMsg message = host_requests[0];
+        SchemaPrepareRequest prepare;
+        AssetReleaseRequest release;
+        if (message.copy_payload_to(prepare))
+        {
+            if (hold_schema) return;
+            SchemaPrepareResult reply;
+            if (schema_status != EAssetStatus::success)
+            {
+                reply.status = schema_status;
+                TEST_EXPECT(tests, provider.post_reply(threading::make_pod_message(message.query_async_slot(), reply)));
+                --host_request_count;
+                return;
+            }
+            const bool prepared = conditioned.prepare({ reinterpret_cast<const std::uint8_t*>(source.data()), source.size() },
+                prepare.policy, prepare.limits, reply.diagnostic);
+            if (!prepared)
+            {
+                std::printf("Synthetic schema: status %u, stage %u, reason %u, line %u, column %u\n",
+                    static_cast<unsigned>(reply.diagnostic.status), reply.diagnostic.stage, reply.diagnostic.reason,
+                    reply.diagnostic.line, reply.diagnostic.column);
+            }
+            TEST_EXPECT(tests, prepared);
+            reply.status = EAssetStatus::success;
+            reply.acquisition = CAssetAcquisitionId{ ++schema_requests };
+            reply.descriptor = conditioned.descriptor();
+            TEST_EXPECT(tests, provider.post_reply(threading::make_pod_message(message.query_async_slot(), reply)));
+        }
+        else if (message.copy_payload_to(release))
+        {
+            if (hold_release) return;
+            ++schema_releases;
+            conditioned.clear();
+            TEST_EXPECT(tests, provider.post_reply(threading::make_pod_message(message.query_async_slot(),
+                AssetReleaseResult{ release.acquisition, EAssetStatus::success })));
+        }
+        else TEST_EXPECT(tests, false);
+        --host_request_count;
+        for (unsigned index = 0u; index < host_request_count; ++index) host_requests[index] = host_requests[index + 1u];
+    }
 
     static EServiceStatus MV_STD_ABI_CALL complete(void* const context, const ServiceReply* const reply) noexcept
     {
@@ -198,7 +269,7 @@ struct SFixture
         result.status = modules::EMaintenanceStatus::success;
         return result;
     }
-    explicit SFixture(TTestContext& tests) noexcept : tests{ tests }
+    explicit SFixture(TTestContext& tests, const bool seed = true) noexcept : tests{ tests }
     {
         SNative::current = &native;
         TEST_EXPECT(tests, (wake.initialise().code == platform::threading::EWaitError::none));
@@ -206,6 +277,8 @@ struct SFixture
         client.execution = other.execution = provider.execution = host::EClientExecution::pumped;
         client.owner_wake = other.owner_wake = provider.owner_wake = wake.endpoint();
         services.complete = &complete;
+        services.post_pod = &post;
+        services.commit_resource = &commit;
         services.prepare_borrow = &prepare;
         services.begin_borrow_retirement = &begin;
         services.finish_borrow_retirement = &finish;
@@ -220,8 +293,11 @@ struct SFixture
         context.execution = &execution;
         context.owner_wake = wake.endpoint();
         TEST_EXPECT(tests, (runtime.emplace(context, SNative::adapter(), clock.source()) && runtime->initialise()));
-        TEST_EXPECT(tests, SPlatformInputTestAccess::install(*runtime, EConnection::desktop));
-        TEST_EXPECT(tests, SPlatformInputTestAccess::install(*runtime, EConnection::controller));
+        if (seed)
+        {
+            TEST_EXPECT(tests, SPlatformInputTestAccess::install(*runtime, EConnection::desktop));
+            TEST_EXPECT(tests, SPlatformInputTestAccess::install(*runtime, EConnection::controller));
+        }
         route = open(client, k_input_contract);
         other_route = open(other, k_input_contract);
         window_route = open(client, platform::windows::k_window_contract);
@@ -277,6 +353,7 @@ struct SFixture
     }
     void step() noexcept
     {
+        host_step();
         router.progress();
         SDispatchedCommand commands[64];
         threading::CErasedPodMsg messages[64];
@@ -357,6 +434,7 @@ struct SFixture
     ~SFixture() noexcept
     {
         completion_busy = false;
+        hold_schema = hold_release = post_busy = false;
         for (std::uint32_t index = 0u; index < history_count; ++index)
         {
             const SReceived& received = history[index];
@@ -370,7 +448,7 @@ struct SFixture
         TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
         runtime->begin_stop(progress);
         TEST_EXPECT(tests, restrictions.end_invocation());
-        for (unsigned iteration = 0u; iteration < 40u; ++iteration)
+        for (unsigned iteration = 0u; iteration < 10000u; ++iteration)
         {
             step();
             if (runtime->stopped() && router.provider_borrows_retired(provider))
@@ -1017,10 +1095,158 @@ void local_cancellation_survives_overflow(TTestContext& ctx)
     TEST_EXPECT(ctx, (use.records == 1u));
 }
 
+SInstallationToken installation_token(const SFixture& fixture, const std::uint64_t request)
+{
+    for (std::uint32_t index = 0u; index < fixture.history_count; ++index)
+    {
+        const ServiceReply& reply = fixture.history[index].reply;
+        if ((reply.request.value == request) && (reply.notice == EServiceNotice::completed) &&
+            (reply.status == EServiceStatus::success) && (reply.payload_size == sizeof(SInstallationResult)))
+        {
+            SInstallationResult result;
+            std::memcpy(&result, reply.payload, sizeof(result));
+            return result.installation;
+        }
+    }
+    return {};
+}
+
+void installation_lifecycle(TTestContext& ctx)
+{
+    SFixture fixture{ ctx, false };
+    const CAssetId source = fixture.schema_source(300u);
+    const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    fixture.step();
+    const std::uint64_t competing = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(competing) == EServiceStatus::busy));
+    TEST_EXPECT(ctx, (!fixture.host_request_count && !fixture.schema_releases));
+    TEST_EXPECT(ctx, !installation_token(fixture, request).value);
+    fixture.hold_release = true;
+    for (unsigned iteration = 0u; !fixture.host_request_count && (iteration < 10000u); ++iteration) fixture.step();
+    TEST_EXPECT(ctx, (fixture.host_request_count == 1u));
+    TEST_EXPECT(ctx, !installation_token(fixture, request).value);
+    fixture.hold_release = false;
+    fixture.completion_busy = true;
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.schema_releases == 1u) && !installation_token(fixture, request).value));
+    fixture.completion_busy = false;
+    fixture.step();
+    const SInstallationToken token = installation_token(fixture, request);
+    TEST_EXPECT(ctx, token.value);
+    TEST_EXPECT(ctx, (fixture.terminal(request) == EServiceStatus::success));
+    //  Cancellation after the durable commit cannot revoke the published resource.
+    fixture.router.cancel_request(fixture.client, { fixture.route, { request } });
+    fixture.step();
+    const std::uint64_t acquire = fixture.submit(ECommand::acquire_controller, SAcquireController{ token, 0u, 8u, 4u }, true);
+    fixture.step();
+    const SPreparedServiceBorrow borrowed = fixture.prepared(acquire);
+    TEST_EXPECT(ctx, borrowed.view.descriptor);
+    const std::uint64_t busy = fixture.submit(ECommand::retire_configuration, SRetireConfiguration{ token });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(busy) == EServiceStatus::busy));
+    fixture.release(borrowed, true);
+    fixture.step();
+    fixture.step();
+    const std::uint64_t retire = fixture.submit(ECommand::retire_configuration, SRetireConfiguration{ token }, true);
+    fixture.step();
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(retire) == EServiceStatus::success));
+    const std::uint64_t stale = fixture.submit(ECommand::acquire_controller, SAcquireController{ token, 0u, 8u, 4u });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(stale) == EServiceStatus::invalid_request));
+}
+
+void installation_admission_and_owner(TTestContext& ctx)
+{
+    SFixture fixture{ ctx, false };
+    const CAssetId source = fixture.schema_source();
+    SInstallationToken first;
+    for (unsigned index = 0u; index < 8u; ++index)
+    {
+        const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+        for (unsigned iteration = 0u; (iteration < 10000u) && !installation_token(fixture, request).value; ++iteration) fixture.step();
+        const SInstallationToken token = installation_token(fixture, request);
+        TEST_EXPECT(ctx, token.value);
+        if (!index) first = token;
+    }
+    const std::uint64_t busy = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(busy) == EServiceStatus::busy));
+    fixture.client.phase = host::EClientPhase::stopped;
+    fixture.router.retire_client(fixture.client);
+    fixture.step();
+    const std::uint64_t retire = fixture.submit(ECommand::retire_configuration, SRetireConfiguration{ first }, true);
+    fixture.step();
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(retire) == EServiceStatus::success));
+}
+
+void installation_conditioning_failure(TTestContext& ctx)
+{
+    for (const EAssetStatus status : { EAssetStatus::allocation_failed, EAssetStatus::conditioning_failed })
+    {
+        SFixture fixture{ ctx, false };
+        const CAssetId source = fixture.schema_source();
+        fixture.schema_status = status;
+        const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+        for (unsigned step = 0u; step < 4u; ++step) fixture.step();
+        const EServiceStatus expected = (status == EAssetStatus::allocation_failed) ? EServiceStatus::allocation_failed : EServiceStatus::invalid_request;
+        TEST_EXPECT(ctx, (fixture.terminal(request) == expected));
+        TEST_EXPECT(ctx, (!fixture.schema_releases && !installation_token(fixture, request).value));
+    }
+}
+
+void installation_cancellation(TTestContext& ctx)
+{
+    for (unsigned phase = 0u; phase < 4u; ++phase)
+    {
+        SFixture fixture{ ctx, false };
+        const CAssetId source = fixture.schema_source(100u);
+        fixture.hold_schema = (phase == 0u);
+        fixture.hold_release = (phase == 2u);
+        fixture.completion_busy = (phase == 3u);
+        const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+        fixture.step();
+        if (phase >= 1u) fixture.step();
+        if (phase >= 2u)
+        {
+            for (unsigned iteration = 0u; (iteration < 10000u) &&
+                (fixture.hold_release ? !fixture.host_request_count : !fixture.schema_releases); ++iteration)
+            {
+                fixture.step();
+            }
+        }
+        fixture.router.cancel_request(fixture.client, { fixture.route, { request } });
+        fixture.completion_busy = false;
+        fixture.step();
+        fixture.hold_schema = fixture.hold_release = false;
+        for (unsigned iteration = 0u; iteration < 1000u; ++iteration) fixture.step();
+        TEST_EXPECT(ctx, (fixture.terminal(request) == EServiceStatus::cancelled));
+        TEST_EXPECT(ctx, (!installation_token(fixture, request).value && (fixture.schema_requests == 1u) && (fixture.schema_releases == 1u)));
+        const std::uint64_t retry = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+        for (unsigned iteration = 0u; (iteration < 10000u) && !installation_token(fixture, retry).value; ++iteration) fixture.step();
+        TEST_EXPECT(ctx, installation_token(fixture, retry).value);
+    }
+    SFixture fixture{ ctx, false };
+    const CAssetId source = fixture.schema_source();
+    fixture.post_busy = true;
+    const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    fixture.step();
+    fixture.clock.time += 5000000000u;
+    fixture.step();
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(request) == EServiceStatus::timed_out) && !fixture.schema_requests));
+}
+
 }   //  namespace
 
 void run_platform_input_tests(tests::TTestContext& ctx)
 {
+    installation_lifecycle(ctx);
+    installation_cancellation(ctx);
+    installation_admission_and_owner(ctx);
+    installation_conditioning_failure(ctx);
     readiness_and_ordering(ctx);
     pressure_and_recovery(ctx);
     independent_streams_and_validation(ctx);

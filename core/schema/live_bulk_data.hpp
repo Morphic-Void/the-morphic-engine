@@ -109,6 +109,7 @@ private:
 
     friend class CBakedBulkData;
     friend class CSchema;
+    friend class CPreparedSchema;
     friend class detail::CSchemaConstruction;
 
     struct SRecord

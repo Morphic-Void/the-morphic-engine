@@ -40,7 +40,7 @@ static modules::ECallStatus MV_STD_ABI_CALL activate(const modules::SHostPumpCon
     void** const runtime, modules::SProgress* const progress) noexcept
 {
     if (!context || !runtime || !progress || (context->size != sizeof(*context)) || (context->version != 2u) ||
-        !context->services || (context->services->size != sizeof(*context->services)) || (context->services->version != 1u) ||
+        !context->services || (context->services->size != sizeof(*context->services)) || (context->services->version != 2u) ||
         !s_binding.is_thread_context_ready(context) || runtime_state())
     {
         return modules::ECallStatus::invalid_argument;

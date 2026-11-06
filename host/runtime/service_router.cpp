@@ -146,6 +146,30 @@ void CServiceRouter::request(const services::ServiceRequest& request, const std:
     if (!client.reply(threading::make_pod_message(slot, result))) m_failed = true;
 }
 
+services::EServiceStatus CServiceRouter::commit_resource(const SClientRecord& provider,
+    const services::ServiceReply& reply) noexcept
+{
+    SRoute* const route = find_route(reply.route);
+    if (!route || (route->provider != &provider))
+    {
+        return EServiceStatus::stale;
+    }
+    SOperation* const operation = find_operation(*route, reply.request);
+    if (!operation || operation->completed) return EServiceStatus::stale;
+    if (operation->cancelled || route->closing || route->client->stop_requested || route->client->terminal())
+    {
+        return EServiceStatus::cancelled;
+    }
+    if (!operation->delivered) return EServiceStatus::busy;
+    if ((reply.status != EServiceStatus::success) || operation->borrow.value)
+    {
+        return EServiceStatus::invalid_request;
+    }
+    //  Existing operation storage and reserved reply credit retain the success.
+    //  Cancellation preserves a delivered, completed operation thereafter.
+    return complete(provider, reply);
+}
+
 services::EServiceStatus CServiceRouter::complete(const SClientRecord& provider, const services::ServiceReply& reply) noexcept
 {
     auto* const route = find_route(reply.route);

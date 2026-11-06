@@ -13,6 +13,8 @@
 
 #include "runtime/window_record.hpp"
 #include "runtime/input_connection.hpp"
+#include "runtime/input_configuration.hpp"
+#include "assets/schema_messages.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "module/host_pump.hpp"
@@ -72,6 +74,11 @@ private:
     void input_message(const ::threading::CErasedPodMsg& message) noexcept;
     void close_input(CInputConnection& connection, const services::EServiceStatus status) noexcept;
     void progress_inputs() noexcept;
+    [[nodiscard]] bool configuration_command(const services::SDispatchedCommand& command, const std::int32_t completion) noexcept;
+    void configuration_message(const ::threading::CErasedPodMsg& message) noexcept;
+    void progress_configurations(const std::uint64_t budget_ns) noexcept;
+    void cancel_configuration(const services::EServiceStatus status) noexcept;
+    [[nodiscard]] bool configuration_used(const input::SInstallationToken token) const noexcept;
     [[nodiscard]] CInputConnection* find_input(const input::SConnectionToken token) noexcept;
     void publish() noexcept;
     void close_window(const std::uint32_t failure = 0u) noexcept;
@@ -87,6 +94,29 @@ private:
     TUnorderedCollection<SWindowUse> m_uses;
     TInstance<CInputConnection> m_inputs[2];
     TUnorderedCollection<SInputInstallation> m_input_installations;
+    struct SConfiguration
+    {
+        TInstance<CInputConfiguration> data;
+        input::SInstallationToken token;
+        std::int32_t retirement{ -1 };
+        bool retiring{ false };
+    };
+    struct SPreparation
+    {
+        explicit SPreparation(const platform::threading::SAwakeClock clock = {}) noexcept : budget{ clock } {}
+        modules::CHostEligibleBudget budget;
+        SchemaPrepareRequest request;
+        services::SDispatchedCommand command;
+        CAssetAcquisitionId acquisition;
+        input::SInstallationToken token;
+        std::int32_t configuration{ -1 }, completion{ -1 }, correlation{ -1 };
+        bool requested{ false }, waiting{ false }, building{ false }, release_waiting{ false }, cancelled{ false };
+    };
+    SConfiguration m_configurations[8];
+    SPreparation m_preparation;
+    std::uint64_t m_next_installation{ 1u };
+    std::int32_t m_next_conditioning{ 1 };
+    bool m_configuration_runnable{ false };
     SCompletion m_completions[96]{};
     std::uint32_t m_use_count{ 0u }, m_native_depth{ 0u }, m_callback_depth{ 0u };
     modules::SRestrictionScope m_modal[2][8]{};

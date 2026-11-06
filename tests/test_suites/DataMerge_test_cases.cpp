@@ -161,6 +161,7 @@ static void test_rules(TTestContext& ctx, const CResolvedTypes& schema)
 
 static void test_value_parity(TTestContext& ctx, const CResolvedTypes& schema)
 {
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
     struct SCase { const char* type; const char* value; bool instance, bulk; };
     const SCase cases[] = {
         { "Pair", "{}", true, false }, { "Pair", R"({"b":2,"a":1})", true, true },
@@ -197,9 +198,9 @@ static void test_value_parity(TTestContext& ctx, const CResolvedTypes& schema)
                 TEST_EXPECT(ctx, schema.type(type, layout));
                 alignas(64) std::uint8_t bytes[256]{};
                 const bool valid = detail::validate_declaration(schema, read, type, value, mode, validation);
-                const bool built = detail::construct_value(schema, read, type, value, bytes, sizeof(bytes), mode, construction);
+                const bool built = detail::construct_value(work_budget, schema, read, type, value, bytes, sizeof(bytes), mode, construction);
                 bool matches{};
-                const bool checked = detail::check_value(schema, read, type, value, bytes, sizeof(bytes), mode, matches, comparison);
+                const bool checked = detail::check_value(work_budget, schema, read, type, value, bytes, sizeof(bytes), mode, matches, comparison);
                 TEST_EXPECT(ctx, valid == (bulk ? test.bulk : test.instance));
                 TEST_EXPECT(ctx, valid == built && valid == checked);
                 TEST_EXPECT(ctx, construction.reason == comparison.reason && construction.occurrence == comparison.occurrence);
@@ -351,6 +352,7 @@ static void test_presentation(TTestContext& ctx, const CResolvedTypes& schema)
 
 static void test_limits(TTestContext& ctx)
 {
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
     CLiveDocument schema_document;
     CResolvedTypes schema;
     SDiagnostic error;
@@ -376,10 +378,10 @@ static void test_limits(TTestContext& ctx)
     CBakedDocumentBlock before;
     TEST_EXPECT(ctx, document_translation::bake(merged, before));
     detail::SValueDiagnostic value_error;
-    TEST_EXPECT(ctx, !detail::construct_value(schema, CDocumentRead{ merged }, schema.find_type(CStringView{ "T260" }), {},
+    TEST_EXPECT(ctx, !detail::construct_value(work_budget, schema, CDocumentRead{ merged }, schema.find_type(CStringView{ "T260" }), {},
         nullptr, 0u, detail::EConstructionMode::instance, value_error));
     TEST_EXPECT(ctx, value_error.reason == EReason::storage_limit && tests::same_baked_document(merged, before));
-    TEST_EXPECT(ctx, detail::construct_value(schema, CDocumentRead{ merged }, schema.find_type(CStringView{ "Skipped" }), {},
+    TEST_EXPECT(ctx, detail::construct_value(work_budget, schema, CDocumentRead{ merged }, schema.find_type(CStringView{ "Skipped" }), {},
         nullptr, 0u, detail::EConstructionMode::instance, value_error));
 
     //  Explicit declarations remain bounded. Construct directly so parser depth

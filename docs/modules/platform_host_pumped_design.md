@@ -970,8 +970,11 @@ Owning configuration data must not transfer directly between modules.
 
 Treat the shared catalogue, contexts, memberships and binding profiles as one
 immutable installation. A client, normally Executive, requests configuration installation;
-Host mediates file access and asset lifetime. Platform materialises and validates
-the records, then prepares private lookup/evaluation data before publishing success.
+Host mediates file access and asset lifetime. Its nominated schema conditioner
+materialises a temporary acquired result; Platform incrementally validates and
+copies its private lookup/evaluation data before publishing success. The
+[installation contract](input_configuration_installation.md) specifies the
+prepared-result ownership, bounded stages, cancellation and durable commit.
 Failure identifies the offending definition/relationship where possible and never
 publishes a partially usable installation.
 

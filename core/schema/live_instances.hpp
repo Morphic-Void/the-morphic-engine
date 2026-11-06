@@ -159,6 +159,7 @@ private:
 
     friend class CBakedInstances;
     friend class CSchema;
+    friend class CPreparedSchema;
     friend class detail::CSchemaConstruction;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
     struct SRecord

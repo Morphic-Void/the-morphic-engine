@@ -249,6 +249,7 @@
     <ClCompile Include="..\host\runtime\host_restrictions.cpp" />
     <ClCompile Include="..\host\runtime\host_maintenance.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
+    <ClCompile Include="..\host\runtime\asset_schema.cpp" />
     <ClCompile Include="..\host\runtime\module_service.cpp" />
     <ClCompile Include="..\host\system\host_context.cpp" />
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />

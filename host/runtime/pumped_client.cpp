@@ -30,9 +30,9 @@ CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& bindi
     : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }, m_maintenance{ maintenance }
 {
     static const modules::SHostPumpServices services{
-        sizeof(modules::SHostPumpServices), 1u, &post_pod, &post_owner, &complete,
+        sizeof(modules::SHostPumpServices), 2u, &post_pod, &post_owner, &complete,
         &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement, &bind_borrow_notification,
-        &enter_restriction, &leave_restriction, &maintain_host };
+        &enter_restriction, &leave_restriction, &maintain_host, &commit_resource };
     m_context.instance = client.instance;
     m_context.client = client.identity;
     m_context.host_thread = thread_ids::host;
@@ -354,6 +354,17 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* const c
         return services::EServiceStatus::closing;
     }
     return self->m_owners.post(std::move(*message)) ? services::EServiceStatus::success : services::EServiceStatus::busy;
+}
+
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::commit_resource(void* const context,
+    const services::ServiceReply* const reply) noexcept
+{
+    CPumpedClient* const self = static_cast<CPumpedClient*>(context);
+    if (!self || (t_invocation != self) || !reply)
+    {
+        return services::EServiceStatus::invalid_request;
+    }
+    return self->m_router.commit_resource(self->m_client, *reply);
 }
 
 services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::complete(void* const context, const services::ServiceReply* const reply) noexcept

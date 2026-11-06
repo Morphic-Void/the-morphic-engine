@@ -124,7 +124,7 @@ template<class TReason>
 //  the original section directly, preserving source diagnostic occurrences.
 [[nodiscard]] bool validate_data_section(const CDocumentRead& document, const SOccurrence section,
     const CResolvedTypes& types, const bool bulk, SDataValidationDiagnostic& diagnostic,
-    SDataConstructionPlan* plan = nullptr) noexcept;
+    SDataConstructionPlan* const plan = nullptr, const std::uint64_t payload_limit = UINT64_MAX) noexcept;
 
 //  Admit containers and known entry properties without resolving types or
 //  requiring complete record values. Missing sections remain absent.

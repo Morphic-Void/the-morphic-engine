@@ -466,6 +466,28 @@ void CHostWorkerThread::operate() noexcept
 
             switch (inbound_msg.query_message_type_id().raw_value())
             {
+                case k_type_id_v<SchemaConditionWork>.raw_value():
+                {
+                    SchemaConditionWork request;
+                    if (!inbound_msg.copy_payload_to(request) || !request.state)
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    if (request.retire) request.state->prepared.clear();
+                    else
+                    {
+                        (void)request.state->prepared.prepare(request.state->source, request.state->request.policy,
+                            request.state->request.limits, request.state->diagnostic);
+                    }
+                    const SchemaConditionResult result{ request.retire };
+                    if (!m_context.post(threading::make_pod_message(inbound_msg.query_async_slot(), result)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
                 case k_type_id_v<BundleBuildWork>.raw_value():
                 {
                     MV_DETAIL("Worker bundle build request");

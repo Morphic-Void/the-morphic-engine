@@ -513,6 +513,7 @@
       <Filter>Core\include\system</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_messages.hpp"><Filter>Core\include\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\schema_messages.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_storage.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_owner_payloads.def"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_messages.hpp"><Filter>Core\include\image</Filter></ClInclude>
@@ -996,6 +997,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\prepared_schema.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\types_admission.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -1047,6 +1051,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_work_budget.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\instance_selection.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -1075,6 +1082,9 @@
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\prepared_schema.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_runtime.cpp">

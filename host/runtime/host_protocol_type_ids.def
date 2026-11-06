@@ -21,6 +21,8 @@
     type_macro(bundle_prepared, BundlePrepareResult) \
     type_macro(doc_cond_req, DocumentConditionRequest) \
     type_macro(doc_cond_result, DocumentConditionResult) \
+    type_macro(schema_work, SchemaConditionWork) \
+    type_macro(schema_done, SchemaConditionResult) \
     type_macro(module_work, ModuleWorkRequest) \
     type_macro(module_done, ModuleWorkResult) \
     type_macro(filesystem_scan, FilesystemScanRequest) \

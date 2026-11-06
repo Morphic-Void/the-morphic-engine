@@ -53,6 +53,7 @@ private:
     static services::EServiceStatus MV_STD_ABI_CALL post_pod(void* const, const threading::CErasedPodMsg* const) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL post_owner(void* const, threading::CErasedOwnerMsg* const) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL complete(void* const, const services::ServiceReply* const) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL commit_resource(void* const, const services::ServiceReply* const) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL prepare_borrow(void* const, const services::SServiceBorrowOffer* const, services::SServiceBorrow* const) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL begin_borrow_retirement(void* const, const services::SServiceBorrow) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL finish_borrow_retirement(void* const, const services::SServiceBorrow) noexcept;

@@ -14,6 +14,7 @@
 #include "window.hpp"
 #include "threading/transports/TRingTransport.hpp"
 #include "platform/threading/owner_wait.hpp"
+#include "assets/asset_repository.hpp"
 
 namespace platform::input
 {
@@ -24,11 +25,30 @@ enum class EConnection : std::uint32_t { desktop = 1u, controller = 2u };
 enum class EClock : std::uint32_t { awake_nanoseconds = 1u };
 enum class ECommand : std::uint16_t
 {
+    install_configuration = 1u, retire_configuration = 2u,
     acquire_desktop = 32u, acquire_controller = 33u, input_ready = 34u,
     boundary_ready = 35u, select_context = 38u, enable_text = 39u, disable_text = 40u
 };
 struct SConnectionToken { std::uint64_t value{ 0u }; };
 struct SInstallationToken { std::uint64_t value{ 0u }; };
+struct SInstallConfiguration
+{
+    CAssetId source_asset;
+    std::uint32_t format_version{ 1u }, reserved{};
+};
+struct SRetireConfiguration { SInstallationToken installation; };
+enum class EConfigurationError : std::uint16_t
+{
+    none = 0u, schema, layout, version, limit, duplicate, reference, value, combination, allocation
+};
+struct SInstallationResult
+{
+    SInstallationToken installation;
+    EConfigurationError error{ EConfigurationError::none };
+    std::uint16_t category{};
+    std::uint32_t definition{}, field{}, reserved{};
+};
+static_assert(sizeof(SInstallationResult) == 24u);
 struct SAcquireDesktop
 {
     windows::SWindowToken window;

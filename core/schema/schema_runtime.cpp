@@ -107,7 +107,9 @@ enum class EAggregateConstruction : std::uint8_t { validation = 0u, live, baked 
 class CSchemaConstruction
 {
 public:
-    explicit CSchemaConstruction(const CLiveDocument& document) noexcept : m_document(document), m_source(document) {}
+    explicit CSchemaConstruction(const CLiveDocument& document, CValueWorkBudget& work_budget,
+        const std::uint64_t payload_limit = UINT64_MAX) noexcept :
+        m_document(document), m_source(document), m_work_budget(work_budget), m_payload_limit(payload_limit) {}
     [[nodiscard]] bool prepare(const EAggregateConstruction target, SSchemaDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBulkData& bulk,
         SSchemaDiagnostic& diagnostic) noexcept;
@@ -131,6 +133,8 @@ private:
     const CResolvedTypes* m_types{};
     SOccurrence m_definitions, m_instance_section, m_bulk_section;
     SDataConstructionPlan m_instances, m_bulk;
+    CValueWorkBudget& m_work_budget;
+    const std::uint64_t m_payload_limit;
 };
 
 void CSchemaConstruction::map_types_diagnostic(SDiagnostic& diagnostic) const noexcept
@@ -210,7 +214,8 @@ bool CSchemaConstruction::prepare(const EAggregateConstruction target, SSchemaDi
     {
         SDataValidationDiagnostic error;
         auto* plan = target == EAggregateConstruction::validation ? nullptr : (bulk ? &m_bulk : &m_instances);
-        if (!validate_data_section(m_source, bulk ? m_bulk_section : m_instance_section, *m_types, bulk, error, plan))
+        const std::uint64_t available = m_payload_limit - (bulk ? m_instances.payload_size : 0u);
+        if (!validate_data_section(m_source, (bulk ? m_bulk_section : m_instance_section), *m_types, bulk, error, plan, available))
         {
             diagnostic.stage = bulk ? ESchemaStage::bulk_data : ESchemaStage::instances;
             diagnostic.reason = error.reason == EDataValidationReason::allocation_failed ? ESchemaReason::allocation_failed :
@@ -332,7 +337,7 @@ bool CSchemaConstruction::encode(const SDataConstructionPlan& plan, const bool b
                 auto value = m_source.first_child(entry.declaration);
                 for (std::uint32_t ordinal = 0u; ordinal < entry.count; ++ordinal)
                 {
-                    if (!construct_value(*m_types, m_source, group.type, value,
+                    if (!construct_value(m_work_budget, *m_types, m_source, group.type, value,
                         layout.size ? destination + layout.size * ordinal : nullptr, static_cast<std::size_t>(layout.size),
                         EConstructionMode::complete_bulk_data, error, m_source.is_object_entry(value)))
                     {
@@ -344,8 +349,8 @@ bool CSchemaConstruction::encode(const SDataConstructionPlan& plan, const bool b
             else
             {
                 const bool built = entry.parent == UINT32_MAX ?
-                    construct_value(*m_types, m_source, group.type, entry.declaration, destination, entry.extent, EConstructionMode::instance, error) :
-                    construct_alternative(*m_types, m_source, group.type, entry.declaration,
+                    construct_value(m_work_budget, *m_types, m_source, group.type, entry.declaration, destination, entry.extent, EConstructionMode::instance, error) :
+                    construct_alternative(m_work_budget, *m_types, m_source, group.type, entry.declaration,
                         entry.extent ? bytes + plan.entries[entry.parent].offset : nullptr, entry.extent, destination, entry.extent, error);
                 if (!built) return construction_failure(false, entry.source, error.reason, diagnostic);
             }
@@ -457,12 +462,20 @@ bool CSchemaConstruction::bake(CBakedDataBlock& destination, SSchemaDiagnostic& 
 bool CSchema::validate(SSchemaDiagnostic& diagnostic) const noexcept
 {
     if (!admit(CDocumentRead{ m_document }, diagnostic)) return false;
-    detail::CSchemaConstruction context{ m_document };
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    detail::CSchemaConstruction context{ m_document, work_budget };
     return context.prepare(detail::EAggregateConstruction::validation, diagnostic);
 }
 
 bool CSchema::materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBulkData& bulk_data,
-    SSchemaDiagnostic& diagnostic) const noexcept
+    SSchemaDiagnostic& diagnostic, const std::uint64_t payload_limit) const noexcept
+{
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    return materialise(types, instances, bulk_data, diagnostic, work_budget, payload_limit);
+}
+
+bool CSchema::materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBulkData& bulk_data,
+    SSchemaDiagnostic& diagnostic, CValueWorkBudget& work_budget, const std::uint64_t payload_limit) const noexcept
 {
     diagnostic = {};
     if (types.document_ready() || types.reference_count() || instances.document_ready() || bulk_data.document_ready())
@@ -472,7 +485,7 @@ bool CSchema::materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBul
         return false;
     }
     if (!admit(CDocumentRead{ m_document }, diagnostic)) return false;
-    detail::CSchemaConstruction context{ m_document };
+    detail::CSchemaConstruction context{ m_document, work_budget, payload_limit };
     return context.prepare(detail::EAggregateConstruction::live, diagnostic) && context.materialise(types, instances, bulk_data, diagnostic);
 }
 
@@ -486,7 +499,8 @@ bool CSchema::bake(CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) 
         return false;
     }
     if (!admit(CDocumentRead{ m_document }, diagnostic)) return false;
-    detail::CSchemaConstruction context{ m_document };
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    detail::CSchemaConstruction context{ m_document, work_budget };
     return context.prepare(detail::EAggregateConstruction::baked, diagnostic) && context.bake(destination, diagnostic);
 }
 

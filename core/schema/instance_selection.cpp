@@ -398,7 +398,8 @@ CNodeKey export_selection(CLiveDocument& target, const CResolvedTypes& types, co
     {
         const CDocumentRead output{ target };
         bool matches{};
-        if (!check_alternative(types, output, type, SOccurrence{ result }, bytes, static_cast<std::size_t>(layout.size),
+        CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+        if (!check_alternative(work_budget, types, output, type, SOccurrence{ result }, bytes, static_cast<std::size_t>(layout.size),
             bytes, static_cast<std::size_t>(layout.size), matches, diagnostic) || !matches)
         {
             (void)target.erase(result);

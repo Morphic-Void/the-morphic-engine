@@ -2,8 +2,9 @@
 
 Implementation authorised 6 November 2026 after review of the readiness,
 ordering and recovery contract. This reference supersedes prospective input
-mechanics in `platform_contracts_v1.md`; native acquisition and production
-configuration installation remain later increments.
+mechanics in `platform_contracts_v1.md`. Native acquisition remains a later
+increment; [configuration installation](input_configuration_installation.md)
+now supplies production records.
 
 ## Ownership and admission
 
@@ -26,8 +27,9 @@ Action records are 48 bytes and text records 40 bytes, aligned to eight bytes.
 Consumers cannot reset, resize or destroy the rings.
 
 Configuration, profile and context references require an installed matching
-record. Synthetic tests install private fixture records; production has no
-zero-token or unconfigured-input bypass. Mapping and schema loading are deferred.
+record. Production records come from the incremental configuration installer;
+some transport-only synthetic tests still inject private fixture records. There
+is no zero-token or unconfigured-input bypass. Native mapping remains deferred.
 
 ## Readiness and authority
 

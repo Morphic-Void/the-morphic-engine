@@ -64,7 +64,13 @@ Service advertisement is separate from this descriptor. Missing
 exports mean unsupported; malformed advertisements fail installation. A module
 cannot advertise both execution capabilities, and Executive remains threaded.
 
-The Host-thread callback table is `modules::SHostPumpServices`. Pump input
+The Host-thread callback table is `modules::SHostPumpServices` (version 2).
+Its opt-in `commit_resource` callback accepts durable resource success only after
+command consumption and before cancellation/recipient closure, retaining success
+in the operation's reserved reply storage. Accepted success wins against later
+cancellation; ordinary terminal completion keeps its existing semantics. See
+[input configuration installation](input_configuration_installation.md).
+Pump input
 contains bounded service/message batches and a time budget; native event and
 observation limits belong to the provider. These same-process capability
 descriptors require matching headers and coordinated Host/module rebuilds.

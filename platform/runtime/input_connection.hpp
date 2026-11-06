@@ -47,6 +47,7 @@ public:
     [[nodiscard]] const input::SInputSnapshot& snapshot() const noexcept { return m_state; }
 
     input::SInputEndpointV1 view;
+    input::SInstallationToken installation;
     services::SDispatchedCommand acquisition;
     services::SServiceBorrow borrow;
     services::SNotificationRegistration registration;

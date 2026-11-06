@@ -33,6 +33,7 @@
 #include "tests/support/byte_helpers.hpp"
 #include "tests/support/thread_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
+#include "tests/support/input_schema.hpp"
 #include "tests/test_suites/BundleRequests_test_suite.hpp"
 
 namespace
@@ -1099,11 +1100,76 @@ void test_completion_contracts(TTestContext& ctx)
     }
 }
 
+void test_prepared_schema_service(TTestContext& ctx, const bool dedicated, const bool stopped)
+{
+    SFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise(dedicated, false));
+    const std::string source = tests::input_schema();
+    CErasedOwner owner = CErasedOwner::create<RawAssetTransfer>();
+    RawAssetTransfer* const raw = owner.payload<RawAssetTransfer>();
+    TEST_EXPECT(ctx, (raw && raw->storage.value.resize(source.size(), 16u)));
+    if (!raw || !raw->storage.value.is_ready()) return;
+    std::memcpy(raw->storage.value.data(), source.data(), source.size());
+    fixture.request<RawAssetTransfer>(600, std::move(owner));
+    const CAssetId asset = fixture.result(ctx, 600).asset;
+    SchemaPrepareResult prepared[3];
+    for (std::int32_t index = 0; index < 3; ++index)
+    {
+        TEST_EXPECT(ctx, fixture.client.client.reserve_replies(1u));
+        fixture.service.request_schema({ asset }, (610 + index), fixture.client);
+        TEST_EXPECT(ctx, fixture.receive(prepared[index], (610 + index)));
+        TEST_EXPECT(ctx, ((prepared[index].status == EAssetStatus::success) && prepared[index].acquisition && prepared[index].descriptor));
+    }
+    //  The result no longer depends on its source asset after conditioning.
+    fixture.dispose(ctx, asset);
+    for (const SchemaPrepareResult& result : prepared)
+    {
+        const schema::CPreparedSchemaView view{ result.descriptor };
+        TEST_EXPECT(ctx, (view.is_ready() && (view.instance_count() == 10u)));
+    }
+    if (stopped)
+    {
+        TEST_EXPECT(ctx, fixture.io.shutdown());
+        if (dedicated) TEST_EXPECT(ctx, fixture.conditioning.shutdown());
+        fixture.pump(fixture.io);
+        if (dedicated) fixture.pump(fixture.conditioning);
+        fixture.service.fail_pending();
+        //  Failure must preserve acquired views through a later release.
+        TEST_EXPECT(ctx, schema::CPreparedSchemaView{ prepared[2].descriptor }.is_ready());
+    }
+    host::SClientRecord wrong{ module_ids::audio, 909u };
+    wrong.phase = host::EClientPhase::ready;
+    fixture.service.request_release({ prepared[0].acquisition }, 620, wrong);
+    AssetReleaseResult rejected;
+    TEST_EXPECT(ctx, (wrong.messages[0].copy_payload_to(rejected) && (rejected.status != EAssetStatus::success)));
+    for (const SchemaPrepareResult& result : prepared)
+    {
+        fixture.service.request_release({ result.acquisition }, 621, fixture.client);
+        AssetReleaseResult released;
+        TEST_EXPECT(ctx, (fixture.receive(released, 621) && (released.status == EAssetStatus::success)));
+    }
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
+    {
+        fixture.pump(fixture.io);
+        if (dedicated) fixture.pump(fixture.conditioning);
+        fixture.service.complete_disposals();
+        return fixture.service.is_idle();
+    }, 10u));
+    TEST_EXPECT(ctx, !fixture.service.failed());
+}
+
 }   // namespace
+
+void run_schema_service_cases(tests::TTestContext& ctx);
 
 int run_bundle_request_tests()
 {
     TTestContext ctx;
+    run_schema_service_cases(ctx);
+    test_prepared_schema_service(ctx, false, false);
+    test_prepared_schema_service(ctx, true, false);
+    test_prepared_schema_service(ctx, false, true);
+    test_prepared_schema_service(ctx, true, true);
     test_native_loads(ctx, false, true);
     test_native_loads(ctx, true, true);
     test_native_loads(ctx, false, false);

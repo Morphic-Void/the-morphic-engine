@@ -46,6 +46,7 @@ bool CInputConnection::initialise(const SInputEndpointV1& identity,
         m_contexts[index] = installation.contexts[index];
     }
     view = identity;
+    this->installation = installation.token;
     view.action_capacity = k_action_capacity;
     view.text_capacity = (view.kind == EConnection::desktop) ? k_text_capacity : 0u;
     view.actions = &m_action_reader;

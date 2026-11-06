@@ -144,8 +144,14 @@ public:
     [[nodiscard]] bool validate(SSchemaDiagnostic& diagnostic) const noexcept;
     //  Generic document save checks admission only. All output owners must be empty.
     [[nodiscard]] bool save(CBakedDocumentBlock& destination, SSchemaDiagnostic& diagnostic) const noexcept;
+    //  The compatibility form is unbounded. The explicit allowance is shared by
+    //  every value writer during this synchronous materialisation operation.
     [[nodiscard]] bool materialise(CLiveTypes& types, class CLiveInstances& instances,
-        class CLiveBulkData& bulk_data, SSchemaDiagnostic& diagnostic) const noexcept;
+        class CLiveBulkData& bulk_data, SSchemaDiagnostic& diagnostic,
+        const std::uint64_t payload_limit = UINT64_MAX) const noexcept;
+    [[nodiscard]] bool materialise(CLiveTypes& types, class CLiveInstances& instances,
+        class CLiveBulkData& bulk_data, SSchemaDiagnostic& diagnostic,
+        class CValueWorkBudget& work_budget, const std::uint64_t payload_limit = UINT64_MAX) const noexcept;
     [[nodiscard]] bool bake(class CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) const noexcept;
     //  Replace this aggregate with only the source role's section; do not merge.
     //  Data imports require usable binary, reconstruct literals without minimising

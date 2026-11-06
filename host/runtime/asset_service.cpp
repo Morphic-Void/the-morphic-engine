@@ -65,7 +65,8 @@ static bool matches_load_format(const EAssetKind kind, const EAssetFileFormat fo
 
 bool CAssetService::initialise() noexcept
 {
-    return m_bundles.initialise() && m_assets.initialise() && m_acquisitions.initialise() && m_operations.initialise();
+    return m_bundles.initialise() && m_assets.initialise() && m_acquisitions.initialise() &&
+        m_operations.initialise() && m_schemas.initialise();
 }
 
 EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
@@ -85,11 +86,15 @@ void CAssetService::request_reference(const BundleReferenceRequest& request, con
 
 bool CAssetService::is_idle() const noexcept
 {
-    return m_operations.is_empty() && m_acquisitions.is_empty() && work_idle();
+    return m_operations.is_empty() && m_acquisitions.is_empty() && m_schemas.is_empty() && work_idle();
 }
 
 bool CAssetService::work_idle() const noexcept
 {
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        if (m_schemas.get_object(slot)->phase != ESchemaPhase::acquired) return false;
+    }
     for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
     {
         if (m_operations.get_object(slot)->phase != EPhase::disposing) return false;
@@ -159,6 +164,7 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
 void CAssetService::request_release(const AssetReleaseRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
 {
     AssetReleaseResult result{ request.acquisition, EAssetStatus::invalid_request };
+    if (request.acquisition && release_schema(request.acquisition, client)) result.status = EAssetStatus::success;
     if (request.acquisition)
     {
         for (std::int32_t index = m_acquisitions.first_live(); index >= 0; index = m_acquisitions.next_live(index))
@@ -195,6 +201,14 @@ void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
         if (m_acquisitions.get_object(slot)->client == &client) (void)m_acquisitions.erase(slot);
         slot = next;
     }
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        SSchemaOperation& operation = *m_schemas.get_object(slot);
+        if ((operation.client == &client) && (operation.phase == ESchemaPhase::acquired))
+        {
+            (void)release_schema(operation.acquisition, client);
+        }
+    }
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {
         auto& bundle = *m_bundles.get_object(slot);
@@ -208,6 +222,10 @@ void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
 
 bool CAssetService::client_idle(const SClientRecord& client) const noexcept
 {
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        if (m_schemas.get_object(slot)->client == &client) return false;
+    }
     for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
     {
         if (m_operations.get_object(slot)->client == &client) return false;
@@ -439,6 +457,7 @@ bool CAssetService::configure_workers(threading::CThreadPackage& file_io, thread
     }
     m_file_io = &file_io;
     m_conditioning = (conditioning != nullptr) ? conditioning : &file_io;
+    m_workers_stopped = false;
     return true;
 }
 
@@ -454,6 +473,7 @@ void CAssetService::deallocate() noexcept
         if ((binding != 0u) && (m_filesystem != nullptr)) (void)m_filesystem->remove_bundle(binding);
     }
     m_operations.deallocate();
+    m_schemas.deallocate();
     m_acquisitions.deallocate();
     m_assets.deallocate();
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
@@ -473,6 +493,26 @@ void CAssetService::deallocate() noexcept
 
 void CAssetService::fail_pending() noexcept
 {
+    m_workers_stopped = true;
+    //  Workers have stopped: no callback or schema view can still be produced.
+    //  Existing acquired results remain protected until their readers retire.
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        SSchemaOperation& operation = *m_schemas.get_object(slot);
+        if (operation.phase == ESchemaPhase::preparing)
+        {
+            operation.work.source = {};
+            operation.backing.reset();
+            operation.source = {};
+            operation.work.diagnostic.status = schema::EPreparationStatus::invalid_request;
+            operation.phase = ESchemaPhase::publishing;
+        }
+        else if (operation.phase == ESchemaPhase::reclaiming)
+        {
+            operation.phase = ESchemaPhase::retiring;
+        }
+    }
+    progress_schemas();
     while (!m_operations.is_empty())
     {
         finish_operation(m_operations.first_live(), EAssetStatus::delivery_failed);
@@ -601,6 +641,10 @@ bool CAssetService::disposal_pending(const CAssetId asset) const noexcept
 
 bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
 {
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        if (m_schemas.get_object(slot)->source == asset) return true;
+    }
     for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
     {
         if (m_acquisitions.get_object(slot)->source == asset) return true;
@@ -659,6 +703,7 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
 
 void CAssetService::complete_disposals() noexcept
 {
+    progress_schemas();
     //  Save the next slot before erasing this operation. Disposal replies never
     //  publish the views that ordinary load/save completions may carry.
     for (std::int32_t slot = m_operations.first_live(); slot >= 0;)
@@ -1072,6 +1117,12 @@ bool CAssetService::post_conditioning(const threading::CErasedPodMsg& message) n
 
 void CAssetService::complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept
 {
+    SchemaConditionResult schema;
+    if (message.copy_payload_to(schema))
+    {
+        complete_schema(schema, message.query_async_slot(), worker);
+        return;
+    }
     const std::int32_t slot = message.query_async_slot();
     SOperation* const operation = m_operations.get_object(slot);
     FileSaveResult result{};

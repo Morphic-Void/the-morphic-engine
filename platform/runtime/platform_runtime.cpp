@@ -33,7 +33,7 @@ static bool payload(const services::ServiceRequest& command, T& value) noexcept
 
 CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
     const native::SWindowAdapter& adapter, const platform::threading::SAwakeClock clock) noexcept
-    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }
+    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }, m_preparation{ clock }
 {
     m_window.native.runtime = this;
 }
@@ -102,6 +102,7 @@ void CPlatformRuntime::flush_completions() noexcept
                 connection->completion = -1;
             }
         }
+        if (m_preparation.completion == index) m_preparation.completion = -1;
         completion = {};
     }
 }
@@ -387,6 +388,7 @@ void CPlatformRuntime::close_use(SWindowUse& use, const EServiceStatus status) n
 
 bool CPlatformRuntime::message(const ::threading::CErasedPodMsg& message) noexcept
 {
+    configuration_message(message);
     input_message(message);
     services::ServiceBorrowControl control;
     services::ServiceRequestCancelled cancelled;
@@ -654,6 +656,11 @@ void CPlatformRuntime::progress_window() noexcept
 
 bool CPlatformRuntime::stopped() const noexcept
 {
+    if (m_preparation.configuration >= 0) return false;
+    for (const SConfiguration& configuration : m_configurations)
+    {
+        if (configuration.data) return false;
+    }
     if (!m_stopping || m_window.token.value || m_use_count || m_inputs[0] || m_inputs[1] || m_native_depth || m_callback_depth ||
         m_modal_depth[0] || m_modal_depth[1])
     {
@@ -676,6 +683,7 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
         (m_stopping ? modules::EPumpPhase::stopping : modules::EPumpPhase::ready);
     progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
         !m_window.destruction_failed) ? 1u : 0u;
+    if (m_configuration_runnable) progress.work_pending = 1u;
     progress.native_events_active = (m_window.native.handle && m_window.native.native_events &&
         !m_window.destruction_failed) ? 1u : 0u;
     progress.stop_requested = m_host_stop ? 1u : 0u;
@@ -685,6 +693,12 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
 void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
 {
     m_stopping = true;
+    cancel_configuration(EServiceStatus::closing);
+    m_configuration_runnable = (m_preparation.configuration >= 0);
+    for (const SConfiguration& configuration : m_configurations)
+    {
+        if (configuration.data) m_configuration_runnable = true;
+    }
     close_window();
     progress_uses();
     progress_inputs();
@@ -752,6 +766,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_uses();
     progress_inputs();
     progress_window();
+    progress_configurations(remaining());
     progress(result.progress);
 }
 

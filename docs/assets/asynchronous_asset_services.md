@@ -7,6 +7,11 @@ history and validation are in [completed milestones](../project/completed_milest
 
 ## Requests and ownership
 
+`SchemaPrepareRequest` is a nominated Host conditioner for retained raw UTF-8
+assets. It returns an already acquired, temporary immutable schema result,
+released through `AssetReleaseRequest`; its ownership, limits and worker
+retirement rules are specified in [prepared schemas](../schema/prepared-schema.md).
+
 `RawAssetTransfer`, `ImageAssetTransfer`, `BakedAssetTransfer` and
 `LiveAssetTransfer` transfer their backing resource and optional destination
 filename to the Host. `save == false` requests admission only; `save == true`

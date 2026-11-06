@@ -74,7 +74,11 @@ public:
                 error = { EReason::allocation_failed, {}, type };
                 return false;
             }
-            if (!construct_value(types, document, type, {}, m_bytes.data(), extent, EConstructionMode::instance, error)) return false;
+            CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+            if (!construct_value(work_budget, types, document, type, {}, m_bytes.data(), extent, EConstructionMode::instance, error))
+            {
+                return false;
+            }
             m_type = type;
         }
         bytes = extent ? m_bytes.data() : nullptr;

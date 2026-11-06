@@ -17,6 +17,7 @@
 #define SCHEMA_VALUE_CODEC_HPP_INCLUDED
 
 #include "schema/resolved_types.hpp"
+#include "schema/value_work_budget.hpp"
 
 namespace schema
 {
@@ -122,7 +123,7 @@ private:
 //  Caller owns both the document and storage. The destination may be partially
 //  changed on failure and must then be discarded. Structure/array padding is
 //  untouched; a new bit-storage word is initialised as a unit.
-[[nodiscard]] bool construct_value(const CResolvedTypes& schema, const CDocumentRead& document,
+[[nodiscard]] bool construct_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, std::uint8_t* const destination,
     const std::size_t destination_size, const EConstructionMode mode, SValueDiagnostic& diagnostic,
     const bool singleton_element = false) noexcept;
@@ -130,7 +131,7 @@ private:
 //  The base is preserved; the independent destination receives its complete
 //  bytes before selected values are changed, preserving inherited padding and
 //  unselected bits. Positive overlap of the supplied spans is rejected.
-[[nodiscard]] bool construct_alternative(const CResolvedTypes& schema, const CDocumentRead& document,
+[[nodiscard]] bool construct_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, std::uint8_t* const destination, const std::size_t destination_size,
     SValueDiagnostic& diagnostic) noexcept;
@@ -138,11 +139,11 @@ private:
 //  Run the same construction rules against existing bytes, without writing or
 //  allocating a reconstructed value. A valid declaration can still mismatch;
 //  declaration errors take precedence over a mismatch within that value.
-[[nodiscard]] bool check_value(const CResolvedTypes& schema, const CDocumentRead& document,
+[[nodiscard]] bool check_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t size, const EConstructionMode mode, bool& matches, SValueDiagnostic& diagnostic,
     const bool singleton_element = false) noexcept;
-[[nodiscard]] bool check_alternative(const CResolvedTypes& schema, const CDocumentRead& document,
+[[nodiscard]] bool check_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, const std::uint8_t* const bytes, const std::size_t size,
     bool& matches, SValueDiagnostic& diagnostic) noexcept;

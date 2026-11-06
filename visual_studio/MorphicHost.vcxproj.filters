@@ -60,6 +60,7 @@
     <ClCompile Include="..\host\runtime\host_restrictions.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_maintenance.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\asset_schema.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\module_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\system\host_context.cpp"><Filter>Host\src\system</Filter></ClCompile>
     <ClCompile Include="..\host\system\system_id_definitions.cpp"><Filter>Host\src\system</Filter></ClCompile>

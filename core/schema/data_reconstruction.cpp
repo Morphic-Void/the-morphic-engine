@@ -73,7 +73,8 @@ bool CBulkDataReconstructor::records(const CNodeKey entry, const CTypesIndex typ
         }
         detail::SValueDiagnostic error;
         bool matches{};
-        if (!detail::check_value(m_schema, detail::CDocumentRead{ m_document }, type, detail::SOccurrence{ item },
+        CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+        if (!detail::check_value(work_budget, m_schema, detail::CDocumentRead{ m_document }, type, detail::SOccurrence{ item },
             original, static_cast<std::size_t>(layout.size), detail::EConstructionMode::complete_bulk_data, matches, error) || !matches)
         {
             m_reason = detail::value_failure(error, EBulkDataLoadReason::unrepresentable_value);

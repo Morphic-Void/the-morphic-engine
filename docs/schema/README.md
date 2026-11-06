@@ -15,6 +15,7 @@ interpret its current contracts.
 | --- | --- |
 | [Specification](specification.md) | Grammar, value semantics, layout, ownership and operation contracts. |
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
+| [Prepared schemas](prepared-schema.md) | Bounded Host conditioning and acquisition-scoped immutable results. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
 | [Common binary block](common-binary-block.md) | Version-2 .bsd storage, required data binaries and explicit assembly. |

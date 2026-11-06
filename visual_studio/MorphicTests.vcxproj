@@ -145,12 +145,15 @@
     <ClCompile Include="..\host\runtime\batch_pool.cpp" />
     <ClCompile Include="..\host\system\system_id_definitions.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
+    <ClCompile Include="..\host\runtime\asset_schema.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentParser_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentStructure_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentWriter_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaModel_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\PreparedSchema_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\SchemaService_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\Schema_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaDataBlock_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaMerge_test_cases.cpp" />
@@ -201,6 +204,7 @@
     <ClInclude Include="..\tests\support\test_context.hpp" />
     <ClInclude Include="..\tests\support\test_scopes.hpp" />
     <ClInclude Include="..\tests\support\direct_connection_fixture.hpp" />
+    <ClInclude Include="..\tests\support\input_schema.hpp" />
     <ClInclude Include="..\tests\support\host_client_fixture.hpp" />
     <ClInclude Include="..\tests\support\thread_helpers.hpp" />
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp" />
@@ -287,8 +291,11 @@
     <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
     <ClCompile Include="..\platform\runtime\input_connection.cpp" />
+    <ClCompile Include="..\platform\runtime\input_configuration.cpp" />
     <ClCompile Include="..\platform\runtime\platform_input.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_configuration.cpp" />
     <ClInclude Include="..\platform\runtime\input_connection.hpp" />
+    <ClInclude Include="..\platform\runtime\input_configuration.hpp" />
     <ClCompile Include="..\tests\test_suites\PlatformWindow_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\PlatformInput_test_cases.cpp" />
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />

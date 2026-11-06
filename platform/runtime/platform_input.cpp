@@ -82,6 +82,10 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
         complete(completion, EServiceStatus::closing);
         return true;
     }
+    if ((opcode == ECommand::install_configuration) || (opcode == ECommand::retire_configuration))
+    {
+        return configuration_command(dispatched, completion);
+    }
     if (acquisition)
     {
         SAcquireDesktop request;
@@ -99,6 +103,15 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
             if (controller.device) status = EServiceStatus::unsupported;
         }
         const SInputInstallation* installation = nullptr;
+        for (const SConfiguration& configuration : m_configurations)
+        {
+            if (configuration.token.value && (configuration.token.value == request.installation.value))
+            {
+                const SInputInstallation* const candidate = configuration.data->profile(request.profile, kind);
+                if (candidate && candidate->contains(request.context)) installation = candidate;
+                break;
+            }
+        }
         for (std::int32_t slot = m_input_installations.first_live(); slot >= 0; slot = m_input_installations.next_live(slot))
         {
             const SInputInstallation& candidate = *m_input_installations.get_object(slot);

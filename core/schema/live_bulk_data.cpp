@@ -512,7 +512,8 @@ CBulkDataHandle CLiveBulkData::create_records(const CStringView& type, const CSt
             return {};
         }
         detail::SValueDiagnostic value_error;
-        if (!detail::construct_value(*schema, document, type_index, item,
+        CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+        if (!detail::construct_value(work_budget, *schema, document, type_index, item,
             (layout.size == 0u) ? nullptr : (bytes.data() + (layout.size * ordinal)),
             static_cast<std::size_t>(layout.size), detail::EConstructionMode::complete_bulk_data, value_error, document.is_object_entry(item)))
         {

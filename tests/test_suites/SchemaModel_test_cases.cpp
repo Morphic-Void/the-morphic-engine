@@ -149,6 +149,7 @@ void merging(tests::TTestContext& ctx)
 
 void selections(tests::TTestContext& ctx)
 {
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
     using namespace schema::detail;
     CLiveDocument source, values, masks;
     TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{
@@ -164,8 +165,8 @@ void selections(tests::TTestContext& ctx)
     const auto value = literals.object_child(literals.root(), CStringView{ "v" });
     SValueDiagnostic diagnostic;
     alignas(128) std::uint8_t bytes[32]{}, baseline[32]{}, changed[32]{};
-    TEST_EXPECT(ctx, construct_value(types, literals, type, value, bytes, sizeof(bytes), EConstructionMode::instance, diagnostic));
-    TEST_EXPECT(ctx, construct_value(types, literals, type, {}, baseline, sizeof(baseline), EConstructionMode::instance, diagnostic));
+    TEST_EXPECT(ctx, construct_value(work_budget, types, literals, type, value, bytes, sizeof(bytes), EConstructionMode::instance, diagnostic));
+    TEST_EXPECT(ctx, construct_value(work_budget, types, literals, type, {}, baseline, sizeof(baseline), EConstructionMode::instance, diagnostic));
     const auto mask = strip_selection(masks, types, type, { &literals, value }, CStringView{ "selection" }, diagnostic);
     TEST_EXPECT(ctx, mask && diagnostic.reason == EReason::none);
     const SSelectionView selected{ &output, SOccurrence{ mask } };
@@ -186,7 +187,7 @@ void selections(tests::TTestContext& ctx)
         CStringView{ "compensated" }, diagnostic);
     TEST_EXPECT(ctx, compensated && check_selection(types, type, { &output, SOccurrence{ compensated } }, baseline, bytes, matches, diagnostic) && matches);
     const auto exported = export_selection(masks, types, type, selected, bytes, CStringView{ "exported" }, diagnostic);
-    TEST_EXPECT(ctx, exported && check_alternative(types, output, type, SOccurrence{ exported }, bytes, sizeof(bytes), bytes, sizeof(bytes), matches, diagnostic) && matches);
+    TEST_EXPECT(ctx, exported && check_alternative(work_budget, types, output, type, SOccurrence{ exported }, bytes, sizeof(bytes), bytes, sizeof(bytes), matches, diagnostic) && matches);
     bytes[20] = 2u;
     TEST_EXPECT(ctx, validate_selection(types, type, selected, diagnostic));
     TEST_EXPECT(ctx, !export_selection(masks, types, type, selected, bytes, CStringView{ "bad_export" }, diagnostic) && diagnostic.reason == EReason::invalid_input);
@@ -661,8 +662,11 @@ void default_binding(tests::TTestContext& ctx)
 
 }   // namespace
 
+void run_prepared_schema_cases(tests::TTestContext& context);
+
 void run_schema_model_cases(tests::TTestContext& context)
 {
+    run_prepared_schema_cases(context);
     authoring(context);
     merging(context);
     selections(context);

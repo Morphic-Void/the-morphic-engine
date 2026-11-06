@@ -98,7 +98,7 @@ bool data_extent(const SType& layout, const std::uint64_t count, std::uint64_t& 
 
 bool validate_data_section(const CDocumentRead& document, const SOccurrence section,
     const CResolvedTypes& schema, const bool bulk, SDataValidationDiagnostic& diagnostic,
-    SDataConstructionPlan* plan) noexcept
+    SDataConstructionPlan* const plan, const std::uint64_t payload_limit) noexcept
 {
     diagnostic = {};
     if (!section)
@@ -165,6 +165,10 @@ bool validate_data_section(const CDocumentRead& document, const SOccurrence sect
             }
             const auto ordinal = static_cast<std::uint32_t>(entries++);
             cursor = offset + extent;
+            if (cursor > payload_limit)
+            {
+                return fail(diagnostic, EDataValidationReason::storage_limit, entry);
+            }
             if (bulk)
             {
                 for (SOccurrence value = document.first_child(declaration); value; value = document.next_sibling(value))

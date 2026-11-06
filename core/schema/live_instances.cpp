@@ -540,7 +540,8 @@ CInstanceHandle CLiveInstances::create_base(const CStringView& type, const CStri
     }
     detail::SValueDiagnostic error;
     if (encoded.size()) std::memset(encoded.data(), 0, encoded.size());
-    if (!detail::construct_value(*schema, document, type_index, value, encoded.data(),
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    if (!detail::construct_value(work_budget, *schema, document, type_index, value, encoded.data(),
         encoded.size(), detail::EConstructionMode::instance, error))
     {
         diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
@@ -579,7 +580,8 @@ CInstanceHandle CLiveInstances::create_specialisation(const CInstanceHandle pare
         return {};
     }
     detail::SValueDiagnostic error;
-    if (!detail::construct_alternative(*schema, document, parent_record.type, value,
+    CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
+    if (!detail::construct_alternative(work_budget, *schema, document, parent_record.type, value,
         (parent_record.extent ? (m_payload.data() + parent_record.offset) : nullptr), parent_record.extent,
         encoded.data(), encoded.size(), error))
     {

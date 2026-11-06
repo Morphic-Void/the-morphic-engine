@@ -21,6 +21,7 @@
 
 #include "assets/asset_messages.hpp"
 #include "assets/asset_storage.hpp"
+#include "assets/schema_messages.hpp"
 #include "filesystem/filesystem_image.hpp"
 
 //==============================================================================
@@ -40,6 +41,17 @@ struct FileSaveResult { bool success; };
 
 struct BakedDocumentAsset { CBakedDocumentBlock block; };
 struct LiveDocumentAsset { CLiveDocument document; };
+
+//  Nominated schema conditioning and retirement use only Host-owned state.
+struct SchemaConditioning
+{
+    schema::CPreparedSchema prepared;
+    SchemaPrepareRequest request;
+    CByteConstView source;
+    schema::SPreparationDiagnostic diagnostic;
+};
+struct SchemaConditionWork { SchemaConditioning* state{ nullptr }; bool retire{ false }; };
+struct SchemaConditionResult { bool retire{ false }; };
 
 //  The worker borrows a private Host capture; the completion owns full storage.
 struct BundleBuildWork { const filesystem_image::CBakeInput* input{ nullptr }; };

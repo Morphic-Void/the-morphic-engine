@@ -21,7 +21,8 @@ window commands separated from prospective configuration/mode contracts.
 The 6 November [portable input contract](input_connections.md) supersedes this
 document's prospective input mechanics, including concrete commands, readiness,
 ordering, recovery and the designated-reader restriction. The input transport is
-implemented; native acquisition, mapping and configuration installation are deferred.
+implemented. Portable configuration installation is described in
+[input configuration installation](input_configuration_installation.md); native acquisition and mapping remain deferred.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.
@@ -559,7 +560,7 @@ keyboard, not translated characters. Write out individual labels in the schema:
 | 37-41 | `enter`, `escape`, `backspace`, `tab`, `space`. |
 | 42-53 | `minus`, `equal`, `left_bracket`, `right_bracket`, `backslash`, `semicolon`, `apostrophe`, `grave`, `comma`, `period`, `slash`, `caps_lock`. |
 | 54-65 | `f1` through `f12`. |
-| 66-78 | `print_screen`, `scroll_lock`, `pause`, `insert`, `home`, `page_up`, `delete`, `end`, `page_down`, `right`, `left`, `down`, `up`. |
+| 66-78 | `print_screen`, `scroll_lock`, `pause`, `insert`, `home`, `page_up`, `key_delete`, `end`, `page_down`, `right`, `left`, `down`, `up`. |
 | 79-84 | `num_lock`, `keypad_divide`, `keypad_multiply`, `keypad_subtract`, `keypad_add`, `keypad_enter`. |
 | 85-96 | `keypad_1` through `keypad_9`, `keypad_0`, `keypad_decimal`, `non_us_backslash`. |
 | 97-105 | `left_ctrl`, `left_shift`, `left_alt`, `left_super`, `right_ctrl`, `right_shift`, `right_alt`, `right_super`, `application_menu`. |
@@ -594,23 +595,14 @@ source 1 is the whole left stick. Membership associates scene/action 1 independe
 A Shift+mouse chord has a primary mouse-button source plus a `BindingModifier` row
 pointing at the either-Shift source. Non-consuming ordinary bindings still run.
 
-Load configuration as a Host-retained raw UTF-8 asset. Platform obtains its own
-`AssetAcquireRequest`/acquisition through its generic client record; do not reuse
-the submitting client's acquisition ID. Requester keeps the asset live until
-acquisition/preparation acceptance or final failure; disposal races can fail cleanly
-without invalid access. A Host-worker job parses, validates `CSchema`, materialises
-records and builds Platform-owned immutable tables under a pinned module context.
-Only after job completion does Host pumping publish an installation token. Release
-the source acquisition once every job/parser view is finished; result delivery
-failure cleans the candidate installation unless it has been validly published.
-
-The worker job state remains Platform-owned and protected, not transferred between
-modules. Installation cancellation cannot free a job still running. Schema parsing
-uses explicit byte/record limits (initial source limit 1 MiB, 1,024 actions, 128
-contexts, 32 profiles, 8,192 bindings and 32,768 relationship rows); reject larger
-input before unbounded materialisation. Limit names to 127 UTF-8 bytes and nesting
-to the schema parser's supported checked limit. Native callbacks never allocate
-configuration structures. These operational limits are revisable defaults.
+Load configuration as a Host-retained raw UTF-8 asset. The approved
+[installation contract](input_configuration_installation.md) supersedes the
+original worker-job proposal: a nominated Host/Core conditioner prepares an
+acquisition-scoped immutable schema result, and Platform incrementally validates
+and copies its own installation tables. Host workers accept no arbitrary module
+jobs; batch-runner inline fallback remains unchanged. The linked contract defines
+source/result ownership, limits, admission, deadlines, cancellation, durable
+commit and retirement.
 
 ## Window/input and shutdown sequences
 
@@ -656,7 +648,7 @@ do not stop the provider and only then discover a protected borrower. Global shu
 closes admission, requests client exit and native-modal cancellation, and continues
 safe routing/pumping until clients release their dependencies. Join a thread only
 after it is terminal and no accepted completion needs its route. Stop/deactivate
-Platform on Host only after worker jobs, endpoints, windows, notifications and native
+Platform on Host only after conditioning results, endpoints, windows, notifications and native
 callbacks are quiescent; then dispose module-dependent assets and worker-unbind.
 Same ordering applies after activation/pump failure. The implemented Host emergency
 path preserves pumped progress and retains unproven obligations; prospective

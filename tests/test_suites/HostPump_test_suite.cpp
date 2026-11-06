@@ -113,6 +113,37 @@ void prefix_and_authentication(TTestContext& ctx)
     TEST_EXPECT(ctx, !f.router.failed());
 }
 
+void durable_resource_commit(TTestContext& ctx)
+{
+    for (unsigned scenario = 0u; scenario < 3u; ++scenario)
+    {
+        SFixture fixture{ ctx };
+        fixture.submit(ctx, 1u);
+        fixture.client.consume(fixture.client.message_count);
+        SDispatchedCommand command;
+        TEST_EXPECT(ctx, (fixture.router.prepare_batch(fixture.provider, &command, 1u) == 1u));
+        const ServiceReply reply = fixture.completion(1u);
+        TEST_EXPECT(ctx, (fixture.router.commit_resource(fixture.provider, reply) == EServiceStatus::busy));
+        TEST_EXPECT(ctx, (fixture.router.commit_resource(fixture.replacement, reply) == EServiceStatus::stale));
+        TEST_EXPECT(ctx, fixture.router.finish_batch(fixture.provider, &command, 1u, 1u));
+        if (scenario == 0u) fixture.router.cancel_request(fixture.client, { fixture.route, { 1u } });
+        if (scenario == 2u) fixture.client.stop_requested = true;
+        const EServiceStatus expected = (scenario == 1u) ? EServiceStatus::success : EServiceStatus::cancelled;
+        TEST_EXPECT(ctx, (fixture.router.commit_resource(fixture.provider, reply) == expected));
+        if (scenario == 1u) fixture.router.cancel_request(fixture.client, { fixture.route, { 1u } });
+        else
+        {
+            ServiceReply cancelled = reply;
+            cancelled.status = EServiceStatus::cancelled;
+            TEST_EXPECT(ctx, (fixture.router.complete(fixture.provider, cancelled) == EServiceStatus::success));
+        }
+        fixture.router.progress();
+        ServiceReply result;
+        TEST_EXPECT(ctx, ((fixture.client.message_count == 1u) && fixture.client.messages[0].copy_payload_to(result)));
+        TEST_EXPECT(ctx, (result.status == expected));
+    }
+}
+
 void reserved_completion_and_cancellation(TTestContext& ctx)
 {
     SFixture f{ ctx };
@@ -285,6 +316,7 @@ int run_host_pump_tests()
     TTestContext ctx;
     prefix_and_authentication(ctx);
     reserved_completion_and_cancellation(ctx);
+    durable_resource_commit(ctx);
     bounded_admission_and_terminal_precedence(ctx);
     independent_control_credits(ctx);
     contract_identity(ctx);

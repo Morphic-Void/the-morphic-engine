@@ -26,6 +26,7 @@ public:
     void close(const services::CloseServiceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request(const services::ServiceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     [[nodiscard]] services::EServiceStatus complete(const SClientRecord& provider, const services::ServiceReply& reply) noexcept;
+    [[nodiscard]] services::EServiceStatus commit_resource(const SClientRecord& provider, const services::ServiceReply& reply) noexcept;
     [[nodiscard]] services::EServiceStatus prepare_borrow(SClientRecord& provider,
         const services::SServiceBorrowOffer& offer, services::SServiceBorrow& borrow) noexcept;
     [[nodiscard]] services::EServiceStatus begin_borrow_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept;

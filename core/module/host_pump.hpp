@@ -61,11 +61,11 @@ struct SPumpResult
 //  Callbacks are Host-thread-only and authenticate the stable supplied context.
 //  Ownership moves only to Host, and only on success. busy retains caller data.
 //  The complete current table requires matching size/version and coordinated
-//  Host/module rebuilds. Worker preparation is not exposed.
+//  Host/module rebuilds. Nominated conditioning uses ordinary Host requests.
 struct SHostPumpServices
 {
     std::uint32_t size{ sizeof(SHostPumpServices) };
-    std::uint32_t version{ 1u };
+    std::uint32_t version{ 2u };
     services::EServiceStatus(MV_STD_ABI_CALL* post_pod)(void* const, const threading::CErasedPodMsg* const) noexcept{ nullptr };
     services::EServiceStatus(MV_STD_ABI_CALL* post_owner)(void* const, threading::CErasedOwnerMsg* const) noexcept{ nullptr };
     services::EServiceStatus(MV_STD_ABI_CALL* complete)(void* const, const services::ServiceReply* const) noexcept{ nullptr };
@@ -77,6 +77,7 @@ struct SHostPumpServices
     SRestrictionEnterResult(MV_STD_ABI_CALL* enter_restriction)(void* const, const SRestrictionReason) noexcept{ nullptr };
     ERestrictionStatus(MV_STD_ABI_CALL* leave_restriction)(void* const, const SRestrictionScope) noexcept{ nullptr };
     SHostMaintenanceResult(MV_STD_ABI_CALL* maintain_host)(void* const) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* commit_resource)(void* const, const services::ServiceReply* const) noexcept{ nullptr };
 };
 
 struct SHostPumpContext

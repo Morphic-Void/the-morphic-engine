@@ -1477,7 +1477,7 @@ static bool context_valid(const SHostPumpContext* const context) noexcept
     return context && (context->size == sizeof(SHostPumpContext)) && (context->version == 2u) &&
         modules::is_thread_context_ready(context) &&
         context->services && (context->services->size == sizeof(SHostPumpServices)) &&
-        (context->services->version == 1u) && context->services->post_pod &&
+        (context->services->version == 2u) && context->services->post_pod &&
         context->services->post_owner && context->services->complete &&
         context->services->prepare_borrow && context->services->begin_borrow_retirement &&
         context->services->finish_borrow_retirement && context->services->bind_borrow_notification &&
