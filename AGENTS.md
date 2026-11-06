@@ -69,6 +69,12 @@ joined by `&&` or `||`, parenthesise each item containing operations. Parenthesi
 a ternary's condition if it contains operations, and the entire ternary when it
 is an item in either context.
 
+Simple address-of (`&value`), dereferencing (`*ptr`), logical negation (`!ready`),
+and pointer values/member access (`ptr`, `ptr->member`) do not count as operations
+requiring extra parentheses here. Neither do pointer/reference declarators.
+Retain parentheses needed for correct grouping, such as `(*ptr).member` or
+`!(a && b)`; arithmetic and comparisons involving pointers still follow the rule.
+
 Avoid redundant pairs: precedence and visual separation can share parentheses.
 A single function argument or the complete right-hand side of a simple assignment
 needs no additional outer pair; still make precedence explicit within it. Examples:
@@ -77,6 +83,7 @@ needs no additional outer pair; still make precedence explicit within it. Exampl
 result = a + (b * c);
 process((a + b), (c * d));
 process(a + b);
+process(&value, *ptr, !ready, ptr, ptr->member);
 result = (a == b) ? x : y;
 process(((a == b) ? x : y), other);
 process((a == b) ? x : y);
