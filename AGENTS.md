@@ -6,6 +6,9 @@ Work directly in the shared main checkout; create a branch or worktree only if
 requested. Preserve unrelated changes, coordinate shared-checkout edits, and
 preserve the user's manual formatting near edits.
 
+Apply style rules to new or substantively changed code. Do not perform unrelated
+style cleanup or rewrite existing attribution merely because a file is touched.
+
 Create a separate implementing task only when asked. Discuss substantive design
 choices with the user; completed consolidation plans do not authorise future work.
 Do not repeat passing validation matrices without a new change or unresolved concern.
@@ -52,7 +55,7 @@ where it reflects actual input.
 
 Use `Author:` for one author and `Authors:` for multiple authors. Adjust spacing
 after `File:`, `Author:`/`Authors:`, and `Date:` so their values start in the same
-column.
+column. Implementation/review credit lines do not determine that column.
 
 `Date:` normally records creation. Preserve it during routine edits; update only
 for a particularly significant content revision, not as a last-modified timestamp.
@@ -66,18 +69,26 @@ declarations and definitions, including top-level `const` that C++ need not matc
 For pointers, `const T*` protects the pointee through that pointer, `T* const`
 prevents reassignment, and `const T* const` does both.
 
+Preserve required interface types and behaviour; do not introduce casts or
+unrelated interface changes solely to add `const`.
+
 ## Expression parentheses
 
-Make operator precedence explicit. In comma-separated lists and conditions
-joined by `&&` or `||`, parenthesise each item containing operations. Parenthesise
-a ternary's condition if it contains operations, and the entire ternary when it
-is an item in either context.
+Make operator precedence explicit. In comma-separated expression lists and
+conditions joined by `&&` or `||`, parenthesise items whose outer expression is
+a binary arithmetic, comparison, bitwise/logical operation, or ternary expression.
+Parenthesise a ternary's condition when it has such an operation. Operations
+nested inside an item do not automatically require wrapping the enclosing item.
 
-Simple address-of (`&value`), dereferencing (`*ptr`), logical negation (`!ready`),
-and pointer values/member access (`ptr`, `ptr->member`) do not count as operations
-requiring extra parentheses here. Neither do pointer/reference declarators.
-Retain parentheses needed for correct grouping, such as `(*ptr).member` or
-`!(a && b)`; arithmetic and comparisons involving pointers still follow the rule.
+Calls, indexing, casts, `sizeof`, increment/decrement, address-of (`&value`),
+dereferencing (`*ptr`), simple logical negation (`!ready`), and pointer/member
+access do not by themselves trigger extra parentheses. Neither do pointer/reference
+declarators. Retain necessary grouping, e.g. `(*ptr).member` or `!(a && b)`;
+arithmetic and comparisons involving pointers still follow the rule.
+
+Apply this rule only where parentheses preserve meaning; do not mechanically
+parenthesise declarations, types, template arguments, or braced initializers.
+Macro arguments require the same care about syntax and meaning.
 
 Avoid redundant pairs: precedence and visual separation can share parentheses.
 A single function argument or the complete right-hand side of a simple assignment
@@ -88,6 +99,8 @@ result = a + (b * c);
 process((a + b), (c * d));
 process(a + b);
 process(&value, *ptr, !ready, ptr, ptr->member);
+process(get_value(), values[index]);
+process(get_value(a + b), other);
 result = (a == b) ? x : y;
 process(((a == b) ? x : y), other);
 process((a == b) ? x : y);
@@ -99,9 +112,11 @@ bool active = ((a == b) ? x : y) && ready;
 
 Make conditional `break`, `continue`, and `return` easy to see. Short, simple
 conditions may use an unbraced statement on the same line, e.g. `if (done) return;`.
-If that line exceeds roughly column 60, or the condition is compound or multiline,
-use an expanded block: condition, opening brace, flow-control statement, and
-closing brace on separate lines. Column 60 is a readability guide, not a limit.
+If the complete line exceeds roughly column 60, or the condition combines tests
+with `&&` or `||` or spans multiple lines, use an expanded block: condition,
+opening brace, flow-control statement, and closing brace on separate lines.
+A simple comparison alone does not require expansion. Column 60 is a readability
+guide, not a limit.
 
 Normally give each `case`/`default` body a braced scope, with braces and statements
 on separate lines and the terminating `break`, `continue`, or `return` inside.
