@@ -48,6 +48,7 @@
 #include "tests/test_suites/TOrderedCollection_test_suite.hpp"
 #include "tests/test_suites/TPodFifo_test_suite.hpp"
 #include "tests/test_suites/TPodVector_test_suite.hpp"
+#include "tests/test_suites/TVector_test_suite.hpp"
 #include "tests/test_suites/TUnorderedCollection_test_suite.hpp"
 #include "tests/test_suites/TOrderedSlots_test_harness.hpp"
 #include "tests/test_suites/TUnorderedSlots_test_harness.hpp"
@@ -284,6 +285,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("ErasedPod", &run_erased_pod_tests);
     cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);
+    cumulative_result += run_isolated_suite("TVector", &run_vector_tests);
     cumulative_result += run_isolated_suite("ByteBuffers", &run_byte_buffer_tests);
     cumulative_result += run_isolated_suite("BumpBuffer", &run_bump_buffer_tests);
     cumulative_result += run_isolated_suite("PermutationValidation", &run_permutation_validation_tests);

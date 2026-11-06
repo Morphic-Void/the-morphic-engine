@@ -177,6 +177,7 @@
     <ClCompile Include="..\tests\test_suites\TOwningTransport_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TPodFifo_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TPodVector_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\TVector_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TQueueTransport_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TRingTransport_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TUnorderedCollection_test_suite.cpp" />
@@ -251,6 +252,7 @@
     <ClInclude Include="..\tests\test_suites\TOwningTransport_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TPodFifo_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TPodVector_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\TVector_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TQueueTransport_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TRingTransport_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TUnorderedCollection_test_suite.hpp" />

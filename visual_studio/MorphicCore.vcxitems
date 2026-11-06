@@ -38,6 +38,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodOrderedSlots.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodUnorderedSlots.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodVector.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TVector.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TUnorderedCollection.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document_format.hpp" />
@@ -304,6 +305,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TOrderedCollection.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodFifo.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodVector.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TVector.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TUnorderedCollection.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_service_substrate.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_system_audit.md" />

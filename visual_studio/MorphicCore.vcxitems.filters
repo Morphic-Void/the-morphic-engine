@@ -278,6 +278,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodVector.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TVector.hpp">
+      <Filter>Core\include\containers</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TUnorderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
@@ -833,6 +836,9 @@
       <Filter>Docs\containers</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodVector.md">
+      <Filter>Docs\containers</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TVector.md">
       <Filter>Docs\containers</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TUnorderedCollection.md">

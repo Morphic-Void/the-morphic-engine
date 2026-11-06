@@ -28,6 +28,7 @@
 #include "containers/TProcessLifetime.hpp"
 #include "containers/TPodFifo.hpp"
 #include "containers/TPodVector.hpp"
+#include "containers/TVector.hpp"
 #include "containers/TPodOrderedSlots.hpp"
 #include "containers/TPodUnorderedSlots.hpp"
 #include "containers/TOrderedCollection.hpp"
