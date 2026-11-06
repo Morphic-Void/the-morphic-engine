@@ -72,6 +72,13 @@ prevents reassignment, and `const T* const` does both.
 Preserve required interface types and behaviour; do not introduce casts or
 unrelated interface changes solely to add `const`.
 
+## Explicit types and auto
+
+Prefer an explicit type when it is known, short, and readable (e.g. `std::uint64_t`).
+Use `auto` for long or unwieldy types, such as lengthy template types, or where
+type deduction is needed. Preserve const/reference qualifiers and behaviour when
+choosing between an explicit type and `auto`.
+
 ## Expression parentheses
 
 Make operator precedence explicit. In comma-separated expression lists and
@@ -117,6 +124,10 @@ with `&&` or `||` or spans multiple lines, use an expanded block: condition,
 opening brace, flow-control statement, and closing brace on separate lines.
 A simple comparison alone does not require expansion. Column 60 is a readability
 guide, not a limit.
+
+Indent `case` and `default` labels one level inside the `switch`. Align each
+case body's braces with its labels and indent its statements one further level.
+Use the same label indentation for compact switches.
 
 Normally give each `case`/`default` body a braced scope, with braces and statements
 on separate lines and the terminating `break`, `continue`, or `return` inside.
