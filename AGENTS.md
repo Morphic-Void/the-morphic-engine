@@ -50,6 +50,10 @@ with two credit lines: `Primary implementation: OpenAI Codex` and
 `Reviewed and accepted by: Ritchie Brannan`; joint authorship is appropriate
 where it reflects actual input.
 
+Use `Author:` for one author and `Authors:` for multiple authors. Adjust spacing
+after `File:`, `Author:`/`Authors:`, and `Date:` so their values start in the same
+column.
+
 `Date:` normally records creation. Preserve it during routine edits; update only
 for a particularly significant content revision, not as a last-modified timestamp.
 Use `DD Mon YY` for new dates; existing dates need not be reformatted.
