@@ -16,6 +16,7 @@
 #include "tests/test_suites/ShaderReflection_test_suite.hpp"
 
 int run_platform_window_focused();
+int run_platform_input_focused();
 int run_platform_native_tests();
 
 int main(const int argc, char** const argv)
@@ -55,6 +56,10 @@ int main(const int argc, char** const argv)
     for (int i = 1; i < argc; ++i)
     {
         if (std::strcmp(argv[i], "--platform-window") == 0) return run_platform_window_focused();
+        if (std::strcmp(argv[i], "--platform-input") == 0)
+        {
+            return run_platform_input_focused();
+        }
         if (std::strcmp(argv[i], "--platform-native") == 0) return run_platform_native_tests();
         constexpr char prefix[] = "--reflection-arena-fatal=";
         if (std::strncmp(argv[i], prefix, sizeof(prefix) - 1u) == 0)

@@ -1474,7 +1474,8 @@ static std::uint32_t MV_STD_ABI_CALL foreign_call(void* const data) noexcept
 }
 static bool context_valid(const SHostPumpContext* const context) noexcept
 {
-    return context && modules::is_thread_context_ready(context) &&
+    return context && (context->size == sizeof(SHostPumpContext)) && (context->version == 2u) &&
+        modules::is_thread_context_ready(context) &&
         context->services && (context->services->size == sizeof(SHostPumpServices)) &&
         (context->services->version == 1u) && context->services->post_pod &&
         context->services->post_owner && context->services->complete &&

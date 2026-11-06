@@ -1,0 +1,127 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    input.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    06 Nov 26
+//
+//  Platform input commands, typed records and immutable borrowed reader views.
+
+#pragma once
+
+#include "input_state.hpp"
+#include "window.hpp"
+#include "threading/transports/TRingTransport.hpp"
+#include "platform/threading/owner_wait.hpp"
+
+namespace platform::input
+{
+
+inline constexpr services::SServiceContract k_input_contract{ 2u, 1u };
+inline constexpr std::uint32_t k_action_capacity = 256u, k_text_capacity = 64u;
+enum class EConnection : std::uint32_t { desktop = 1u, controller = 2u };
+enum class EClock : std::uint32_t { awake_nanoseconds = 1u };
+enum class ECommand : std::uint16_t
+{
+    acquire_desktop = 32u, acquire_controller = 33u, input_ready = 34u,
+    boundary_ready = 35u, select_context = 38u, enable_text = 39u, disable_text = 40u
+};
+struct SConnectionToken { std::uint64_t value{ 0u }; };
+struct SInstallationToken { std::uint64_t value{ 0u }; };
+struct SAcquireDesktop
+{
+    windows::SWindowToken window;
+    SInstallationToken installation;
+    std::uint32_t profile{ 0u }, context{ 0u };
+};
+struct SAcquireController
+{
+    SInstallationToken installation;
+    std::uint64_t device{ 0u }; //  Zero selects the installation's default source.
+    std::uint32_t profile{ 0u }, context{ 0u };
+};
+struct SInputReady
+{
+    SConnectionToken connection;
+    services::SNotificationRegistration registration;
+    services::SServiceRequestId acquisition;
+};
+struct SBoundaryReady
+{
+    SConnectionToken connection;
+    std::uint64_t action_generation{ 0u }, text_generation{ 0u };
+};
+struct SSelectContext
+{
+    SConnectionToken connection;
+    std::uint32_t context{ 0u }, reserved{ 0u };
+};
+struct STextTarget
+{
+    SConnectionToken connection;
+    std::uint64_t transition{ 0u }, target{ 0u }; //  Zero disables text.
+};
+
+enum class EActionKind : std::uint16_t
+{
+    digital, scalar, vector, delta, pulse, pointer, button, wheel, modifiers, boundary
+};
+enum class ETextKind : std::uint16_t { scalar, boundary };
+struct SActionBoundary
+{
+    std::uint64_t generation{ 0u }, transition{ 0u };
+    std::uint32_t context{ 0u }, reasons{ 0u };
+};
+struct STextBoundary { std::uint64_t generation{ 0u }, transition{ 0u }; };
+struct alignas(8) SActionInputV1
+{
+    std::uint64_t sequence{ 0u }, time_ns{ 0u };
+    std::uint32_t subject{ 0u };
+    EActionKind kind{ EActionKind::digital };
+    std::uint16_t flags{ 0u };
+    unsigned char payload[24]{};
+};
+struct alignas(8) STextInputV1
+{
+    std::uint64_t sequence{ 0u }, time_ns{ 0u };
+    ETextKind kind{ ETextKind::scalar };
+    std::uint16_t byte_count{ 0u };
+    std::uint32_t reserved{ 0u };
+    unsigned char payload[16]{};
+};
+
+struct SInputEndpointV1
+{
+    [[nodiscard]] bool is_valid() const noexcept;
+    std::uint32_t size{ sizeof(SInputEndpointV1) }, version{ 1u };
+    EConnection kind{ EConnection::desktop };
+    EClock clock{ EClock::awake_nanoseconds };
+    SConnectionToken connection;
+    modules::SModuleInstance provider, consumer;
+    windows::SWindowToken window;
+    std::uint32_t action_capacity{ 0u }, text_capacity{ 0u };
+    ::threading::transports::TRingConsumerEndpoint<SActionInputV1>* actions{ nullptr };
+    ::threading::transports::TRingConsumerEndpoint<STextInputV1>* text{ nullptr };
+    const CInputPublication* state{ nullptr };
+    platform::threading::SWakeEndpoint capacity_wake;
+};
+
+inline bool SInputEndpointV1::is_valid() const noexcept
+{
+    return (size == sizeof(SInputEndpointV1)) && (version == 1u) &&
+        ((kind == EConnection::desktop) || (kind == EConnection::controller)) &&
+        (clock == EClock::awake_nanoseconds) && connection.value && provider.value && consumer.value &&
+        (action_capacity == k_action_capacity) && actions && actions->is_ready() && state && capacity_wake.is_valid() &&
+        ((kind == EConnection::desktop) ? (window.value && text && text->is_ready() && (text_capacity == k_text_capacity)) :
+            (!window.value && !text && !text_capacity));
+}
+
+static_assert((sizeof(SActionInputV1) == 48u) && (alignof(SActionInputV1) == 8u));
+static_assert((sizeof(STextInputV1) == 40u) && (alignof(STextInputV1) == 8u));
+static_assert(std::is_trivially_copyable_v<SActionInputV1> && std::is_trivially_copyable_v<STextInputV1>);
+static_assert(std::is_standard_layout_v<SInputEndpointV1> && std::is_trivially_copyable_v<SInputEndpointV1>);
+static_assert((sizeof(SAcquireDesktop) == 24u) && (sizeof(SAcquireController) == 24u));
+static_assert((sizeof(SInputReady) == 24u) && (sizeof(SBoundaryReady) == 24u) && (sizeof(STextTarget) == 24u));
+
+}   //  namespace platform::input

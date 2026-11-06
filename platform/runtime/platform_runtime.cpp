@@ -41,7 +41,7 @@ CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
 bool CPlatformRuntime::initialise() noexcept
 {
     return m_context.services && m_context.execution && m_context.execution->restriction.is_valid() &&
-        m_adapter.create && m_adapter.dispatch && m_adapter.destroy && m_uses.initialise();
+        m_adapter.create && m_adapter.dispatch && m_adapter.destroy && m_uses.initialise() && m_input_installations.initialise();
 }
 
 std::int32_t CPlatformRuntime::reserve(const services::ServiceRequest& command, const bool acquisition) noexcept
@@ -93,6 +93,13 @@ void CPlatformRuntime::flush_completions() noexcept
             if (use.completion == index)
             {
                 use.completion = -1;
+            }
+        }
+        for (TInstance<CInputConnection>& connection : m_inputs)
+        {
+            if (connection && (connection->completion == index))
+            {
+                connection->completion = -1;
             }
         }
         completion = {};
@@ -225,6 +232,10 @@ EServiceStatus CPlatformRuntime::ready(const services::SDispatchedCommand& comma
 
 bool CPlatformRuntime::command(const services::SDispatchedCommand& dispatched) noexcept
 {
+    if (dispatched.contract.number == input::k_input_contract.number)
+    {
+        return input_command(dispatched);
+    }
     const auto& command = dispatched.command;
     const auto opcode = static_cast<EWindowCommand>(command.opcode);
     EServiceStatus rejection = EServiceStatus::success;
@@ -376,6 +387,7 @@ void CPlatformRuntime::close_use(SWindowUse& use, const EServiceStatus status) n
 
 bool CPlatformRuntime::message(const ::threading::CErasedPodMsg& message) noexcept
 {
+    input_message(message);
     services::ServiceBorrowControl control;
     services::ServiceRequestCancelled cancelled;
     if (message.copy_payload_to(control))
@@ -619,7 +631,7 @@ bool CPlatformRuntime::maintain_native() noexcept
 
 void CPlatformRuntime::progress_window() noexcept
 {
-    if (!m_window.token.value || (m_window.snapshot.phase != EWindowPhase::closing) || m_use_count ||
+    if (!m_window.token.value || (m_window.snapshot.phase != EWindowPhase::closing) || m_use_count || m_inputs[0] ||
         m_native_depth || m_callback_depth || m_modal_depth[0] || m_modal_depth[1] || m_window.destruction_failed)
     {
         return;
@@ -642,7 +654,7 @@ void CPlatformRuntime::progress_window() noexcept
 
 bool CPlatformRuntime::stopped() const noexcept
 {
-    if (!m_stopping || m_window.token.value || m_use_count || m_native_depth || m_callback_depth ||
+    if (!m_stopping || m_window.token.value || m_use_count || m_inputs[0] || m_inputs[1] || m_native_depth || m_callback_depth ||
         m_modal_depth[0] || m_modal_depth[1])
     {
         return false;
@@ -675,6 +687,7 @@ void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
     m_stopping = true;
     close_window();
     progress_uses();
+    progress_inputs();
     flush_completions();
     progress_window();
     progress(result);
@@ -706,6 +719,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         }
     }
     progress_uses();
+    progress_inputs();
     const auto dispatch = [&]() noexcept
     {
         if (!m_window.native.handle || m_window.destruction_failed)
@@ -732,9 +746,11 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         }
     }
     progress_uses();
+    progress_inputs();
     flush_completions();
     if (!m_native_first) dispatch();
     progress_uses();
+    progress_inputs();
     progress_window();
     progress(result.progress);
 }

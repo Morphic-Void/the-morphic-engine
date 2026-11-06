@@ -95,7 +95,7 @@
     <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And '$(FixtureRole)'=='Provider'">
-    <Link><AdditionalOptions>/EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 /EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 /EXPORT:morphic_module_service_thread_v1=_morphic_module_service_thread_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_host_pump_v2=_morphic_module_host_pump_v2@8 /EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 /EXPORT:morphic_module_service_thread_v1=_morphic_module_service_thread_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\host_pump\fixture.cpp" />

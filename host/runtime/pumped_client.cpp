@@ -39,6 +39,7 @@ CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& bindi
     m_context.services = &services;
     m_context.service_context = this;
     m_context.execution = &client.host_execution;
+    m_context.owner_wake = client.owner_wake;
     client.delivery_owner = &maintenance;
 }
 

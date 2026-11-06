@@ -2076,6 +2076,9 @@ Its initial contents are Alt+Enter and Ctrl+Alt+Enter as agreed; application bin
 profiles cannot override them implicitly. A profile can be immutable alongside its
 configuration, with the window retaining the relevant installation while in use.
 
+The portable implementation is described in [input connections](input_connections.md);
+native mapping and configuration installation remain later work.
+
 Allow one context transition in flight per connection; additional requests return
 busy. A rejected context request does not silently resume cancelled consumer state.
 Report the active context so the consumer can request it again to establish a fresh

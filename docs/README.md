@@ -38,7 +38,10 @@ or that work has been authorised.
   anchored 120 Hz opportunities, Windows native readiness and Linux parking.
 - [Platform shell and first Windows window](modules/platform_first_window.md):
   on-demand module, explicit window uses, durable state, close policy and native
-  acceptance evidence. Native Linux and input are not yet implemented.
+  acceptance evidence. Native Linux remains later work.
+- [Portable input connections](modules/input_connections.md): typed streams,
+  readiness, ordered recovery, reader helpers and synthetic validation. Native
+  acquisition and production configuration installation remain later work.
 - [Audio implementation and validation](modules/audio_module_validation.md):
   on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of

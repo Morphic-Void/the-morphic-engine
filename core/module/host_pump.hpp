@@ -18,6 +18,7 @@
 #include "services/service_protocol.hpp"
 #include "services/service_borrow.hpp"
 #include "services/service_notifications.hpp"
+#include "platform/threading/owner_wait.hpp"
 
 namespace threading { class CErasedPodMsg; class CErasedOwnerMsg; }
 
@@ -81,13 +82,14 @@ struct SHostPumpServices
 struct SHostPumpContext
 {
     std::uint32_t size{ sizeof(SHostPumpContext) };
-    std::uint32_t version{ 1u };
+    std::uint32_t version{ 2u };
     SModuleInstance instance;
     services::SClientToken client;
     thread_ids::id_type host_thread{};
     const SHostPumpServices* services{ nullptr };
     void* service_context{ nullptr };
     const SHostExecutionContext* execution{ nullptr };
+    platform::threading::SWakeEndpoint owner_wake; //  Retained through all module borrows.
 };
 
 inline constexpr char k_host_pump_symbol_name[]{ "morphic_module_host_pump_v2" };

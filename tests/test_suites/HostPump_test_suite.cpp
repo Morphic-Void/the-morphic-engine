@@ -278,6 +278,7 @@ void run_direct_connection_tests(tests::TTestContext& ctx);
 void run_host_restriction_tests(tests::TTestContext& ctx);
 void run_host_maintenance_tests(tests::TTestContext& ctx);
 void run_platform_window_tests(tests::TTestContext& ctx);
+void run_platform_input_tests(tests::TTestContext& ctx);
 
 int run_host_pump_tests()
 {
@@ -295,5 +296,6 @@ int run_host_pump_tests()
     run_host_restriction_tests(ctx);
     run_host_maintenance_tests(ctx);
     run_platform_window_tests(ctx);
+    run_platform_input_tests(ctx);
     return ctx.report("HostPump");
 }

@@ -1,5 +1,12 @@
 # Current scope
 
+6 November input update: [portable input connections](../modules/input_connections.md)
+now implement Platform-owned typed streams, the initial readiness/boundary exchange,
+ordered recovery and generic borrow retirement, with synthetic producers. Native
+input, production configuration installation and mapping remain subsequent work.
+This supersedes the historical input-transport deferrals below. General direct POD
+messaging already uses the implemented Host-owned TQueue transports.
+
 6 November update: [Host timed waiting](../modules/host_timed_wait.md) is now
 implemented for Windows and the current Linux shell, following the direct POD
 transport work. The historical Host sleep/wake deferral below is superseded;

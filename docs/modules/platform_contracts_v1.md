@@ -17,7 +17,11 @@ was reviewed against `07064fc`. As of `f55d514` (4 November 2026), the
 and [first Windows window](platform_first_window.md) are implemented and committed.
 Those references and current headers define the implemented APIs and validation
 limits. This document retains the broader design starting point, with current
-window commands separated from prospective input/configuration/mode contracts.
+window commands separated from prospective configuration/mode contracts.
+The 6 November [portable input contract](input_connections.md) supersedes this
+document's prospective input mechanics, including concrete commands, readiness,
+ordering, recovery and the designated-reader restriction. The input transport is
+implemented; native acquisition, mapping and configuration installation are deferred.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.

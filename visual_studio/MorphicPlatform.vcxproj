@@ -95,7 +95,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 /EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 /EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 /EXPORT:morphic_module_host_pump_v2=_morphic_module_host_pump_v2@8 /EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
 
   <ItemGroup>
@@ -119,6 +119,9 @@
     <ClInclude Include="..\platform\native\window.hpp" />
     <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
+    <ClCompile Include="..\platform\runtime\input_connection.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_input.cpp" />
+    <ClInclude Include="..\platform\runtime\input_connection.hpp" />
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
     <ClCompile Include="..\platform\runtime\window_record.cpp" />
     <ClInclude Include="..\platform\runtime\window_record.hpp" />

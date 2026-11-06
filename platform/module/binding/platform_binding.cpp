@@ -39,9 +39,12 @@ static TInstance<runtime::CPlatformRuntime>& runtime_state() noexcept
 static modules::ECallStatus MV_STD_ABI_CALL activate(const modules::SHostPumpContext* const context,
     void** const runtime, modules::SProgress* const progress) noexcept
 {
-    if (!context || !runtime || !progress || (context->size != sizeof(*context)) || (context->version != 1u) ||
+    if (!context || !runtime || !progress || (context->size != sizeof(*context)) || (context->version != 2u) ||
         !context->services || (context->services->size != sizeof(*context->services)) || (context->services->version != 1u) ||
-        !s_binding.is_thread_context_ready(context) || runtime_state()) return modules::ECallStatus::invalid_argument;
+        !s_binding.is_thread_context_ready(context) || runtime_state())
+    {
+        return modules::ECallStatus::invalid_argument;
+    }
     *runtime = nullptr;
     if (!runtime_state().emplace(*context)) return modules::ECallStatus::failed;
     if (!runtime_state()->initialise()) { runtime_state().reset(); return modules::ECallStatus::failed; }
@@ -98,6 +101,7 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_
     modules::SServiceProviderV1* const value) noexcept
 {
     if (!value || (capacity != sizeof(*value))) return modules::EBindingResult::invalid_argument;
-    *value = { sizeof(*value), 1u, 0u, 1u, &platform::windows::k_window_contract };
+    static constexpr services::SServiceContract contracts[]{ platform::windows::k_window_contract, platform::input::k_input_contract };
+    *value = { sizeof(*value), 1u, 0u, 2u, contracts };
     return modules::EBindingResult::success;
 }

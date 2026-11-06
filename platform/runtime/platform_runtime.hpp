@@ -12,6 +12,8 @@
 #pragma once
 
 #include "runtime/window_record.hpp"
+#include "runtime/input_connection.hpp"
+#include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "module/host_pump.hpp"
 #include "threading/messages/CErasedPodMsg.hpp"
@@ -47,6 +49,7 @@ public:
 
 private:
     friend struct SPlatformTestAccess;
+    friend struct SPlatformInputTestAccess;
     struct SCompletion
     {
         services::ServiceReply reply;
@@ -65,6 +68,11 @@ private:
     [[nodiscard]] bool holder(const services::SDispatchedCommand& command, const bool controller) const noexcept;
     void close_use(SWindowUse& use, const services::EServiceStatus status) noexcept;
     void progress_uses() noexcept;
+    [[nodiscard]] bool input_command(const services::SDispatchedCommand& command) noexcept;
+    void input_message(const ::threading::CErasedPodMsg& message) noexcept;
+    void close_input(CInputConnection& connection, const services::EServiceStatus status) noexcept;
+    void progress_inputs() noexcept;
+    [[nodiscard]] CInputConnection* find_input(const input::SConnectionToken token) noexcept;
     void publish() noexcept;
     void close_window(const std::uint32_t failure = 0u) noexcept;
     void progress_window() noexcept;
@@ -77,11 +85,14 @@ private:
     platform::threading::SAwakeClock m_clock;
     SWindowRecord m_window;
     TUnorderedCollection<SWindowUse> m_uses;
+    TInstance<CInputConnection> m_inputs[2];
+    TUnorderedCollection<SInputInstallation> m_input_installations;
     SCompletion m_completions[96]{};
     std::uint32_t m_use_count{ 0u }, m_native_depth{ 0u }, m_callback_depth{ 0u };
     modules::SRestrictionScope m_modal[2][8]{};
     std::uint32_t m_modal_depth[2]{};
     std::uint64_t m_next_window{ 1u };
+    std::uint64_t m_next_input{ 1u };
     bool m_stopping{ false }, m_failed{ false }, m_maintaining{ false }, m_native_first{ false };
     bool m_host_stop{ false };
 };
