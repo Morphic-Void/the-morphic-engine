@@ -6,11 +6,11 @@
 //  Author: Ritchie Brannan
 //  Date:   15 Apr 26
 //
+//  Triple-buffered SPSC sequential transport for trivially copyable T.
+//
 //  Requirements:
 //  - Requires C++17 or later.
 //  - No exceptions.
-//
-//  Triple-buffered SPSC sequential transport for trivially copyable T.
 //
 //  Defines threading::transports::TQueue<T>.
 //  Also defines the concrete producer/consumer endpoint wrappers and the
@@ -332,6 +332,15 @@ inline bool TQueue<T>::post(const T* const src, const std::uint32_t count) noexc
         Buffer& staged_buffer = m_buffers[m_posting_staged_buffer_index];
         Buffer& locked_buffer = m_buffers[m_posting_locked_buffer_index];
 
+        //  A consumed publication will take the rebase path below. Its old
+        //  producer backlog must not prevent that path at the capacity limit.
+        //  Only this producer writes a nonzero staged word, so an acquired zero
+        //  remains zero until our exchange. The consumer never owns output.
+        if ((count > (m_capacity - output_buffer.size)) && (m_staged_word.load(std::memory_order_acquire) == 0u))
+        {
+            output_buffer.size = 0u;
+        }
+
         //  Growth and buffer discard policy
         bool discard = false;
         std::uint32_t target_capacity = m_capacity;
@@ -369,8 +378,8 @@ inline bool TQueue<T>::post(const T* const src, const std::uint32_t count) noexc
                 return false;
             }
             locked_buffer.capacity = m_capacity;
-            std::memcpy(output_buffer.data(), src, byte_count);  //  safe to use because the publish of it will be ignored
-            std::memcpy(locked_buffer.data(), src, byte_count);  //  safe to use because it has been consumed
+            std::memcpy(output_buffer.data(), src, byte_count); //  safe to use because the publish of it will be ignored
+            std::memcpy(locked_buffer.data(), src, byte_count); //  safe to use because it has been consumed
             output_buffer.size = locked_buffer.size = count;
             m_staged_word.store((m_posting_locked_buffer_index + (m_posting_phase ? 5u : 1u)), std::memory_order_release);
             const std::uint32_t buffer_index_swap = m_posting_locked_buffer_index;
@@ -412,7 +421,9 @@ bool TQueue<T>::post_would_reallocate(const std::uint32_t count) const noexcept
 
     bool discard = false;
     std::uint32_t target_capacity = m_capacity;
-    if (!growth_and_discard_policy(count, output_buffer.size, target_capacity, discard))
+    const std::uint32_t effective_size = ((count > (m_capacity - output_buffer.size)) &&
+        (m_staged_word.load(std::memory_order_acquire) == 0u)) ? 0u : output_buffer.size;
+    if (!growth_and_discard_policy(count, effective_size, target_capacity, discard))
     {   //  policy will not allow this posting
         return false;
     }
