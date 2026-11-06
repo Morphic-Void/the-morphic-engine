@@ -28,6 +28,8 @@
 #include "runtime/pumped_client.hpp"
 #include "runtime/host_maintenance.hpp"
 #include "runtime/direct_connections.hpp"
+#include "runtime/host_cadence.hpp"
+#include "platform/threading/owner_wait.hpp"
 #include "runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -94,16 +96,25 @@ private:
     void advance_lifecycle(const threading::EThreadRunState executive_state) noexcept;
     void executive_failure(const modules::EModuleStatus status) noexcept;
     void run() noexcept;
+    void run_turn() noexcept;
+    void wait_for_work() noexcept;
+    void fail_wait(const platform::threading::WaitError error) noexcept;
     void begin_emergency_shutdown() noexcept;
     void apply_host_stop() noexcept;
     void check_shutdown_deadline() noexcept;
     [[nodiscard]] bool shutdown() noexcept;
     [[nodiscard]] bool shutdown_threads() noexcept;
-    void shutdown_debug_service() noexcept;
+    [[nodiscard]] bool shutdown_debug_service() noexcept;
 
     [[nodiscard]] threading::CThreadPackage* module_thread_package(const module_ids::id_type module) noexcept;
     [[nodiscard]] threading::CThreadPackage* worker_package(const std::uint32_t index) noexcept;
 
+    //  All producer ownership is declared later and is retired first.
+    platform::threading::COwnerWait m_owner_wait;
+    platform::threading::WaitError m_wait_setup_error;
+    CHostCadence m_cadence;
+    bool m_wait_failed{ false }, m_turn_pending{ false }, m_native_stop_requested{ false };
+    std::uint64_t m_wait_count{ 0u }, m_turn_count{ 0u };
     TInstance<debug_system::CDebugServiceState> m_debug_service_owner;
     debug_system::CDebugServiceState* m_debug_service{ nullptr };
     bool m_debug_service_installed{ false };

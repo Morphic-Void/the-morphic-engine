@@ -11,6 +11,11 @@ Review: 04 Nov 2026
 
 ## Status and scope
 
+6 November update: the [Host timed-wait contract](host_timed_wait.md) supersedes
+the historical wait deferral below. Initial Windows/native-queue and Linux/engine
+waiting are implemented with pump ABI V2. Android/macOS native drivers remain
+future work; earlier V1 references describe the original foundation.
+
 This document records the agreed Platform direction and historical design reviews
 against `f00b2eb` and `07064fc`. As of 4 November 2026, implementation is committed
 through `f55d514`; the original absence statements in the dated assessment/review

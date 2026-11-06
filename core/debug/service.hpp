@@ -29,6 +29,7 @@
 #include "platform/filesystem/log.hpp"
 #include "platform/threading/exclusive_lock.hpp"
 #include "platform/threading/thread_lifetime.hpp"
+#include "platform/threading/owner_wait.hpp"
 #include "system/system_context.hpp"
 #include "threading/transports/TMpmcTransport.hpp"
 #include "types/atomic_types.hpp"
@@ -287,6 +288,7 @@ public:
 
     [[nodiscard]] bool start() noexcept;
     [[nodiscard]] bool stop() noexcept;
+    [[nodiscard]] bool retains_execution() const noexcept { return m_writer_thread.is_valid(); }
 
     [[nodiscard]] EServiceThreadState thread_state() const noexcept;
     [[nodiscard]] bool is_event_transport_closed() const noexcept;
@@ -318,6 +320,8 @@ public:
     void react_to_breakpoint(EBreakpointOverride& override, const bool enabled_by_default, const SIncidentContext& incident) noexcept;
 
     void request_shutdown(const EShutdownReason reason) noexcept;
+    //  Install before publishing the service; keep the target through uninstall.
+    void install_shutdown_wake(const platform::threading::SWakeEndpoint wake) noexcept { m_shutdown_wake = wake; }
     [[nodiscard]] EShutdownReason read_shutdown_request() const noexcept;
 
     [[nodiscard]] const char* event_log_path() const noexcept { return m_event_log_path; }
@@ -383,6 +387,7 @@ private:
 
     TCacheLineAtomic<std::uint32_t> m_incident_counter{};
     TCacheLineAtomic<std::uint32_t> m_shutdown_request{};
+    platform::threading::SWakeEndpoint m_shutdown_wake;
     TCacheLineAtomic<std::uint32_t> m_configuration{ k_default_configuration };
     TCacheLineAtomic<std::uint32_t> m_writer_wake_epoch{};
     TCacheLineAtomic<std::uint32_t> m_writer_state{ static_cast<std::uint32_t>(EServiceThreadState::empty) };

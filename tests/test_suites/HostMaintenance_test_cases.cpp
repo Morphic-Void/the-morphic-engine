@@ -180,7 +180,7 @@ struct SHostMaintenanceTestAccess
         TEST_EXPECT(ctx, runtime.m_clients[index].emplace(module_ids::rendering, 81u));
         auto& client = *runtime.m_clients[index];
         client.execution = EClientExecution::pumped;
-        modules::SHostPumpV1 capability;
+        modules::SHostPumpV2 capability;
         capability.activate = &invalid_activate;
         capability.pump = &invalid_pump;
         capability.begin_stop = &invalid_stop;

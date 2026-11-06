@@ -26,7 +26,7 @@ static bool system_message(const type_id identity) noexcept
 }
 
 CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& binding,
-    const modules::SHostPumpV1& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept
+    const modules::SHostPumpV2& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept
     : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }, m_maintenance{ maintenance }
 {
     static const modules::SHostPumpServices services{
@@ -103,6 +103,9 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
     using modules::EPumpPhase;
     if (m_call_failed || (status != modules::ECallStatus::success) || (progress.phase == EPumpPhase::failed) ||
         (progress.phase > EPumpPhase::failed) || (progress.work_pending > 1u) ||
+        (progress.native_events_active > 1u) || (progress.stop_requested > 1u) ||
+        ((progress.native_events_active || progress.stop_requested) &&
+        !(m_capability.flags & modules::k_host_pump_native_events)) ||
         (m_stop_begun && ((progress.phase == EPumpPhase::starting) || (progress.phase == EPumpPhase::ready))))
     {
         m_failed = true;
@@ -114,6 +117,9 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
         m_client.phase = EClientPhase::stopping;
         return;
     }
+    m_work_pending = progress.work_pending != 0u;
+    m_native_events = progress.native_events_active != 0u;
+    m_native_stop = m_native_stop || (progress.stop_requested != 0u);
     if (progress.phase == EPumpPhase::stopped)
     {
         if (!m_stop_begun) m_failed = true;
@@ -236,7 +242,28 @@ void CPumpedClient::pump() noexcept
         request_stop(modules::EStopReason::pump_failure);
     }
     observe((valid ? status : modules::ECallStatus::failed), result.progress);
+    if (valid && (((result.consumed_messages != 0u) &&
+        ((result.consumed_messages < input.message_count) || (input.message_count == 64u))) ||
+        ((result.consumed_commands != 0u) &&
+        ((result.consumed_commands < input.command_count) || (input.command_count == 64u)))))
+    {
+        m_work_pending = true;
+    }
     finish_frame();
+}
+
+void CPumpedClient::limit_wait(std::uint64_t& remaining) noexcept
+{
+    if (m_client.phase != EClientPhase::starting) return;
+    const modules::SEligibleBudgetObservation budget = m_activation_budget.observe();
+    if (budget.status == modules::EBudgetStatus::running)
+    {
+        if (budget.remaining_ns < remaining) remaining = budget.remaining_ns;
+    }
+    else if (budget.status != modules::EBudgetStatus::restricted)
+    {
+        remaining = 0u;
+    }
 }
 
 bool CPumpedClient::deactivate() noexcept

@@ -1,5 +1,10 @@
 # Current scope
 
+6 November update: [Host timed waiting](../modules/host_timed_wait.md) is now
+implemented for Windows and the current Linux shell, following the direct POD
+transport work. The historical Host sleep/wake deferral below is superseded;
+native Linux, Android and macOS UI drivers remain later work.
+
 Updated 4 November 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,

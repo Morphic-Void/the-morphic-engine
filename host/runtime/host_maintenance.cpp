@@ -76,7 +76,8 @@ void CHostMaintenance::poll_stop() noexcept
     auto* const executive = m_host.module_client(module_ids::executive);
     if ((executive && executive->host_stop_requested.load(std::memory_order_acquire)) ||
         (m_host.m_debug_service && (m_host.m_debug_service->read_shutdown_request() != debug_system::EShutdownReason::none)) ||
-        m_restrictions.failed() || m_host.m_emergency_shutdown || (m_host.m_phase == CHost::EPhase::shutting_down))
+        m_restrictions.failed() || m_host.m_emergency_shutdown || m_host.m_native_stop_requested ||
+        (m_host.m_phase == CHost::EPhase::shutting_down))
     {
         m_stop_requested = true;
     }
@@ -119,7 +120,7 @@ void CHostMaintenance::poll_stop() noexcept
 
 void CHost::apply_host_stop() noexcept
 {
-    if (!m_maintenance.stop_requested() || m_host_stop_applied)
+    if ((!m_maintenance.stop_requested() && !m_native_stop_requested) || m_host_stop_applied)
     {
         return;
     }

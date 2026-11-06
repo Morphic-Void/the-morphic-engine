@@ -22,11 +22,12 @@ struct SHostRestrictionSubscription { std::uint64_t value{ 0u }; };
 struct SHostStopEndpoint
 {
     std::atomic<std::uint32_t>* requested{ nullptr };
+    platform::threading::SWakeEndpoint wake;
     [[nodiscard]] bool request() const noexcept
     {
         if (!requested) return false;
         requested->store(1u, std::memory_order_release);
-        return true;
+        return !wake.is_valid() || wake.signal();
     }
 };
 

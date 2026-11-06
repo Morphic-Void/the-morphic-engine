@@ -145,7 +145,10 @@ services::ServiceNotificationRegistered CServiceBorrows::register_notification(S
         }
         else if (client.execution == EClientExecution::pumped)
         {
-            if (!record->notification.initialise(client.notifications_pending)) return result;
+            if (!record->notification.initialise(client.notifications_pending, client.owner_wake))
+            {
+                return result;
+            }
         }
         else { result.status = EServiceStatus::unsupported; return result; }
         record->registration.value = m_next_registration++;

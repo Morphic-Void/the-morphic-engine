@@ -69,6 +69,7 @@ public:
     CThreadControlState control_state;
     CBatchClient* batch_client{ nullptr };
     const modules::SHostExecutionContext* host_execution{ nullptr };
+    platform::threading::SWakeEndpoint owner_wake;
 };
 
 class CThreadContext
@@ -108,6 +109,7 @@ public:
     ~CThreadPackage() noexcept;
 
     bool startup() noexcept;
+    [[nodiscard]] bool install_owner_wake(const platform::threading::SWakeEndpoint wake) noexcept;
     bool shutdown() noexcept;
     [[nodiscard]] bool retains_execution() const noexcept { return m_resources.created && m_resources.wait_predicate.has_control(); }
     [[nodiscard]] bool install_host_execution(modules::SHostExecutionContext& view, CNotification& notification) noexcept;
@@ -124,7 +126,12 @@ public:
     bool post(const CErasedPodMsg& msg) noexcept;
     bool read(CErasedOwnerMsg& msg) noexcept;
     [[nodiscard]] bool pod_delivery_poisoned() const noexcept { return m_resources.host_to_worker_msgs.posting_poisoned(); }
-    [[nodiscard]] bool capture(CErasedOwnerMsg& msg) noexcept { return m_resources.worker_to_host_owned_msgs.capture(msg); }
+    [[nodiscard]] bool capture(CErasedOwnerMsg& msg) noexcept
+    {
+        const bool captured = m_resources.worker_to_host_owned_msgs.capture(msg);
+        if (captured) (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
+        return captured;
+    }
     [[nodiscard]] bool post_without_growth(const CErasedPodMsg& msg) noexcept
     {
         return !m_resources.host_to_worker_msgs.post_would_reallocate(1u) && post(msg);
@@ -212,7 +219,9 @@ inline const platform::system::CPerfCountConversion& CThreadContext::perf_count_
 
 inline bool CThreadContext::read(CErasedPodMsg& msg) noexcept
 {
-    return m_resources.host_to_worker_msgs.read(msg);
+    const bool consumed = m_resources.host_to_worker_msgs.read(msg);
+    if (consumed) (void)m_resources.owner_wake.signal();
+    return consumed;
 }
 
 inline std::uint32_t CThreadContext::observe_epoch() const noexcept
@@ -222,12 +231,19 @@ inline std::uint32_t CThreadContext::observe_epoch() const noexcept
 
 inline bool CThreadContext::post(const CErasedPodMsg& msg) noexcept
 {
-    return m_resources.worker_to_host_msgs.post(msg);
+    const bool posted = m_resources.worker_to_host_msgs.post(msg);
+    if (posted || m_resources.worker_to_host_msgs.posting_poisoned())
+    {
+        (void)m_resources.owner_wake.signal();
+    }
+    return posted;
 }
 
 inline bool CThreadContext::post(CErasedOwnerMsg&& msg) noexcept
 {
-    return m_resources.worker_to_host_owned_msgs.post(std::move(msg));
+    const bool posted = m_resources.worker_to_host_owned_msgs.post(std::move(msg));
+    if (posted) (void)m_resources.owner_wake.signal();
+    return posted;
 }
 
 //==============================================================================
@@ -243,7 +259,9 @@ inline CThreadPackage::CThreadPackage(
 
 inline bool CThreadPackage::read(CErasedPodMsg& msg) noexcept
 {
-    return m_resources.worker_to_host_msgs.read(msg);
+    const bool consumed = m_resources.worker_to_host_msgs.read(msg);
+    if (consumed) (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
+    return consumed;
 }
 
 inline bool CThreadPackage::post(const CErasedPodMsg& msg) noexcept
@@ -258,7 +276,9 @@ inline bool CThreadPackage::post(const CErasedPodMsg& msg) noexcept
 
 inline bool CThreadPackage::read(CErasedOwnerMsg& msg) noexcept
 {
-    return m_resources.worker_to_host_owned_msgs.read(msg);
+    const bool consumed = m_resources.worker_to_host_owned_msgs.read(msg);
+    if (consumed) (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
+    return consumed;
 }
 
 inline EThreadRunState CThreadPackage::query_state() const noexcept

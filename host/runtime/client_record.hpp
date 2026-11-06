@@ -80,6 +80,7 @@ struct SClientRecord
     bool terminal_before_drain{ false };
     std::atomic<std::uint32_t> notifications_pending{ 0u };
     std::atomic<std::uint32_t> host_stop_requested{ 0u };
+    platform::threading::SWakeEndpoint owner_wake;
     modules::SHostExecutionContext host_execution;
     threading::CNotification restriction_notification;
     std::uint32_t restriction_revision{ 0u };

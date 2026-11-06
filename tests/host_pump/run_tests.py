@@ -19,7 +19,7 @@ REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
             "bad-provider-size", "bad-provider-version", "bad-provider-flags", "bad-provider-count",
             "bad-provider-null", "bad-provider-contract", "bad-provider-duplicate", "bad-provider-query")
 CASES = ("normal", "empty-provider", "platform-shell") + REJECTED + (
-         "activation-failed", "activation-null", "invalid-prefix", "pump-failed",
+         "activation-failed", "activation-null", "unauthorised-native-stop", "unauthorised-native-events", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
          "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed",

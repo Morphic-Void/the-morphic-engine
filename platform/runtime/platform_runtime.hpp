@@ -36,6 +36,7 @@ public:
     void native_extent(const std::uint32_t width, const std::uint32_t height,
         const std::uint32_t dpi, const bool minimised) noexcept;
     void native_close() noexcept;
+    void native_stop() noexcept { m_host_stop = true; }
     void native_failure(const std::uint32_t error) noexcept;
     void enter_callback() noexcept;
     void leave_callback() noexcept;
@@ -82,6 +83,7 @@ private:
     std::uint32_t m_modal_depth[2]{};
     std::uint64_t m_next_window{ 1u };
     bool m_stopping{ false }, m_failed{ false }, m_maintaining{ false }, m_native_first{ false };
+    bool m_host_stop{ false };
 };
 
 }   //  namespace platform::runtime

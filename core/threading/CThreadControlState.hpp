@@ -19,6 +19,7 @@
 
 #include <atomic>   //  std::atomic
 #include <cstdint>  //  std::uint32_t
+#include "platform/threading/owner_wait.hpp"
 
 namespace threading
 {
@@ -57,6 +58,8 @@ public:
 
     //  Controller side reset of the class
     void reset() noexcept;
+    //  Owner only, before the controlled thread starts; retained through join.
+    void install_owner_wake(const platform::threading::SWakeEndpoint wake) noexcept { m_owner_wake = wake; }
 
     //  Controller side worker exit request
     void request_exit() noexcept;
@@ -88,6 +91,7 @@ public:
     bool exit_requested() const noexcept;
 
 private:
+    platform::threading::SWakeEndpoint m_owner_wake;
     std::atomic<std::uint32_t> m_exit_request{ 0u };
     std::atomic<std::uint32_t> m_state{ static_cast<std::uint32_t>(EThreadRunState::Empty) };
     std::atomic<std::uint32_t> m_heartbeat_epoch{ 0u };
@@ -161,12 +165,22 @@ inline void CThreadControlState::mark_startup() noexcept
 
 inline void CThreadControlState::mark_running() noexcept
 {
-    m_state.store(static_cast<std::uint32_t>(EThreadRunState::Running), std::memory_order_release);
+    const EThreadRunState previous = static_cast<EThreadRunState>(m_state.exchange(
+        static_cast<std::uint32_t>(EThreadRunState::Running), std::memory_order_release));
+    if ((previous == EThreadRunState::Startup) || (previous == EThreadRunState::Pending))
+    {
+        (void)m_owner_wake.signal();
+    }
 }
 
 inline void CThreadControlState::mark_waiting() noexcept
 {
-    m_state.store(static_cast<std::uint32_t>(EThreadRunState::Waiting), std::memory_order_release);
+    const EThreadRunState previous = static_cast<EThreadRunState>(m_state.exchange(
+        static_cast<std::uint32_t>(EThreadRunState::Waiting), std::memory_order_release));
+    if ((previous == EThreadRunState::Startup) || (previous == EThreadRunState::Pending))
+    {
+        (void)m_owner_wake.signal();
+    }
 }
 
 inline void CThreadControlState::mark_exiting() noexcept
@@ -177,12 +191,14 @@ inline void CThreadControlState::mark_exiting() noexcept
 inline void CThreadControlState::mark_exited() noexcept
 {
     m_state.store(static_cast<std::uint32_t>(EThreadRunState::Exited), std::memory_order_release);
+    (void)m_owner_wake.signal();
 }
 
 inline void CThreadControlState::mark_failed(const std::uint32_t code) noexcept
 {
     m_failure_code.store(code, std::memory_order_release);
     m_state.store(static_cast<std::uint32_t>(EThreadRunState::Failed), std::memory_order_release);
+    (void)m_owner_wake.signal();
 }
 
 inline void CThreadControlState::advance_heartbeat() noexcept

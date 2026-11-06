@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <type_traits>
 #include "threading/CWaitPredicate.hpp"
+#include "platform/threading/owner_wait.hpp"
 
 namespace threading
 {
@@ -55,7 +56,8 @@ public:
 
     //  Initialise once, before exposing handles. Targets outlive every user.
     [[nodiscard]] bool initialise(CWaitPredicate& predicate) noexcept;
-    [[nodiscard]] bool initialise(std::atomic<std::uint32_t>& work_pending) noexcept;
+    [[nodiscard]] bool initialise(std::atomic<std::uint32_t>& work_pending,
+        const platform::threading::SWakeEndpoint owner_wake = {}) noexcept;
     [[nodiscard]] SNotificationEndpoint endpoint() noexcept;
     [[nodiscard]] SNotificationReader reader() noexcept;
 
@@ -67,6 +69,7 @@ private:
     std::atomic<std::uint32_t> m_state{ 0u };
     CWaitPredicate* m_predicate{ nullptr };
     std::atomic<std::uint32_t>* m_work_pending{ nullptr };
+    platform::threading::SWakeEndpoint m_owner_wake;
 };
 
 inline bool CNotification::initialise(CWaitPredicate& predicate) noexcept
@@ -76,10 +79,12 @@ inline bool CNotification::initialise(CWaitPredicate& predicate) noexcept
     return true;
 }
 
-inline bool CNotification::initialise(std::atomic<std::uint32_t>& work_pending) noexcept
+inline bool CNotification::initialise(std::atomic<std::uint32_t>& work_pending,
+    const platform::threading::SWakeEndpoint owner_wake) noexcept
 {
     if (m_predicate || m_work_pending) return false;
     m_work_pending = &work_pending;
+    m_owner_wake = owner_wake;
     return true;
 }
 
@@ -106,7 +111,12 @@ inline bool CNotification::signal() noexcept
     if (m_work_pending)
     {
         m_work_pending->store(1u, std::memory_order_release);
-        return true;
+        if (!m_owner_wake.is_valid() || m_owner_wake.signal())
+        {
+            return true;
+        }
+        m_state.fetch_or(k_failed, std::memory_order_release);
+        return false;
     }
     if (m_predicate && m_predicate->poke_epoch_and_wake_one()) return true;
     m_state.fetch_or(k_failed, std::memory_order_release);

@@ -443,6 +443,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_internal.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\owner_wait.hpp">
+      <Filter>Core\include\platform\threading</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
@@ -714,6 +717,9 @@
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.cpp">
+      <Filter>Core\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\owner_wait.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.cpp">

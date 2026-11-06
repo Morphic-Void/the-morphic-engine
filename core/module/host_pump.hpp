@@ -33,7 +33,9 @@ struct SProgress
     EPumpPhase phase{ EPumpPhase::starting };
     std::uint32_t error_domain{ 0u };
     std::uint32_t error_code{ 0u };
-    std::uint32_t work_pending{ 0u }; //  Zero or one in v1.
+    std::uint32_t work_pending{ 0u }; //  Another invocation can make progress now.
+    std::uint32_t native_events_active{ 0u }; //  Exact owner can service this thread's native queue.
+    std::uint32_t stop_requested{ 0u }; //  Durable native application-stop request.
 };
 
 struct SPumpInput
@@ -88,24 +90,25 @@ struct SHostPumpContext
     const SHostExecutionContext* execution{ nullptr };
 };
 
-inline constexpr char k_host_pump_symbol_name[]{ "morphic_module_host_pump_v1" };
-struct SHostPumpV1
+inline constexpr char k_host_pump_symbol_name[]{ "morphic_module_host_pump_v2" };
+inline constexpr std::uint32_t k_host_pump_native_events = 1u;
+struct SHostPumpV2
 {
     [[nodiscard]] bool is_valid() const noexcept;
 
-    std::uint32_t size{ sizeof(SHostPumpV1) };
-    std::uint32_t version{ 1u };
+    std::uint32_t size{ sizeof(SHostPumpV2) };
+    std::uint32_t version{ 2u };
     std::uint32_t flags{ 0u };
     ECallStatus(MV_STD_ABI_CALL* activate)(const SHostPumpContext* const, void** const, SProgress* const) noexcept{ nullptr };
     ECallStatus(MV_STD_ABI_CALL* pump)(void* const, const SPumpInput* const, SPumpResult* const) noexcept{ nullptr };
     ECallStatus(MV_STD_ABI_CALL* begin_stop)(void* const, const EStopReason, SProgress* const) noexcept{ nullptr };
     ECallStatus(MV_STD_ABI_CALL* deactivate)(void* const) noexcept{ nullptr };
 };
-using FQueryHostPump = EBindingResult(MV_STD_ABI_CALL*)(const std::uint32_t, SHostPumpV1* const) noexcept;
+using FQueryHostPump = EBindingResult(MV_STD_ABI_CALL*)(const std::uint32_t, SHostPumpV2* const) noexcept;
 
-inline bool SHostPumpV1::is_valid() const noexcept
+inline bool SHostPumpV2::is_valid() const noexcept
 {
-    if ((size != sizeof(SHostPumpV1)) || (version != 1u) || (flags != 0u) ||
+    if ((size != sizeof(SHostPumpV2)) || (version != 2u) || ((flags & ~k_host_pump_native_events) != 0u) ||
         (activate == nullptr) || (pump == nullptr) ||
         (begin_stop == nullptr) || (deactivate == nullptr))
     {
@@ -114,7 +117,7 @@ inline bool SHostPumpV1::is_valid() const noexcept
     return true;
 }
 
-static_assert(std::is_standard_layout_v<SHostPumpV1> && std::is_trivially_copyable_v<SHostPumpV1>);
+static_assert(std::is_standard_layout_v<SHostPumpV2> && std::is_trivially_copyable_v<SHostPumpV2>);
 static_assert(std::is_standard_layout_v<SHostPumpServices> && std::is_trivially_copyable_v<SHostPumpServices>);
 static_assert(std::is_standard_layout_v<SHostPumpContext> && std::is_trivially_copyable_v<SHostPumpContext>);
 static_assert(std::is_standard_layout_v<SPumpInput> && std::is_trivially_copyable_v<SPumpInput>);

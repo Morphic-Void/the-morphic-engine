@@ -36,6 +36,7 @@ public:
     [[nodiscard]] bool client_idle(const SClientRecord& client) const noexcept;
     [[nodiscard]] bool empty() const noexcept { return m_count == 0u; }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
+    void limit_wait(std::uint64_t& remaining) noexcept;
 
 private:
 #if defined(MV_HOST_RUNTIME_TESTS)

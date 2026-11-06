@@ -26,6 +26,7 @@ struct SWindow
     std::uintptr_t handle{ 0u }, instance{ 0u };
     std::uint32_t class_atom{ 0u }, error{ 0u };
     bool timer{ false }, cancelling{ false }, destroying{ false }, established{ false };
+    bool native_events{ false }, work_pending{ false };
     [[nodiscard]] bool live() const noexcept { return handle || class_atom; }
 };
 

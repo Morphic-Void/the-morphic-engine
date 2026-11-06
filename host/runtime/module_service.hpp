@@ -40,7 +40,7 @@ struct SModuleWork
     const char* physical_file{ nullptr };
     modules::FModuleFunction function{ nullptr };
     modules::SServiceThread service_thread;
-    modules::SHostPumpV1 host_pump;
+    modules::SHostPumpV2 host_pump;
     modules::SServiceProviderV1 service_provider;
     bool cleanup_only{ false };
 };
@@ -80,10 +80,11 @@ public:
 
     [[nodiscard]] bool is_idle() const noexcept { return !m_pending; }
     [[nodiscard]] bool is_in_flight() const noexcept { return m_in_flight; }
+    [[nodiscard]] bool has_internal_result() const noexcept { return m_internal_result_ready; }
     [[nodiscard]] bool needs_thread_start() const noexcept { return m_start_pending; }
     [[nodiscard]] modules::CBoundModule* pending_binding() noexcept { return m_work.next; }
     [[nodiscard]] const modules::SServiceThread& pending_service_thread() const noexcept { return m_work.service_thread; }
-    [[nodiscard]] const modules::SHostPumpV1& pending_host_pump() const noexcept { return m_work.host_pump; }
+    [[nodiscard]] const modules::SHostPumpV2& pending_host_pump() const noexcept { return m_work.host_pump; }
     [[nodiscard]] const modules::SServiceProviderV1& pending_service_provider() const noexcept { return m_work.service_provider; }
     [[nodiscard]] bool releases_binding() const noexcept { return m_work.previous != nullptr; }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }

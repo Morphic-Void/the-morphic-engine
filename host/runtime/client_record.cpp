@@ -122,6 +122,7 @@ bool SClientRecord::post(const threading::CErasedPodMsg& message) noexcept
         return false;
     }
     control_messages[control_count++] = message;
+    (void)owner_wake.signal();
     return true;
 }
 
@@ -141,6 +142,7 @@ bool SClientRecord::post_reply(const threading::CErasedPodMsg& message) noexcept
         return false;
     }
     messages[message_count++] = message;
+    (void)owner_wake.signal();
     return true;
 }
 
@@ -212,14 +214,17 @@ bool SClientRecord::install_host_execution(const modules::SHostRestrictionReader
     host_execution.client = identity;
     host_execution.subscription = { identity.value };
     host_execution.restriction = reader;
-    if (module == module_ids::executive) host_execution.stop = { &host_stop_requested };
+    if (module == module_ids::executive) host_execution.stop = { &host_stop_requested, owner_wake };
     if (thread)
     {
         if (!thread->install_host_execution(host_execution, restriction_notification)) return false;
     }
     else
     {
-        if (!restriction_notification.initialise(notifications_pending)) return false;
+        if (!restriction_notification.initialise(notifications_pending, owner_wake))
+        {
+            return false;
+        }
         host_execution.notification = restriction_notification.reader();
         if (!restriction_notification.endpoint().signal()) return false;
     }
@@ -283,6 +288,7 @@ void SClientRecord::consume_messages(const std::uint32_t count, const std::uint3
         std::memmove(control_messages, control_messages + controls, control_count * sizeof(control_messages[0]));
     }
     consume(count - controls);
+    if (count) (void)owner_wake.signal();
 }
 
 void SClientRecord::consume(const std::uint32_t count) noexcept

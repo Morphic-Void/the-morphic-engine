@@ -19,6 +19,7 @@
 #include "threading/CThreadPackage.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/test_suites/TimedWait_test_suite.hpp"
+#include "tests/test_suites/HostWait_test_cases.hpp"
 
 #if MV_PLATFORM_LINUX || MV_PLATFORM_ANDROID
 #include <csignal>
@@ -389,6 +390,7 @@ void test_interruptions(TTestContext& ctx)
 int run_timed_wait_tests()
 {
     TTestContext ctx;
+    run_host_wait_tests(ctx);
     test_conversion_and_invalid_requests(ctx);
     test_immediate_and_expired(ctx);
     test_notification_and_release(ctx);

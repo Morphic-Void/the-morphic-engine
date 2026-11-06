@@ -53,6 +53,8 @@ static bool zero_reply_control(const threading::CErasedPodMsg& message) noexcept
 CHost::CHost(memory::CMemoryAllocator& allocator) noexcept
     : m_module_service{ allocator }, m_maintenance{ *this }
 {
+    m_wait_setup_error = m_owner_wait.initialise();
+    m_batch_pool.shared().owner_wake = m_owner_wait.endpoint();
 }
 
 CHost::~CHost() noexcept
@@ -66,6 +68,7 @@ void CHost::initialise_debug_service(const char* const log_tag, const char* cons
     if (m_debug_service_owner)
     {
         m_debug_service = m_debug_service_owner.operator->();
+        m_debug_service->install_shutdown_wake(m_owner_wait.endpoint());
         char event_log_path[debug_system::k_log_path_capacity]{};
         char direct_log_path[debug_system::k_log_path_capacity]{};
         const platform::system::CPlatformProcessId process_id = platform::system::query_current_process_id();
@@ -87,6 +90,10 @@ void CHost::initialise_debug_service(const char* const log_tag, const char* cons
             if (m_debug_service_installed)
             {
                 m_debug_service_started = m_debug_service->start();
+                if (!m_debug_service_started && m_debug_service->retains_execution())
+                {
+                    m_retain_runtime = true;
+                }
             }
         }
     }
@@ -109,7 +116,8 @@ bool CHost::start_threads() noexcept
         }
 
         m_worker_slots[index] = slot;
-        if (!m_thread_packages.get_object(slot)->startup())
+        if (!m_thread_packages.get_object(slot)->install_owner_wake(m_owner_wait.endpoint()) ||
+            !m_thread_packages.get_object(slot)->startup())
         {
             return false;
         }
@@ -155,7 +163,8 @@ bool CHost::start_executive() noexcept
     client->thread = package;
     client->execution = EClientExecution::threaded;
     client->phase = EClientPhase::ready;
-    const bool prepared = client->install_host_execution(m_maintenance.restrictions().reader()) &&
+    const bool prepared = package->install_owner_wake(m_owner_wait.endpoint()) &&
+        client->install_host_execution(m_maintenance.restrictions().reader()) &&
         package->install_batch_client(m_batch_pool.shared(), module_ids::executive, binding);
 #if defined(MV_HOST_RUNTIME_TESTS)
     if (prepared && m_test_before_client_start)
@@ -206,6 +215,7 @@ bool CHost::register_module_client() noexcept
     {
         return false;
     }
+    m_clients[index]->owner_wake = m_owner_wait.endpoint();
     return true;
 }
 
@@ -254,7 +264,8 @@ bool CHost::start_module_thread() noexcept
     threading::CThreadPackage* const package = m_thread_packages.get_object(slot);
     client->thread = package;
     client->execution = EClientExecution::threaded;
-    const bool prepared = client->install_host_execution(m_maintenance.restrictions().reader()) && package->install_batch_client(m_batch_pool.shared(),
+    const bool prepared = package->install_owner_wake(m_owner_wait.endpoint()) &&
+        client->install_host_execution(m_maintenance.restrictions().reader()) && package->install_batch_client(m_batch_pool.shared(),
         binding->advertised_module_identity().advertised_module_id, binding);
 #if defined(MV_HOST_RUNTIME_TESTS)
     if (prepared && m_test_before_client_start)
@@ -310,6 +321,18 @@ void CHost::start_pending_module() noexcept
     const auto index = module_ids::ops::decode_id(module).raw_value();
     if (!m_clients[index])
     {
+        if (capability.flags & modules::k_host_pump_native_events)
+        {
+            for (const auto& existing : m_pumps)
+            {
+                if (existing && existing->owns_native_queue())
+                {
+                    //  Refuse before activation can create a second queue owner.
+                    m_module_service.complete_thread_start(false);
+                    return;
+                }
+            }
+        }
         if (!register_module_client() || !m_pumps[index].emplace(*m_clients[index], *binding, capability, m_service_router, m_maintenance) ||
             !m_pumps[index]->initialise())
         {
@@ -539,11 +562,17 @@ threading::CThreadPackage* CHost::worker_package(const std::uint32_t index) noex
 
 int CHost::execute(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count, const std::uint32_t batch_runner_count) noexcept
 {
+    if (m_wait_setup_error.code != platform::threading::EWaitError::none)
+    {
+        return 1;
+    }
     initialise_debug_service(log_tag, log_directory);
+    if (m_retain_runtime) return 1;
     MV_INFO("Host: Starting");
     if (worker_count == 0u)
     {
         MV_LOG(error, "Host: Worker count must be greater than zero");
+        (void)shutdown();
         return 2;
     }
     const std::uint32_t hardware_threads = platform::threading::query_hardware_thread_count();
@@ -1084,6 +1113,7 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
         if (!client.reserve_control_replies(replies)) break;
         receive_message(*message, client);
         pump.consume_pod(true);
+        if (count == 15u) m_turn_pending = true;
     }
     for (std::uint32_t count = 0u; count < 64u; ++count)
     {
@@ -1098,6 +1128,7 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
         if (!client.reserve_replies(replies)) break;
         receive_message(*message, client);
         pump.consume_pod(false);
+        if (count == 63u) m_turn_pending = true;
     }
     for (std::uint32_t count = 0u; count < 64u; ++count)
     {
@@ -1114,6 +1145,7 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
             client.cancel_reservation(1u);
         }
         receive_request(message, client);
+        if (count == 63u) m_turn_pending = true;
     }
     client.incoming_drained = controls_drained && pods_drained && owners_drained && !client.deferred_records;
 }
@@ -1127,6 +1159,8 @@ void CHost::pump_clients() noexcept
         auto& pump = *m_pumps[index];
         client.flush();
         pump.pump();
+        m_turn_pending = m_turn_pending || pump.work_pending();
+        m_native_stop_requested = m_native_stop_requested || pump.native_stop_requested();
         drain_pumped_client(pump, client);
         if (pump.stopped() && client.incoming_drained)
         {
@@ -1138,264 +1172,360 @@ void CHost::pump_clients() noexcept
 
 void CHost::run() noexcept
 {
-    threading::CThreadPackage& file_io = *worker_package(0u);
-
+    std::uint64_t initial = 0u;
+    const platform::threading::WaitError clock_error = m_cadence.remaining(initial);
+    if (clock_error.code != platform::threading::EWaitError::none) fail_wait(clock_error);
     while (m_phase != EPhase::complete)
     {
-        m_maintenance.poll_stop();
-        apply_host_stop();
-        m_maintenance.replay();
-        m_maintenance.fanout();
-        if (workers_failed() && !m_workers_unavailable)
+        if (!m_wait_failed)
         {
-            m_workers_unavailable = true;
-            for (std::uint32_t index = 0u; index < m_worker_count; ++index)
-            {
-                if (auto* const worker = worker_package(index))
-                {
-                    worker->request_exit();
-                }
-            }
+            const platform::threading::WaitError error = m_owner_wait.begin_cycle();
+            if (error.code != platform::threading::EWaitError::none) fail_wait(error);
         }
-        if (!m_emergency_shutdown && (m_workers_unavailable || m_batch_pool.failed() || m_batch_contract_failed ||
-            m_module_service.failed() || m_asset_service.failed() || m_filesystem_failed || m_service_router.failed() || m_direct_connections.failed()))
+        const EPhase phase = m_phase;
+        m_turn_pending = false;
+        ++m_turn_count;
+        run_turn();
+        if (m_phase == EPhase::complete) break;
+        if (!m_wait_failed)
         {
-            begin_emergency_shutdown();
+            const platform::threading::WaitError error = m_owner_wait.error();
+            if (error.code != platform::threading::EWaitError::none) fail_wait(error);
         }
+        if (m_turn_pending || (m_phase != phase))
+        {
+            continue;
+        }
+        wait_for_work();
+    }
+}
 
-        if ((m_debug_service != nullptr) &&
-            (m_debug_service->read_shutdown_request() != debug_system::EShutdownReason::none) &&
-            (m_phase != EPhase::shutting_down))
+void CHost::run_turn() noexcept
+{
+    threading::CThreadPackage& file_io = *worker_package(0u);
+    m_maintenance.poll_stop();
+    apply_host_stop();
+    m_maintenance.replay();
+    m_maintenance.fanout();
+    if (workers_failed() && !m_workers_unavailable)
+    {
+        m_workers_unavailable = true;
+        for (std::uint32_t index = 0u; index < m_worker_count; ++index)
         {
-            m_runtime_failed = true;
-            m_executive_request.destroy();
-            if (threading::CThreadPackage* const executive = module_thread_package(module_ids::executive))
+            if (auto* const worker = worker_package(index))
             {
-                executive->request_exit();
-                m_phase = EPhase::stopping_executive;
-            }
-            else if (m_module_service.is_idle())
-            {
-                m_phase = EPhase::shutting_down;
+                worker->request_exit();
             }
         }
+    }
+    if (!m_emergency_shutdown && (m_workers_unavailable || m_batch_pool.failed() || m_batch_contract_failed ||
+        m_module_service.failed() || m_asset_service.failed() || m_filesystem_failed || m_service_router.failed() || m_direct_connections.failed()))
+    {
+        begin_emergency_shutdown();
+    }
 
-        threading::CThreadPackage* const executive = module_thread_package(module_ids::executive);
-
-        //  Observe terminal state before draining queues, then advance the lifecycle.
-        //  A terminal publication makes each DLL thread's preceding requests visible.
-        const threading::EThreadRunState executive_state = (executive != nullptr) ?
-            executive->query_state() : threading::EThreadRunState::Empty;
-        for (auto& service : m_module_threads)
+    if ((m_debug_service != nullptr) &&
+        (m_debug_service->read_shutdown_request() != debug_system::EShutdownReason::none) &&
+        (m_phase != EPhase::shutting_down))
+    {
+        m_runtime_failed = true;
+        m_executive_request.destroy();
+        if (threading::CThreadPackage* const executive = module_thread_package(module_ids::executive))
         {
-            const auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
-            service.observed_state = (package != nullptr) ? package->query_state() : threading::EThreadRunState::Empty;
+            executive->request_exit();
+            m_phase = EPhase::stopping_executive;
         }
-        bool workers_drained = true;
-        for (std::int32_t slot = m_thread_packages.first_live(); slot >= 0; slot = m_thread_packages.next_live(slot))
+        else if (m_module_service.is_idle())
         {
-            threading::CThreadPackage& package = *m_thread_packages.get_object(slot);
-            SClientRecord* const client = client_for(package);
-            if (m_maintenance.captured(client, &package))
+            m_phase = EPhase::shutting_down;
+        }
+    }
+
+    threading::CThreadPackage* const executive = module_thread_package(module_ids::executive);
+
+    //  Observe terminal state before draining queues, then advance the lifecycle.
+    //  A terminal publication makes each DLL thread's preceding requests visible.
+    const threading::EThreadRunState executive_state = (executive != nullptr) ?
+        executive->query_state() : threading::EThreadRunState::Empty;
+    for (auto& service : m_module_threads)
+    {
+        const auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
+        service.observed_state = (package != nullptr) ? package->query_state() : threading::EThreadRunState::Empty;
+    }
+    bool workers_drained = true;
+    for (std::int32_t slot = m_thread_packages.first_live(); slot >= 0; slot = m_thread_packages.next_live(slot))
+    {
+        threading::CThreadPackage& package = *m_thread_packages.get_object(slot);
+        SClientRecord* const client = client_for(package);
+        if (m_maintenance.captured(client, &package))
+        {
+            if (client)
             {
-                if (client)
-                {
-                    client->incoming_drained = false;
-                }
-                else workers_drained = false;
-                continue;
-            }
-            //  Acquire terminal publication before observing empty output queues.
-            //  A transition after these reads requires another complete drain.
-            const auto worker_state_before_drain = (client == nullptr) ? package.query_state() : threading::EThreadRunState::Empty;
-            if (client != nullptr)
-            {
-                client->terminal_before_drain = client->terminal();
-                client->flush();
                 client->incoming_drained = false;
             }
-            bool pods_drained = false;
-            bool owners_drained = false;
-            for (std::uint32_t count = 0u; count < 64u; ++count)
+            else workers_drained = false;
+            continue;
+        }
+        //  Acquire terminal publication before observing empty output queues.
+        //  A transition after these reads requires another complete drain.
+        const auto worker_state_before_drain = (client == nullptr) ? package.query_state() : threading::EThreadRunState::Empty;
+        if (client != nullptr)
+        {
+            client->terminal_before_drain = client->terminal();
+            client->flush();
+            client->incoming_drained = false;
+        }
+        bool pods_drained = false;
+        bool owners_drained = false;
+        for (std::uint32_t count = 0u; count < 64u; ++count)
+        {
+            if ((client != nullptr) && !client->reserve_replies(2u))
             {
-                if ((client != nullptr) && !client->reserve_replies(2u))
-                {
-                    break;
-                }
-                threading::CErasedPodMsg message;
-                if (!package.read(message))
-                {
-                    if (client != nullptr)
-                    {
-                        client->cancel_reservation(2u);
-                    }
-                    pods_drained = true;
-                    break;
-                }
-                if (client != nullptr)
-                {
-                    client->cancel_reservation(zero_reply_control(message) ? 2u :
-                        (message.is_payload_a<services::ServiceRequest>() ? 0u : 1u));
-                    receive_message(message, *client);
-                }
-                else if ((&package == &file_io) && message.is_payload_a<ModuleWorkResult>())
-                {
-                    m_module_service.complete(message);
-                }
-                else
-                {
-                    m_asset_service.complete(message, package);
-                }
+                break;
             }
-            for (std::uint32_t count = 0u; count < 64u; ++count)
+            threading::CErasedPodMsg message;
+            if (!package.read(message))
             {
-                if ((client != nullptr) && !client->reserve_replies(2u))
-                {
-                    break;
-                }
-                threading::CErasedOwnerMsg owned;
-                if (!package.read(owned))
-                {
-                    if (client != nullptr)
-                    {
-                        client->cancel_reservation(2u);
-                    }
-                    owners_drained = true;
-                    break;
-                }
                 if (client != nullptr)
                 {
-                    if (!owned.is_message_a<modules::ModuleRequest>())
-                    {
-                        client->cancel_reservation(1u);
-                    }
-                    receive_request(owned, *client);
+                    client->cancel_reservation(2u);
                 }
-                else if ((&package == &file_io) && owned.is_message_a<FilesystemScanResult>())
-                {
-                    complete_scan(owned);
-                }
-                else
-                {
-                    m_asset_service.complete(owned, package);
-                }
+                pods_drained = true;
+                break;
             }
             if (client != nullptr)
             {
-                client->incoming_drained = pods_drained && owners_drained && !client->deferred_records;
+                client->cancel_reservation(zero_reply_control(message) ? 2u :
+                    (message.is_payload_a<services::ServiceRequest>() ? 0u : 1u));
+                receive_message(message, *client);
+            }
+            else if ((&package == &file_io) && message.is_payload_a<ModuleWorkResult>())
+            {
+                m_module_service.complete(message);
             }
             else
             {
-#if defined(MV_HOST_RUNTIME_TESTS)
-                if (m_test_after_worker_drain != nullptr)
+                m_asset_service.complete(message, package);
+            }
+            if (count == 63u) m_turn_pending = true;
+        }
+        for (std::uint32_t count = 0u; count < 64u; ++count)
+        {
+            if ((client != nullptr) && !client->reserve_replies(2u))
+            {
+                break;
+            }
+            threading::CErasedOwnerMsg owned;
+            if (!package.read(owned))
+            {
+                if (client != nullptr)
                 {
-                    m_test_after_worker_drain(*this, package);
+                    client->cancel_reservation(2u);
                 }
-#endif
-                workers_drained = workers_drained && pods_drained && owners_drained && !m_maintenance.references(package) &&
-                    ((worker_state_before_drain == threading::EThreadRunState::Exited) ||
-                        (worker_state_before_drain == threading::EThreadRunState::Failed) ||
-                        (worker_state_before_drain == threading::EThreadRunState::Empty));
+                owners_drained = true;
+                break;
             }
-        }
-
-        if (m_workers_unavailable && workers_drained && !m_worker_failure_drained)
-        {
-            //  Worker inputs may be released only after every borrower and its
-            //  final completion queue is quiescent, including the healthy worker.
-            m_worker_failure_drained = true;
-            if (m_module_service.is_in_flight())
+            if (client != nullptr)
             {
-                m_module_service.cancel_pending();
-            }
-            m_asset_service.fail_pending();
-            for (auto& refresh : m_refresh_queue)
-            {
-                if (refresh.client != nullptr)
+                if (!owned.is_message_a<modules::ModuleRequest>())
                 {
-                    reply_refresh(*refresh.client, refresh.slot, filesystem::EFilesystemStatus::delivery_failed);
+                    client->cancel_reservation(1u);
                 }
-                refresh = {};
+                receive_request(owned, *client);
             }
-            m_refresh_count = 0u;
-            m_initial_scan = false;
-            m_scan_in_flight = false;
-#if defined(MV_HOST_RUNTIME_TESTS)
-            if (m_test_after_worker_failure != nullptr)
+            else if ((&package == &file_io) && owned.is_message_a<FilesystemScanResult>())
             {
-                m_test_after_worker_failure(*this);
-            }
-#endif
-        }
-        pump_clients();
-        for (auto& client : m_clients)
-        {
-            if (client && client->terminal() && client->incoming_drained)
-            {
-                m_service_router.retire_client(*client);
-            }
-        }
-        m_service_router.progress();
-        m_direct_connections.progress();
-        if (m_direct_connections.failed())
-        {
-            m_runtime_failed = true;
-        }
-
-        //  Complete disposal after draining worker replies, then advance module
-        //  teardown only when no asset operation retains a worker borrow.
-        if (m_module_service.needs_thread_start())
-        {
-            start_pending_module();
-        }
-
-        //  Terminal state was sampled before draining each client's final
-        //  messages. Batch users must also be gone before abandoned views die.
-        for (const auto& service : m_module_threads)
-        {
-            auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
-            if ((package != nullptr) && client_for(*package)->incoming_drained &&
-                ((service.observed_state == threading::EThreadRunState::Exited) ||
-                    (service.observed_state == threading::EThreadRunState::Failed)) &&
-                ((package->batch_client() == nullptr) ||
-                    ((package->batch_client()->outstanding() == 0u) && (package->batch_client()->return_publishers() == 0u))))
-            {
-                m_asset_service.release_client_acquisitions(*client_for(*package));
-            }
-        }
-        m_asset_service.complete_disposals();
-        dispatch_refresh();
-        advance_lifecycle(executive_state);
-        if ((m_phase == EPhase::shutting_down) || (m_phase == EPhase::stopping_executive))
-        {
-            check_shutdown_deadline();
-        }
-        const bool stopping_module = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
-            m_module_service.releases_binding();
-        const bool module_stopped = !stopping_module || stop_module_thread(m_module_service.pending_mount_point());
-        if (module_stopped && m_asset_service.work_idle() &&
-            (!m_module_service.releases_binding() || m_asset_service.dependencies_idle(m_module_service.pending_mount_point())) &&
-            !m_module_service.is_idle() && !m_module_service.is_in_flight())
-        {
-            if (m_module_service.releases_binding())
-            {
-                m_asset_service.dispose_dependencies(m_module_service.pending_mount_point());
-            }
-            if (m_workers_unavailable)
-            {
-                if (m_worker_failure_drained)
-                {
-                    m_retain_runtime = true;
-                    m_module_service.fail_retained(modules::EModuleStatus::unload_failed);
-                }
+                complete_scan(owned);
             }
             else
             {
-                m_module_service.dispatch(file_io, m_debug_service);
+                m_asset_service.complete(owned, package);
+            }
+            if (count == 63u) m_turn_pending = true;
+        }
+        if (client != nullptr)
+        {
+            client->incoming_drained = pods_drained && owners_drained && !client->deferred_records;
+        }
+        else
+        {
+#if defined(MV_HOST_RUNTIME_TESTS)
+            if (m_test_after_worker_drain != nullptr)
+            {
+                m_test_after_worker_drain(*this, package);
+            }
+#endif
+            workers_drained = workers_drained && pods_drained && owners_drained && !m_maintenance.references(package) &&
+                ((worker_state_before_drain == threading::EThreadRunState::Exited) ||
+                    (worker_state_before_drain == threading::EThreadRunState::Failed) ||
+                    (worker_state_before_drain == threading::EThreadRunState::Empty));
+        }
+    }
+
+    if (m_workers_unavailable && workers_drained && !m_worker_failure_drained)
+    {
+        //  Worker inputs may be released only after every borrower and its
+        //  final completion queue is quiescent, including the healthy worker.
+        m_worker_failure_drained = true;
+        if (m_module_service.is_in_flight())
+        {
+            m_module_service.cancel_pending();
+        }
+        m_asset_service.fail_pending();
+        for (auto& refresh : m_refresh_queue)
+        {
+            if (refresh.client != nullptr)
+            {
+                reply_refresh(*refresh.client, refresh.slot, filesystem::EFilesystemStatus::delivery_failed);
+            }
+            refresh = {};
+        }
+        m_refresh_count = 0u;
+        m_initial_scan = false;
+        m_scan_in_flight = false;
+#if defined(MV_HOST_RUNTIME_TESTS)
+        if (m_test_after_worker_failure != nullptr)
+        {
+            m_test_after_worker_failure(*this);
+        }
+#endif
+    }
+    pump_clients();
+    m_maintenance.poll_stop();
+    apply_host_stop();
+    for (auto& client : m_clients)
+    {
+        if (client && client->terminal() && client->incoming_drained)
+        {
+            m_service_router.retire_client(*client);
+        }
+    }
+    m_service_router.progress();
+    m_direct_connections.progress();
+    if (m_direct_connections.failed())
+    {
+        m_runtime_failed = true;
+    }
+
+    //  Complete disposal after draining worker replies, then advance module
+    //  teardown only when no asset operation retains a worker borrow.
+    if (m_module_service.needs_thread_start())
+    {
+        start_pending_module();
+    }
+
+    //  Terminal state was sampled before draining each client's final
+    //  messages. Batch users must also be gone before abandoned views die.
+    for (const auto& service : m_module_threads)
+    {
+        auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
+        if ((package != nullptr) && client_for(*package)->incoming_drained &&
+            ((service.observed_state == threading::EThreadRunState::Exited) ||
+                (service.observed_state == threading::EThreadRunState::Failed)) &&
+            ((package->batch_client() == nullptr) ||
+                ((package->batch_client()->outstanding() == 0u) && (package->batch_client()->return_publishers() == 0u))))
+        {
+            m_asset_service.release_client_acquisitions(*client_for(*package));
+        }
+    }
+    m_asset_service.complete_disposals();
+    dispatch_refresh();
+    advance_lifecycle(executive_state);
+    if ((m_phase == EPhase::shutting_down) || (m_phase == EPhase::stopping_executive))
+    {
+        check_shutdown_deadline();
+    }
+    const bool stopping_module = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
+        m_module_service.releases_binding();
+    const bool module_stopped = !stopping_module || stop_module_thread(m_module_service.pending_mount_point());
+    if (module_stopped && m_asset_service.work_idle() &&
+        (!m_module_service.releases_binding() || m_asset_service.dependencies_idle(m_module_service.pending_mount_point())) &&
+        !m_module_service.is_idle() && !m_module_service.is_in_flight())
+    {
+        if (m_module_service.releases_binding())
+        {
+            m_asset_service.dispose_dependencies(m_module_service.pending_mount_point());
+        }
+        if (m_workers_unavailable)
+        {
+            if (m_worker_failure_drained)
+            {
+                m_retain_runtime = true;
+                m_module_service.fail_retained(modules::EModuleStatus::unload_failed);
             }
         }
+        else
+        {
+            m_module_service.dispatch(file_io, m_debug_service);
+            if (m_module_service.has_internal_result()) m_turn_pending = true;
+        }
+    }
 
+}
+
+void CHost::fail_wait(const platform::threading::WaitError error) noexcept
+{
+    if (m_wait_failed) return;
+    m_wait_failed = true;
+    MV_LOG(error, "Host: wait failure {}, native {}", static_cast<std::uint32_t>(error.code), error.native_error);
+    begin_emergency_shutdown();
+}
+
+void CHost::wait_for_work() noexcept
+{
+    if (m_wait_failed)
+    {
+        //  A failed parking mechanism must not stall failure cleanup.
         platform::threading::processor_relax();
+        return;
+    }
+    std::uint64_t remaining = 0u;
+    platform::threading::WaitError error = m_cadence.remaining(remaining);
+    if (error.code != platform::threading::EWaitError::none)
+    {
+        fail_wait(error);
+        return;
+    }
+    std::uint32_t native_owners = 0u;
+    for (auto& pump : m_pumps)
+    {
+        if (!pump) continue;
+        pump->limit_wait(remaining);
+        if (pump->native_events_active()) ++native_owners;
+    }
+    if (native_owners > 1u)
+    {
+        fail_wait({ platform::threading::EWaitError::invalid_argument, 0u });
+        return;
+    }
+    m_direct_connections.limit_wait(remaining);
+    if (m_shutdown_timed && !m_shutdown_reported)
+    {
+        std::uint64_t shutdown_remaining = 0u;
+        error = m_shutdown_deadline.remaining_nanoseconds(shutdown_remaining);
+        if (error.code != platform::threading::EWaitError::none)
+        {
+            fail_wait(error);
+            return;
+        }
+        if (shutdown_remaining < remaining) remaining = shutdown_remaining;
+    }
+    if (!remaining) return;
+    threading::CWaitDeadline deadline;
+    error = deadline.set_after_nanoseconds(remaining);
+    if (error.code != platform::threading::EWaitError::none)
+    {
+        fail_wait(error);
+        return;
+    }
+    ++m_wait_count;
+    const platform::threading::SOwnerWaitResult result = m_owner_wait.wait(deadline, (native_owners != 0u));
+    using platform::threading::EOwnerWaitStatus;
+    if ((result.status != EOwnerWaitStatus::activity) && (result.status != EOwnerWaitStatus::native_activity) &&
+        (result.status != EOwnerWaitStatus::timed_out))
+    {
+        fail_wait({ (result.status == EOwnerWaitStatus::unsupported) ? platform::threading::EWaitError::unsupported :
+            platform::threading::EWaitError::native_failure, result.native_error });
     }
 }
 
@@ -1505,13 +1635,15 @@ bool CHost::shutdown_threads() noexcept
     return true;
 }
 
-void CHost::shutdown_debug_service() noexcept
+bool CHost::shutdown_debug_service() noexcept
 {
     if (m_debug_service_started)
     {
         if (!m_debug_service->stop())
         {
             MV_ERROR("Host failed to stop the debug service cleanly");
+            m_retain_runtime = true;
+            return false;
         }
         m_debug_service_started = false;
     }
@@ -1520,11 +1652,14 @@ void CHost::shutdown_debug_service() noexcept
         if (!debug_system::uninstall_service(m_debug_service))
         {
             MV_ERROR("Host failed to uninstall the debug service cleanly");
+            m_retain_runtime = true;
+            return false;
         }
         m_debug_service_installed = false;
     }
     m_debug_service = nullptr;
     m_debug_service_owner.reset();
+    return true;
 }
 
 bool CHost::shutdown() noexcept
@@ -1536,6 +1671,7 @@ bool CHost::shutdown() noexcept
     }
     if (!shutdown_threads()) m_retain_runtime = true;
     const bool batch_stopped = m_batch_pool.stop();
+    if (!batch_stopped) m_retain_runtime = true;
     if (m_retain_runtime)
     {
         //  Preserve the complete graph, including callback context and module
@@ -1557,8 +1693,9 @@ bool CHost::shutdown() noexcept
     m_executive_request.destroy();
     m_thread_packages.deallocate();
     const bool modules_unloaded = m_module_service.release_records();
-    shutdown_debug_service();
-    return modules_unloaded && batch_stopped;
+    MV_LOG(info, "Host: scheduler turns {}, wait calls {}", m_turn_count, m_wait_count);
+    const bool debug_stopped = shutdown_debug_service();
+    return modules_unloaded && batch_stopped && debug_stopped;
 }
 
 //  Declaration order installs the context before any runtime containers capture

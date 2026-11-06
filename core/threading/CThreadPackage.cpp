@@ -74,6 +74,14 @@ std::uint32_t CThreadContext::wait_for_new_epoch(const std::uint32_t epoch) noex
     return new_epoch;
 }
 
+bool CThreadPackage::install_owner_wake(const platform::threading::SWakeEndpoint wake) noexcept
+{
+    if (m_resources.created) return false;
+    m_resources.owner_wake = wake;
+    m_resources.control_state.install_owner_wake(wake);
+    return true;
+}
+
 bool CThreadPackage::startup() noexcept
 {
     if (m_resources.config.entry_point == nullptr)

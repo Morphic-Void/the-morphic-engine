@@ -60,6 +60,7 @@ static LRESULT CALLBACK window_proc(const HWND handle, const UINT message, const
         window = static_cast<SWindow*>(create->lpCreateParams);
         if (!window || !window->runtime) return FALSE;
         window->handle = reinterpret_cast<std::uintptr_t>(handle);
+        window->native_events = true;
         SetLastError(ERROR_SUCCESS);
         if (!SetWindowLongPtrW(handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window)) && (GetLastError() != ERROR_SUCCESS))
         {
@@ -207,15 +208,32 @@ static services::EServiceStatus create(SWindow& window) noexcept
 
 static bool dispatch(SWindow& window, const std::uint64_t budget_ns) noexcept
 {
+    window.work_pending = true;
     std::uint64_t start = 0u;
     if (threading::query_awake_nanoseconds(start).code != threading::EWaitError::none) return false;
     for (std::uint32_t count = 0u; count < 128u; ++count)
     {
         if (window.runtime->maintain_native()) cancel(window);
         MSG message{};
-        if (!PeekMessageW(&message, reinterpret_cast<HWND>(window.handle), 0u, 0u, PM_REMOVE)) break;
-        (void)TranslateMessage(&message);
-        (void)DispatchMessageW(&message);
+        //  This exact Platform instance owns the Host thread's native queue.
+        //  Retrieval can dispatch sent messages, so the caller's native scope
+        //  covers both retrieval and explicit dispatch, including helper windows.
+        if (!PeekMessageW(&message, nullptr, 0u, 0u, PM_REMOVE))
+        {
+            window.work_pending = false;
+            break;
+        }
+        if (message.message == WM_QUIT)
+        {
+            window.runtime->native_stop();
+        }
+        //  Unrecognised thread-only messages have no registered recipient.
+        //  Consume them; never repeatedly wake on an undispatchable record.
+        else if (message.hwnd)
+        {
+            (void)TranslateMessage(&message);
+            (void)DispatchMessageW(&message);
+        }
         std::uint64_t now = 0u;
         if ((threading::query_awake_nanoseconds(now).code != threading::EWaitError::none) || (now < start)) return false;
         if ((now - start) >= budget_ns) break;

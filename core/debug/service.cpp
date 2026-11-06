@@ -372,7 +372,7 @@ bool CDebugServiceState::start() noexcept
         return true;
     }
 
-    (void)m_writer_thread.join_and_close();
+    if (!m_writer_thread.join_and_close()) return false;
     close_logs();
     return false;
 }
@@ -386,6 +386,7 @@ bool CDebugServiceState::stop() noexcept
 
     signal_writer();
     const bool joined = m_writer_thread.join_and_close();
+    if (!joined) return false;
     const bool stopped = thread_state() == EServiceThreadState::stopped;
     close_logs();
     return joined && stopped && m_event_transport.is_closed();
@@ -690,6 +691,7 @@ void CDebugServiceState::request_shutdown(const EShutdownReason reason) noexcept
     while ((current < requested) && !m_shutdown_request.value.compare_exchange_weak(current, requested, std::memory_order_release, std::memory_order_relaxed))
     {
     }
+    if (requested != 0u) (void)m_shutdown_wake.signal();
 }
 
 EShutdownReason CDebugServiceState::read_shutdown_request() const noexcept

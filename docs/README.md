@@ -34,6 +34,8 @@ or that work has been authorised.
   exact-instance lifetime protection and two-sided retirement.
 - [Host restriction and bounded maintenance](modules/host_restriction_maintenance.md):
   eligible budgets, modal bookkeeping and independent shutdown signalling.
+- [Host cadence and timed waiting](modules/host_timed_wait.md): aggregated wake,
+  anchored 120 Hz opportunities, Windows native readiness and Linux parking.
 - [Platform shell and first Windows window](modules/platform_first_window.md):
   on-demand module, explicit window uses, durable state, close policy and native
   acceptance evidence. Native Linux and input are not yet implemented.

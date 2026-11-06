@@ -24,7 +24,7 @@ class CPumpedClient
 {
 public:
     CPumpedClient(SClientRecord& client, modules::CBoundModule& binding,
-        const modules::SHostPumpV1& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept;
+        const modules::SHostPumpV2& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept;
     [[nodiscard]] bool initialise() noexcept;
     void activate() noexcept;
     void pump() noexcept;
@@ -39,6 +39,11 @@ public:
     [[nodiscard]] bool deactivated() const noexcept { return m_deactivated; }
     [[nodiscard]] bool retained() const noexcept { return m_retained; }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
+    [[nodiscard]] bool work_pending() const noexcept { return m_work_pending && !stopped() && !m_retained && !m_deactivated; }
+    [[nodiscard]] bool native_events_active() const noexcept { return m_native_events && !stopped() && !m_retained && !m_deactivated; }
+    [[nodiscard]] bool native_stop_requested() const noexcept { return m_native_stop; }
+    [[nodiscard]] bool owns_native_queue() const noexcept { return (m_capability.flags & modules::k_host_pump_native_events) && !m_deactivated; }
+    void limit_wait(std::uint64_t& remaining) noexcept;
 
 private:
     [[nodiscard]] bool enter(const bool allow_restriction = true) noexcept;
@@ -59,7 +64,7 @@ private:
 
     SClientRecord& m_client;
     modules::CBoundModule& m_binding;
-    const modules::SHostPumpV1 m_capability;
+    const modules::SHostPumpV2 m_capability;
     CServiceRouter& m_router;
     CHostMaintenance& m_maintenance;
     modules::SHostPumpContext m_context;
@@ -77,6 +82,7 @@ private:
     bool m_failed{ false };
     bool m_protocol_failed{ false };
     bool m_call_failed{ false };
+    bool m_work_pending{ false }, m_native_events{ false }, m_native_stop{ false };
     modules::CHostEligibleBudget m_activation_budget;
 };
 

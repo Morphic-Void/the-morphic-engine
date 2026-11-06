@@ -662,7 +662,11 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
     progress = {};
     progress.phase = stopped() ? modules::EPumpPhase::stopped :
         (m_stopping ? modules::EPumpPhase::stopping : modules::EPumpPhase::ready);
-    progress.work_pending = stopped() ? 0u : 1u;
+    progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
+        !m_window.destruction_failed) ? 1u : 0u;
+    progress.native_events_active = (m_window.native.handle && m_window.native.native_events &&
+        !m_window.destruction_failed) ? 1u : 0u;
+    progress.stop_requested = m_host_stop ? 1u : 0u;
     progress.error_code = m_failed ? 1u : 0u;
 }
 

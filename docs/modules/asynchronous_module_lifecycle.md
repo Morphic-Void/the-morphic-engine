@@ -221,8 +221,8 @@ acquisitions, deferred disposal and dependent-asset cleanup.
 
 ## Host-pumped services
 
-The independent `morphic_module_host_pump_v1` export advertises a complete
-`modules::SHostPumpV1` lifecycle. The binding worker discovers/validates it, then
+The independent `morphic_module_host_pump_v2` export advertises a complete
+`modules::SHostPumpV2` lifecycle. The binding worker discovers/validates it, then
 Host prepares module-local context and invokes activate, pump, stop and deactivate
 on the Host thread. A module cannot advertise both threaded and pumped execution;
 `require_host_pump` is separate from `require_service_thread`. The generic service

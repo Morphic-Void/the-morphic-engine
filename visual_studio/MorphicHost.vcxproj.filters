@@ -29,6 +29,7 @@
     <ClInclude Include="..\host\runtime\host_worker_thread.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\batch_pool.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\host_cadence.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\entry\bootstrap_config.hpp"><Filter>Host\include\entry</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\worker_policy.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\client_record.hpp"><Filter>Host\include\runtime</Filter></ClInclude>

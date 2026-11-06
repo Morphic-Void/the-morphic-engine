@@ -270,6 +270,7 @@
     <ClInclude Include="..\host\runtime\pumped_client.hpp" />
     <ClInclude Include="..\host\runtime\host_restrictions.hpp" />
     <ClInclude Include="..\host\runtime\host_maintenance.hpp" />
+    <ClInclude Include="..\host\runtime\host_cadence.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
     <ClInclude Include="..\host\runtime\host_payloads.hpp" />
     <ClInclude Include="..\host\runtime\host_owner_payloads.def" />

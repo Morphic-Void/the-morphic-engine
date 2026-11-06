@@ -88,6 +88,7 @@ struct SBatchShared
 {
     CBatchWorkChannel work;
     CWaitPredicate wake;
+    platform::threading::SWakeEndpoint owner_wake;
     std::uint32_t runner_count{ 0u };
 };
 
@@ -187,6 +188,7 @@ public:
                 }
                 entry = {};
                 m_outstanding.fetch_sub(1u, std::memory_order_release);
+                (void)m_shared->owner_wake.signal();
                 return true;
             }
         }
@@ -208,7 +210,10 @@ public:
                 }
             }
         }
+        const platform::threading::SWakeEndpoint owner_wake = m_shared->owner_wake;
+        //  Publishing quiescence permits the requester to retire this client.
         m_return_publishers.fetch_sub(1u, std::memory_order_release);
+        (void)owner_wake.signal();
         return delivered;
     }
 

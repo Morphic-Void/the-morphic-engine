@@ -85,12 +85,12 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
     return platform::module_binding::s_binding.bootstrap(functions);
 }
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(const std::uint32_t capacity,
-    modules::SHostPumpV1* const value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v2(const std::uint32_t capacity,
+    modules::SHostPumpV2* const value) noexcept
 {
     if (!value || (capacity != sizeof(*value))) return modules::EBindingResult::invalid_argument;
     using namespace platform::module_binding;
-    *value = { sizeof(*value), 1u, 0u, &activate, &pump, &begin_stop, &deactivate };
+    *value = { sizeof(*value), 2u, modules::k_host_pump_native_events, &activate, &pump, &begin_stop, &deactivate };
     return modules::EBindingResult::success;
 }
 

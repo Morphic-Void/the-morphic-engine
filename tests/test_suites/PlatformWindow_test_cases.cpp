@@ -87,13 +87,14 @@ struct SNative
     unsigned created{ 0u }, destroyed{ 0u }, callbacks{ 0u }, dispatches{ 0u };
     SClock* clock{ nullptr };
     std::uint64_t dispatch_cost{ 0u };
-    bool fail_create{ false }, fail_destroy{ false }, pending_close{ false };
+    bool fail_create{ false }, fail_destroy{ false }, pending_close{ false }, pending_events{ false };
     static inline SNative* current{ nullptr };
     static EServiceStatus create(platform::native::SWindow& window) noexcept
     {
         ++current->created;
         window.handle = 71u;
         window.instance = 72u;
+        window.native_events = true;
         window.runtime->enter_callback();
         ++current->callbacks;
         window.runtime->native_extent(1920u, 1080u, 144u, false);
@@ -104,9 +105,10 @@ struct SNative
         window.runtime->leave_callback();
         return current->fail_create ? EServiceStatus::native_failure : EServiceStatus::success;
     }
-    static bool dispatch(platform::native::SWindow&, const std::uint64_t) noexcept
+    static bool dispatch(platform::native::SWindow& window, const std::uint64_t) noexcept
     {
         ++current->dispatches;
+        window.work_pending = current->pending_events;
         if (current->clock)
         {
             current->clock->time += current->dispatch_cost;
@@ -152,6 +154,7 @@ struct SFixture
     std::uint64_t binding_cost{ 0u };
     std::atomic<unsigned> native_modes{ 0u }, cancel_requested{ 0u }, maintenance_calls{ 0u };
     unsigned last_commands{ 0u };
+    modules::SProgress progress;
 
     static EServiceStatus MV_STD_ABI_CALL post(void* const context, const threading::CErasedPodMsg* const message) noexcept
     {
@@ -281,6 +284,7 @@ struct SFixture
         modules::SPumpResult result;
         TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
         runtime->pump(input, result);
+        progress = result.progress;
         TEST_EXPECT(tests, restrictions.end_invocation());
         TEST_EXPECT(tests, router.finish_batch(provider, commands, input.command_count, result.consumed_commands));
         provider.consume_messages(result.consumed_messages, controls);
@@ -594,12 +598,41 @@ void command_slice_and_failure_retention(TTestContext& ctx)
         f.step(); f.ready(acquisition); f.step();
         const auto prepared = f.prepared(acquisition);
         f.native.fail_destroy = true;
+        f.native.pending_events = true;
         f.release(prepared); f.step(); f.step();
         TEST_EXPECT(ctx, (f.runtime->failed() && !f.runtime->stopped() && !f.native.destroyed &&
             (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 0u)));
+        TEST_EXPECT(ctx, (!f.progress.work_pending && !f.progress.native_events_active));
         f.native.fail_destroy = false;
         platform::runtime::SPlatformTestAccess::permit_test_cleanup_retry(*f.runtime);
     }
+}
+
+void native_progress(TTestContext& ctx)
+{
+    SFixture f{ ctx };
+    f.step();
+    TEST_EXPECT(ctx, (!f.progress.work_pending && !f.progress.native_events_active));
+    const std::uint64_t acquisition = f.submit(EWindowCommand::create_window);
+    f.step();
+    f.ready(acquisition);
+    f.step();
+    TEST_EXPECT(ctx, (!f.progress.work_pending && f.progress.native_events_active));
+    f.native.pending_events = true;
+    f.step();
+    TEST_EXPECT(ctx, (f.progress.work_pending && f.progress.native_events_active));
+    f.native.pending_events = false;
+    f.step();
+    TEST_EXPECT(ctx, (!f.progress.work_pending && f.progress.native_events_active));
+    modules::SProgress stopping;
+    TEST_EXPECT(ctx, f.restrictions.begin_invocation(f.provider.instance, true));
+    f.runtime->begin_stop(stopping);
+    TEST_EXPECT(ctx, f.restrictions.end_invocation());
+    TEST_EXPECT(ctx, (stopping.native_events_active && !stopping.work_pending));
+    f.release(f.prepared(acquisition));
+    f.step();
+    f.step();
+    TEST_EXPECT(ctx, (!f.progress.work_pending && !f.progress.native_events_active));
 }
 
 void notification_pressure(TTestContext& ctx)
@@ -755,7 +788,29 @@ void actual_native_window(TTestContext& ctx, const unsigned scenario)
     }
     f.step();
     TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success));
-    if (scenario == 0u)
+    if (scenario == 5u)
+    {
+        //  Windowless records share the subscribed queue and must be consumed.
+        constexpr UINT thread_message = WM_APP + 171u;
+        for (unsigned index = 0u; index < 129u; ++index)
+        {
+            TEST_EXPECT(ctx, PostThreadMessageW(GetCurrentThreadId(), thread_message, 0u, 0));
+        }
+        PostQuitMessage(0);
+        f.step();
+        TEST_EXPECT(ctx, (f.progress.work_pending && f.progress.native_events_active));
+        for (unsigned index = 0u; (index < 16u) && !f.progress.stop_requested; ++index)
+        {
+            f.step();
+        }
+        TEST_EXPECT(ctx, f.progress.stop_requested);
+        f.step();
+        TEST_EXPECT(ctx, f.progress.stop_requested); //  Stop survives consumption.
+        MSG pending{};
+        TEST_EXPECT(ctx, !PeekMessageW(&pending, nullptr, thread_message, thread_message, PM_NOREMOVE));
+        TEST_EXPECT(ctx, !PeekMessageW(&pending, nullptr, WM_QUIT, WM_QUIT, PM_NOREMOVE));
+    }
+    else if (scenario == 0u)
     {
         (void)PostMessageW(handle, WM_CLOSE, 0u, 0);
         f.step();
@@ -869,7 +924,7 @@ struct SPlatformHostTestAccess
         TEST_EXPECT(ctx, host.m_clients[index].emplace(module_ids::platform, 901u));
         auto& client = *host.m_clients[index];
         client.execution = EClientExecution::pumped;
-        const modules::SHostPumpV1 capability{ sizeof(modules::SHostPumpV1), 1u, 0u, &activate, &pump, &stop, &deactivate };
+        const modules::SHostPumpV2 capability{ sizeof(modules::SHostPumpV2), 2u, 0u, &activate, &pump, &stop, &deactivate };
         TEST_EXPECT(ctx, host.m_pumps[index].emplace(client, binding, capability, host.m_service_router, host.m_maintenance));
         auto& adapter = *host.m_pumps[index];
         TEST_EXPECT(ctx, adapter.initialise());
@@ -901,6 +956,7 @@ void run_platform_window_tests(tests::TTestContext& ctx)
     controller_departure_and_cancel(ctx);
     shared_slice_and_loss(ctx);
     command_slice_and_failure_retention(ctx);
+    native_progress(ctx);
     notification_pressure(ctx);
     unsupported_completions_under_pressure(ctx);
     host::SPlatformHostTestAccess::shutdown_scope(ctx);
@@ -917,7 +973,7 @@ int run_platform_native_tests()
 {
 #if MV_PLATFORM_WINDOWS
     tests::TTestContext ctx;
-    for (unsigned scenario = 0u; scenario < 5u; ++scenario)
+    for (unsigned scenario = 0u; scenario < 6u; ++scenario)
     {
         actual_native_window(ctx, scenario);
     }

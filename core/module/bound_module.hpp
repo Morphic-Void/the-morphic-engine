@@ -49,7 +49,7 @@ public:
     [[nodiscard]] EBindingResult populate_core_functions(const std::uint32_t functional_major, SCoreFunctions& functions) const noexcept;
     [[nodiscard]] bool query_function(const system_type_id function_type, FModuleFunction& function) const noexcept;
     [[nodiscard]] EBindingResult query_service_thread(SServiceThread& service) const noexcept;
-    [[nodiscard]] EBindingResult query_host_pump(SHostPumpV1& pump) const noexcept;
+    [[nodiscard]] EBindingResult query_host_pump(SHostPumpV2& pump) const noexcept;
     [[nodiscard]] EBindingResult query_service_provider(SServiceProviderV1& provider) const noexcept;
     [[nodiscard]] bool prepare_host_call(const thread_ids::id_type thread, void* const provisioning) noexcept;
     [[nodiscard]] const SAdvertisedIdentity& advertised_peer_identity() const noexcept { return m_advertised_peer_identity; }

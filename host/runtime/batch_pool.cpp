@@ -50,6 +50,7 @@ bool CBatchPool::start(const std::uint32_t count) noexcept
         SRunner& runner = m_runners[index];
         runner.pool = this;
         runner.index = index;
+        runner.control.install_owner_wake(m_shared.owner_wake);
         runner.control.mark_pending();
         runner.created = runner.thread.create(&CBatchPool::runner_entry, &runner);
         if (!runner.created)
@@ -88,10 +89,12 @@ bool CBatchPool::stop() noexcept
         SRunner& runner = m_runners[index];
         if (runner.created)
         {
-            joined = runner.thread.join_and_close() && joined;
-            runner.created = false;
+            if (runner.thread.join_and_close()) runner.created = false;
+            else joined = false;
         }
     }
+    //  Failed joins retain both the runners and every shared wake target.
+    if (!joined) return false;
     m_shared.runner_count = 0u;
     m_count = 0u;
     return joined && (m_shared.work.outstanding_count() == 0u);

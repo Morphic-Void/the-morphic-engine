@@ -152,13 +152,18 @@ bool MV_STD_ABI_CALL CBoundModule::prepare_thread(void* const context, const thr
     return (module != nullptr) && module->prepare_thread(thread_id, thread_resources);
 }
 
-EBindingResult CBoundModule::query_host_pump(SHostPumpV1& pump) const noexcept
+EBindingResult CBoundModule::query_host_pump(SHostPumpV2& pump) const noexcept
 {
     pump = {};
     if (!m_installed) return EBindingResult::invalid_argument;
     const auto query = reinterpret_cast<FQueryHostPump>(m_native_module.find_function(k_host_pump_symbol_name));
-    if (query == nullptr) return EBindingResult::unsupported_function;
-    SHostPumpV1 candidate;
+    if (query == nullptr)
+    {
+        //  An old pump cannot safely exchange the extended progress record.
+        return m_native_module.find_function("morphic_module_host_pump_v1") ?
+            EBindingResult::invalid_argument : EBindingResult::unsupported_function;
+    }
+    SHostPumpV2 candidate;
     const auto result = query(sizeof(candidate), &candidate);
 
     //  An advertised export must return a valid descriptor; unsupported is only

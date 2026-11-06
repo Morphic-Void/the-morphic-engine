@@ -334,6 +334,27 @@ void CDirectConnections::close_all() noexcept
     }
 }
 
+void CDirectConnections::limit_wait(std::uint64_t& remaining) noexcept
+{
+    for (std::int32_t slot = m_records.first_live(); slot >= 0; slot = m_records.next_live(slot))
+    {
+        SRecord& record = *m_records.get_object(slot);
+        if ((record.phase != EPhase::offered) && (record.phase != EPhase::installing))
+        {
+            continue;
+        }
+        const modules::SEligibleBudgetObservation budget = record.budget.observe();
+        if (budget.status == modules::EBudgetStatus::running)
+        {
+            if (budget.remaining_ns < remaining) remaining = budget.remaining_ns;
+        }
+        else if (budget.status != modules::EBudgetStatus::restricted)
+        {
+            remaining = 0u;
+        }
+    }
+}
+
 void CDirectConnections::progress() noexcept
 {
     for (auto slot = m_records.first_live(); slot >= 0; )

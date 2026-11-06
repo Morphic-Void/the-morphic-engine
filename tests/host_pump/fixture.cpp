@@ -1059,7 +1059,8 @@ static bool run(threading::CThreadContext& context)
         scenario("bad-provider-version") || scenario("bad-provider-flags") || scenario("bad-provider-count") ||
         scenario("bad-provider-null") || scenario("bad-provider-contract") || scenario("bad-provider-duplicate") ||
         scenario("bad-provider-query");
-    const bool activation_failure = scenario("activation-failed") || scenario("activation-null") || scenario("activation-timeout");
+    const bool activation_failure = scenario("activation-failed") || scenario("activation-null") || scenario("activation-timeout") ||
+        scenario("unauthorised-native-stop") || scenario("unauthorised-native-events");
     if (rejected || activation_failure)
     {
         return operation(context, modules::EModuleAction::load, (rejected ? modules::EModuleStatus::function_unavailable : modules::EModuleStatus::installation_failed)) && self_stop(context, false);
@@ -1428,7 +1429,9 @@ struct SRuntime
     unsigned retirement_progress{ 0u };
     const SHostPumpContext* context{nullptr};
     CByteBuffer storage;
-    std::uint32_t starting{0u}, stopping{0u}, delayed{0u}, flooded{0u};
+    std::uint32_t starting{0u}, stopping{0u}, flooded{0u};
+    bool delayed{false};
+    platform::threading::CWaitDeadline delayed_deadline;
     ServiceReply test_reply;
     ServiceReply pending;
     CAssetId asset;
@@ -1553,6 +1556,8 @@ static ECallStatus MV_STD_ABI_CALL activate(const SHostPumpContext* const contex
         MV_LOG(info, "Pump provider: activation excluded simulated restriction beyond five seconds");
     }
     progress->phase = EPumpPhase::starting;
+    progress->stop_requested = scenario("unauthorised-native-stop") ? 1u : 0u;
+    progress->native_events_active = scenario("unauthorised-native-events") ? 1u : 0u;
     MV_LOG(info, "Pump provider: activation context and foreign-thread rejection passed");
     return scenario("activation-failed") ? ECallStatus::failed : ECallStatus::success;
 }
@@ -2110,13 +2115,22 @@ static ECallStatus MV_STD_ABI_CALL pump(void* const runtime, const SPumpInput* c
             MV_LOG(info, "Pump provider: 512 disposal credits retained by live acquisitions");
         }
     }
-    if (state.delayed && (--state.delayed == 0u))
+    if (state.delayed)
     {
-        if (state.context->services->complete(state.context->service_context, &state.pending) != EServiceStatus::success)
+        std::uint64_t remaining = 0u;
+        if (state.delayed_deadline.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none)
         {
             return ECallStatus::failed;
         }
-        MV_LOG(info, "Pump provider: delayed operation completed");
+        if (!remaining)
+        {
+            if (state.context->services->complete(state.context->service_context, &state.pending) != EServiceStatus::success)
+            {
+                return ECallStatus::failed;
+            }
+            state.delayed = false;
+            MV_LOG(info, "Pump provider: delayed operation completed");
+        }
     }
     if (state.control_drain_pending)
     {
@@ -2252,7 +2266,13 @@ static ECallStatus MV_STD_ABI_CALL pump(void* const runtime, const SPumpInput* c
         else if (reply.opcode == 2u)
         {
             state.pending = reply;
-            state.delayed = 10000u;
+            //  Preserve a live operation across Executive exit without relying
+            //  on the old busy-loop rate or claiming immediately runnable work.
+            if (state.delayed_deadline.set_after_milliseconds(100u).code != platform::threading::EWaitError::none)
+            {
+                return ECallStatus::failed;
+            }
+            state.delayed = true;
         }
         else if (state.context->services->complete(state.context->service_context, &reply) != EServiceStatus::success)
         {
@@ -2347,17 +2367,17 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
     return pump_tests::s_binding.bootstrap(functions);
 }
 #if !MV_PUMP_EXECUTIVE
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(const std::uint32_t capacity, modules::SHostPumpV1* const value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v2(const std::uint32_t capacity, modules::SHostPumpV2* const value) noexcept
 {
     using namespace pump_tests;
     if ((capacity < sizeof(*value)) || !value)
     {
         return EBindingResult::invalid_argument;
     }
-    *value = {sizeof(*value), 1u, 0u, &activate, &pump, &begin_stop, &deactivate};
+    *value = {sizeof(*value), 2u, 0u, &activate, &pump, &begin_stop, &deactivate};
     if (scenario("bad-size")) --value->size;
     if (scenario("bad-version")) ++value->version;
-    if (scenario("bad-flags")) value->flags = 1u;
+    if (scenario("bad-flags")) value->flags = 2u;
     if (scenario("bad-callback")) value->pump = nullptr;
     return EBindingResult::success;
 }

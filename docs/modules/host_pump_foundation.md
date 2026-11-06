@@ -54,10 +54,12 @@ and is cleared before its client or binding is released. Currently only
 `CPumpedClient` supplies a service execution adapter; advertisement alone does
 not enable service dispatch for passive or threaded modules.
 
-`morphic_module_host_pump_v1` is independent of bootstrap v3 and the existing
+`morphic_module_host_pump_v2` is independent of bootstrap v3 and the existing
 service-thread export. Discovery happens on the binding worker. The export takes
-the caller's descriptor capacity and returns `modules::SHostPumpV1`. Version 1
-requires the complete current descriptor, zero flags and all four callbacks.
+the caller's descriptor capacity and returns `modules::SHostPumpV2`. Version 2
+requires the complete current descriptor and all four callbacks. Its only flag
+reserves exclusive native-event ownership; see the [Host wait contract](host_timed_wait.md).
+The old V1 export is explicitly rejected and requires a coordinated rebuild.
 Service advertisement is separate from this descriptor. Missing
 exports mean unsupported; malformed advertisements fail installation. A module
 cannot advertise both execution capabilities, and Executive remains threaded.
@@ -79,8 +81,10 @@ borrows that stable context through successful deactivation. Its services table
 requires the exact current size/version and exposes queued SYSTEM POD and owning
 requests, terminal service completion, and borrow preparation/retirement.
 Borrow-bound notification endpoints and their wait targets survive until both
-consumer quiescence and final provider cleanup; pumped work indications do not
-add Host sleep scheduling. See [service notifications](service_notifications.md).
+consumer quiescence and final provider cleanup. Notifications also signal the
+aggregate Host wake target; runnable progress and native-event registration have
+separate meanings in the [Host wait contract](host_timed_wait.md).
+See [service notifications](service_notifications.md).
 Callbacks authenticate the currently executing pump
 on the Host thread; calls from another thread or outside a lifecycle call fail.
 Owning request storage transfers only on success and uses existing SYSTEM
