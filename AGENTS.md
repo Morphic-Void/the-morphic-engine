@@ -74,10 +74,11 @@ unrelated interface changes solely to add `const`.
 
 ## Explicit types and auto
 
-Prefer an explicit type when it is known, short, and readable (e.g. `std::uint64_t`).
-Use `auto` for long or unwieldy types, such as lengthy template types, or where
-type deduction is needed. Preserve const/reference qualifiers and behaviour when
-choosing between an explicit type and `auto`.
+Prefer the explicit type when it is readily identifiable and short enough to read
+clearly (e.g. `std::uint64_t`), including existing type aliases. `auto` is acceptable
+for long or unwieldy types and where deduction is needed, such as generic code or
+unnamed types. Do not introduce casts or new aliases solely to avoid `auto`.
+Preserve const/reference qualifiers and behaviour when choosing between them.
 
 ## Expression parentheses
 
@@ -127,15 +128,30 @@ guide, not a limit.
 
 Indent `case` and `default` labels one level inside the `switch`. Align each
 case body's braces with its labels and indent its statements one further level.
-Use the same label indentation for compact switches.
+Use the same label indentation for compact switches. Follow the surrounding
+code's indentation style and width.
+
+```cpp
+switch (state)
+{
+    case EState::ready:
+    {
+        process();
+        break;
+    }
+}
+```
 
 Normally give each `case`/`default` body a braced scope, with braces and statements
-on separate lines and the terminating `break`, `continue`, or `return` inside.
+on separate lines and any existing or required terminating `break`, `continue`,
+or `return` inside. Preserve intentional fallthrough and do not add a `default`
+solely for formatting.
 Consecutive labels sharing a body share one scope. Compact unbraced cases are
 acceptable only when the whole switch is a very simple conversion/direct mapping
 (e.g. enum-to-string or format-to-size). Prefer expansion for processing, state
 changes, or further control flow. If any case uses expanded form, all case bodies,
-including `default`, must use it.
+including `default`, must use it. This consistency rule applies throughout the
+switch being substantively changed; leave unrelated switches untouched.
 
 ## Comma-separated operations
 
