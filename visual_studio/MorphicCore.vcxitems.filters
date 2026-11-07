@@ -11,6 +11,9 @@
     <Filter Include="Core\include">
       <UniqueIdentifier>{1aa455e9-f1ee-40a0-a725-181d0a3228e8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core\include\allocators">
+      <UniqueIdentifier>{b07cafda-0fe8-42b7-95b6-fb6878256db1}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core\include\algo">
       <UniqueIdentifier>{1b739e0d-5a58-85a1-332e-5a647cd74fba}</UniqueIdentifier>
     </Filter>
@@ -235,6 +238,15 @@
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\TBitField.hpp">
       <Filter>Core\include\bit_utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\buddy_index.hpp">
+      <Filter>Core\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\TBuddyAllocator.hpp">
+      <Filter>Core\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\TBuddyAllocatorChain.hpp">
+      <Filter>Core\include\allocators</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\BumpBuffer.hpp">
       <Filter>Core\include\containers</Filter>

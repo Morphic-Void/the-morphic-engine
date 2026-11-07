@@ -159,6 +159,8 @@
     <ClCompile Include="..\tests\test_suites\SchemaMerge_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\DataMerge_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentBoundary_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\BuddyAllocator_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\BuddyAllocatorChain_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BumpBuffer_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ByteBuffers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\PermutationValidation_test_suite.cpp" />
@@ -238,6 +240,8 @@
     <ClInclude Include="..\tests\test_suites\SchemaMerge_test_cases.hpp" />
     <ClInclude Include="..\tests\test_suites\DataMerge_test_cases.hpp" />
     <ClInclude Include="..\tests\test_suites\DocumentBoundary_test_cases.hpp" />
+    <ClInclude Include="..\tests\test_suites\BuddyAllocator_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\BuddyAllocatorChain_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\BumpBuffer_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\ByteBuffers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\PermutationValidation_test_suite.hpp" />

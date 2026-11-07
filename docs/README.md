@@ -55,9 +55,19 @@ or that work has been authorised.
   [ring](threading/transports/TRingTransport.md) and
   [MPMC](threading/transports/TMpmcTransport.md).
 - [Policy validator](project/policy_validator.md).
+- [Allocators](allocators/README.md), including the [packed buddy index](allocators/buddy_index.md).
+- [Standalone buddy allocator](allocators/TBuddyAllocator.md):
+  32-bit and 64-bit packed managers, checked individual frees, bulk reset and
+  explicit-context ownership.
+- [Buddy allocator chaining](allocators/TBuddyAllocatorChain.md):
+  `TVector` ownership, transactional growth, pointer routing and retained-manager
+  reuse with deep memory accounting.
 
 ## Direction and future design
 
+- [Buddy allocator and SPIRV-Reflect containment](memory/buddy_allocator_design.md):
+  planned shader allocation measurements and later validated vendor allocation
+  integration above the buddy chain.
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)

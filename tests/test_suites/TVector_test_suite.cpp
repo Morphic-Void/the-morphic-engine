@@ -576,6 +576,38 @@ void test_owned_payload_removal(TTestContext& ctx)
     TEST_EXPECT(ctx, context.is_attribution_empty());
 }
 
+void test_explicit_context_without_ambient(TTestContext& ctx)
+{
+    static_assert(std::is_nothrow_constructible_v<TVector<std::uint32_t>, memory::CMemoryContext&>);
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    memory::CMemoryContext* const previous_module = memory::set_module_memory_context(nullptr);
+    {
+        const tests::TMemoryContextScope no_thread_context{ nullptr };
+        TEST_EXPECT(ctx, (memory::get_ambient_memory_context() == nullptr));
+        fixture.reject_all = true;
+        TVector<std::uint32_t> vector{ context };
+        TEST_EXPECT(ctx, (vector.is_valid() && vector.is_empty() && !vector.is_ready()));
+        TEST_EXPECT(ctx, (fixture.attempts == 0u));
+        fixture.reject_all = false;
+        TEST_EXPECT(ctx, (vector.emplace_back(73u) != nullptr));
+        TEST_EXPECT(ctx, vector.reallocate(vector.capacity() + 1u));
+        const std::uint32_t* const value = vector.get(0u);
+        TEST_EXPECT(ctx, ((value != nullptr) && (*value == 73u)));
+        TEST_EXPECT(ctx, (vector.memory_attribution().source == &context));
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == 1u));
+        TEST_EXPECT(ctx, (context.get_live_allocated_bytes() == vector.memory_attribution().allocation_size));
+        vector.deallocate();
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        TEST_EXPECT(ctx, vector.reserve(2u));
+        TEST_EXPECT(ctx, (vector.memory_attribution().source == &context));
+        TEST_EXPECT(ctx, (memory::get_ambient_memory_context() == nullptr));
+    }
+    (void)memory::set_module_memory_context(previous_module);
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
 }   //  namespace
 
 int run_vector_tests()
@@ -590,5 +622,6 @@ int run_vector_tests()
     test_moves_and_alignment(ctx);
     test_owned_payloads_and_attribution(ctx);
     test_owned_payload_removal(ctx);
+    test_explicit_context_without_ambient(ctx);
     return ctx.report("TVector");
 }

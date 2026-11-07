@@ -42,6 +42,11 @@ the engine's normal memory-context provisioning. Allocated storage with zero
 live elements is valid, empty and ready. `data()` observes backing storage;
 only the first `size()` elements may be accessed as live objects.
 
+`explicit TVector(memory::CMemoryContext& context) noexcept` configures an empty
+vector directly from the supplied context, without allocation or an ambient
+context requirement. The context must outlive owned storage. Growth and reuse
+after `deallocate()` retain the captured context.
+
 `size()`, `capacity()` and `available()` count elements. `get(index)` returns
 null unless the index identifies a live element. `operator[]`, `first()` and
 `last()` require valid element access and assert that precondition; there is no
@@ -200,7 +205,8 @@ without assignment/default construction, const/reference members after slot
 reuse, scalar value initialisation, over-alignment, source reuse after vector
 moves, and allocation-failure preservation followed by successful retry.
 Owning-buffer cases check payload-address preservation, release during removal
-and reset, shallow accounting, and explicit context transfer.
+and reset, shallow accounting, and explicit context transfer. Explicit-context
+construction, growth and reuse are also tested with no ambient context.
 
 The tests establish behaviour on the validated toolchains; runtime lifetime
 counts alone do not prove every aspect of the C++ object model.

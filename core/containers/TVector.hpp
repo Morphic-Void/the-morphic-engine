@@ -38,6 +38,7 @@ private:
 public:
     //  Default, deleted copy, and move lifetime
     TVector() noexcept = default;
+    explicit TVector(memory::CMemoryContext& context) noexcept;
     TVector(const TVector&) = delete;
     TVector& operator=(const TVector&) = delete;
     TVector(TVector&& src) noexcept;
@@ -116,6 +117,12 @@ private:
 //==============================================================================
 //  TVector<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TVector<T>::TVector(memory::CMemoryContext& context) noexcept
+    : m_token(k_element_size, k_align, &context)
+{
+}
 
 template<typename T>
 inline TVector<T>::TVector(TVector&& src) noexcept
