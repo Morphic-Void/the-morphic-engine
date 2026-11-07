@@ -932,7 +932,7 @@ responsibility hooks to direct compile-time collaboration:
 
 ```text
 container slot-backing base
-    -> TOrderedSlots or TUnorderedSlots
+    -> TOrderedSlotManager or TUnorderedSlotManager
         -> public container facade
 ```
 
@@ -957,8 +957,8 @@ remains.
 
 Permanent reference:
 
-- `docs/containers/slots/TOrderedSlots.md`
-- `docs/containers/slots/TUnorderedSlots.md`
+- `docs/slots/TOrderedSlotManager.md`
+- `docs/slots/TUnorderedSlotManager.md`
 - `docs/containers/TOrderedCollection.md`
 - `docs/containers/TUnorderedCollection.md`
 

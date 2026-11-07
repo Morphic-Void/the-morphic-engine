@@ -2,15 +2,15 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    TUnorderedSlots_test_harness.hpp
+//  File:    TUnorderedSlotManager_test_harness.hpp
 //  Primary implementation: OpenAI Codex
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    21 Oct 26
 
 #pragma once
 
-#ifndef TUNORDERED_SLOTS_TEST_HARNESS_HPP_INCLUDED
-#define TUNORDERED_SLOTS_TEST_HARNESS_HPP_INCLUDED
+#ifndef TUNORDERED_SLOT_MANAGER_TEST_HARNESS_HPP_INCLUDED
+#define TUNORDERED_SLOT_MANAGER_TEST_HARNESS_HPP_INCLUDED
 
 #include <cstdint>
 
@@ -58,4 +58,4 @@ struct TUnorderedConfig
 
 int run_all_tests(const TUnorderedConfig& cfg_in);
 
-#endif  //  TUNORDERED_SLOTS_TEST_HARNESS_HPP_INCLUDED
+#endif  //  TUNORDERED_SLOT_MANAGER_TEST_HARNESS_HPP_INCLUDED

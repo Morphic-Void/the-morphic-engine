@@ -26,7 +26,7 @@
     <Filter Include="Core\include\containers">
       <UniqueIdentifier>{3fbacb47-55cf-2961-509a-a5637009cc94}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Core\include\containers\slots">
+    <Filter Include="Core\include\slots">
       <UniqueIdentifier>{ed689644-ed46-0d45-476d-81d715ad6fb0}</UniqueIdentifier>
     </Filter>
     <Filter Include="Core\include\data_model">
@@ -179,7 +179,7 @@
     <Filter Include="Docs\containers">
       <UniqueIdentifier>{126aea5e-4235-1656-c710-b9dd2f447707}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Docs\containers\slots">
+    <Filter Include="Docs\slots">
       <UniqueIdentifier>{c001f1cb-f352-af39-2d43-2d28a9bc93ce}</UniqueIdentifier>
     </Filter>
     <Filter Include="Docs\data_model">
@@ -245,14 +245,14 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\containers.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\SlotsRankMap.hpp">
-      <Filter>Core\include\containers\slots</Filter>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\slots\SlotsRankMap.hpp">
+      <Filter>Core\include\slots</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TOrderedSlots.hpp">
-      <Filter>Core\include\containers\slots</Filter>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\slots\TOrderedSlotManager.hpp">
+      <Filter>Core\include\slots</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TUnorderedSlots.hpp">
-      <Filter>Core\include\containers\slots</Filter>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\slots\TUnorderedSlotManager.hpp">
+      <Filter>Core\include\slots</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\StringBuffers.hpp">
       <Filter>Core\include\containers</Filter>
@@ -279,6 +279,12 @@
       <Filter>Core\include\containers</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TVector.hpp">
+      <Filter>Core\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TOrderedSlots.hpp">
+      <Filter>Core\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TUnorderedSlots.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TUnorderedCollection.hpp">
@@ -776,9 +782,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)..\.gitignore">
-      <Filter>Docs</Filter>
-    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\.gitignore" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\architectural-principles.md">
       <Filter>Docs\architecture</Filter>
     </None>
@@ -827,11 +831,11 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\ByteBuffers.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TOrderedSlots.md">
-      <Filter>Docs\containers\slots</Filter>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\slots\TOrderedSlotManager.md">
+      <Filter>Docs\slots</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TUnorderedSlots.md">
-      <Filter>Docs\containers\slots</Filter>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\slots\TUnorderedSlotManager.md">
+      <Filter>Docs\slots</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\StringBuffers.md">
       <Filter>Docs\containers</Filter>
@@ -846,6 +850,9 @@
       <Filter>Docs\containers</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TVector.md">
+      <Filter>Docs\containers</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\MovableSlots.md">
       <Filter>Docs\containers</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TUnorderedCollection.md">
@@ -950,21 +957,13 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\validation.md">
       <Filter>Docs\schema</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\AGENTS.md">
-      <Filter>Docs</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)..\CODE_OF_CONDUCT.md">
-      <Filter>Docs</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)..\THIRD_PARTY_LICENSES.md">
-      <Filter>Docs</Filter>
-    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\AGENTS.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\CODE_OF_CONDUCT.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\THIRD_PARTY_LICENSES.md" />
     <None Include="$(MSBuildThisFileDirectory)..\development\README.md">
       <Filter>Docs\development</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\README.md">
-      <Filter>Docs</Filter>
-    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\README.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\data_model_design_notes.md">
       <Filter>Docs\data_model</Filter>
     </None>
@@ -991,9 +990,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="..\LICENSE.txt">
-      <Filter>Docs</Filter>
-    </Text>
+    <Text Include="..\LICENSE.txt" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>

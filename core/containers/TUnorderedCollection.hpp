@@ -12,7 +12,7 @@
 //
 //  Unordered collection over stable storage with slot-based identity.
 //
-//  Uses TUnorderedSlots for slot management and
+//  Uses TUnorderedSlotManager for slot management and
 //  memory::CMemoryToken for address-stable object backing.
 //  Attribution covers object backing, slots and metadata; allocations owned
 //  by contained T objects are excluded.
@@ -42,7 +42,7 @@
 #include "algo/validate_permutations.hpp"
 #include "memory/memory_policies.hpp"
 #include "memory/memory_token.hpp"
-#include "slots/TUnorderedSlots.hpp"
+#include "slots/TUnorderedSlotManager.hpp"
 #include "slots/SlotsRankMap.hpp"
 #include "bit_utils/bit_ops.hpp"
 #include "TPodVector.hpp"
@@ -92,11 +92,11 @@ protected:
 };
 
 template<typename T>
-class TUnorderedCollection : public slots::TUnorderedSlots<TUnorderedCollectionStorage<T>, std::int32_t>
+class TUnorderedCollection : public slots::TUnorderedSlotManager<TUnorderedCollectionStorage<T>, std::int32_t>
 {
 private:
     using slot_data_class = TUnorderedCollectionStorage<T>;
-    using slot_meta_class = slots::TUnorderedSlots<slot_data_class, std::int32_t>;
+    using slot_meta_class = slots::TUnorderedSlotManager<slot_data_class, std::int32_t>;
 
     static_assert(!std::is_const_v<T>, "TUnorderedCollection<T> requires non-const T.");
     static_assert(std::is_nothrow_destructible_v<T>, "TUnorderedCollection<T> requires T to be nothrow destructible.");

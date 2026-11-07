@@ -12,7 +12,7 @@
 //
 //  Ordered POD slot manager with slot-based identity and key-based ordering.
 //
-//  Uses TOrderedSlots for ordering and slot management.
+//  Uses TOrderedSlotManager for ordering and slot management.
 //  Stores trivial payload data directly in slot-indexed POD storage.
 //
 //  IMPORTANT TERMINOLOGY NOTE
@@ -35,7 +35,7 @@
 #include <type_traits>  //  std::is_const_v, std::is_copy_assignable_v, std::is_trivially_copyable_v
 
 #include "memory/memory_policies.hpp"
-#include "slots/TOrderedSlots.hpp"
+#include "slots/TOrderedSlotManager.hpp"
 #include "slots/SlotsRankMap.hpp"
 #include "TPodVector.hpp"
 
@@ -78,11 +78,11 @@ protected:
 };
 
 template<typename T, typename TKey>
-class TPodOrderedSlots : public slots::TOrderedSlots<TPodOrderedSlotsStorage<T, TKey>, std::int32_t>
+class TPodOrderedSlots : public slots::TOrderedSlotManager<TPodOrderedSlotsStorage<T, TKey>, std::int32_t>
 {
 private:
     using slot_data_class = TPodOrderedSlotsStorage<T, TKey>;
-    using slot_meta_class = slots::TOrderedSlots<slot_data_class, std::int32_t>;
+    using slot_meta_class = slots::TOrderedSlotManager<slot_data_class, std::int32_t>;
 
     static_assert(!std::is_const_v<T>, "TPodOrderedSlots<T, TKey> requires non-const T.");
     static_assert(!std::is_const_v<TKey>, "TPodOrderedSlots<T, TKey> requires non-const TKey.");

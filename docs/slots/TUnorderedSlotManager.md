@@ -1,15 +1,15 @@
 Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited  
 License: MIT (see LICENSE file in repository root)  
 
-File:   TUnorderedSlots.md  
+File:   TUnorderedSlotManager.md  
 Author: Ritchie Brannan  
 Date:   1 Apr 26  
 
-# TUnorderedSlots<TSlotBacking, TIndex>
+# TUnorderedSlotManager<TSlotBacking, TIndex>
 
 ## Overview
 
-TUnorderedSlots<TSlotBacking, TIndex> maintains an unordered index over slot
+TUnorderedSlotManager<TSlotBacking, TIndex> maintains an unordered index over slot
 indices for a lower slot-backing layer.
 
 The template stores metadata only and does not store or access payload.
@@ -61,7 +61,7 @@ The slot-backing layer owns:
 - payload movement
 - payload reserve coordination
 
-TUnorderedSlots owns:
+TUnorderedSlotManager owns:
 
 - metadata
 - loose and empty structures
@@ -201,14 +201,14 @@ slot-backing code.
 - O(1) list operations
 - pack(): O(n)
 
-## Alignment with TOrderedSlots
+## Alignment with TOrderedSlotManager
 
-TOrderedSlots:
+TOrderedSlotManager:
 
 - full-domain rank
 - total reordering
 
-TUnorderedSlots:
+TUnorderedSlotManager:
 
 - occupied-domain rank
 - compaction only

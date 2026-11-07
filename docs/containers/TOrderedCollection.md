@@ -10,9 +10,9 @@ Date:   1 Apr 2026
 ## Overview
 
 TOrderedCollection<T, TKey> is a move-only ordered collection wrapper
-over TOrderedSlots and stable CMemoryToken storage.
+over TOrderedSlotManager and stable CMemoryToken storage.
 
-Slot metadata and ordering are managed by TOrderedSlots. Object storage
+Slot metadata and ordering are managed by TOrderedSlotManager. Object storage
 is provided by CMemoryToken in stable mode.
 
 Public identity during the mutable phase is slot_index.
@@ -104,7 +104,7 @@ not request a contiguous view of object storage.
 
 ## Ordering model
 
-Ordering is defined by TOrderedSlots.
+Ordering is defined by TOrderedSlotManager.
 
 - ordering applies to constructed slots with live keys
 - ordered traversal follows comparator-defined order
@@ -127,7 +127,7 @@ The rank map must be produced before sort_and_pack() to be meaningful.
 A rank map produced after sort_and_pack() is only the post-pack
 identity mapping.
 
-Remap semantics follow the underlying TOrderedSlots contract:
+Remap semantics follow the underlying TOrderedSlotManager contract:
 
 - mapping is defined over the full managed domain
 - both ordered and empty slots participate

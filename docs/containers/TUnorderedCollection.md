@@ -10,9 +10,9 @@ Date:   1 Apr 2026
 ## Overview
 
 TUnorderedCollection<T> is a move-only unordered collection wrapper
-over TUnorderedSlots and stable CMemoryToken storage.
+over TUnorderedSlotManager and stable CMemoryToken storage.
 
-Slot metadata is managed by TUnorderedSlots. Object storage is provided
+Slot metadata is managed by TUnorderedSlotManager. Object storage is provided
 by CMemoryToken in stable mode.
 
 Public identity during the mutable phase is slot_index.
@@ -91,7 +91,7 @@ not request a contiguous view of object storage.
 
 ## Traversal model
 
-Traversal follows TUnorderedSlots behaviour.
+Traversal follows TUnorderedSlotManager behaviour.
 
 - traversal order is list order
 - traversal order does not imply rank
@@ -113,7 +113,7 @@ pre-pack map.
 The rank map must be produced before pack() to be meaningful. A rank
 map produced after pack() is only the post-pack identity mapping.
 
-Remap semantics follow the underlying TUnorderedSlots contract:
+Remap semantics follow the underlying TUnorderedSlotManager contract:
 
 - mapping is only defined over the occupied domain
 - empty slots do not participate in rank identity and will contain -1 sentinels

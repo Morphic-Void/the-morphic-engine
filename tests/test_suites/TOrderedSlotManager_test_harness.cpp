@@ -2,7 +2,7 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    TOrderedSlots_test_harness.cpp
+//  File:    TOrderedSlotManager_test_harness.cpp
 //  Primary implementation: OpenAI Codex
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
@@ -25,9 +25,9 @@
 #include <string>
 
 #include "containers/TPodOrderedSlots.hpp"
-#include "containers/slots/TOrderedSlots.hpp"
+#include "slots/TOrderedSlotManager.hpp"
 #include "tests/environment/test_environment.hpp"
-#include "tests/test_suites/TOrderedSlots_test_harness.hpp"
+#include "tests/test_suites/TOrderedSlotManager_test_harness.hpp"
 #include "tests/support/slot_harness_helpers.hpp"
 
 using tests::slot_harness::TestLogger;
@@ -40,7 +40,7 @@ using tests::slot_harness::vec_to_string;
 // Harness: derived test adapter
 // -----------------------------
 template<typename TIndex, typename TMeta>
-class TOrderedSlots_TestStorage
+class TOrderedSlotManager_TestStorage
 {
 public:
     using query_type = int;
@@ -58,13 +58,13 @@ protected:
 };
 
 template<typename TIndex, typename TMeta>
-class TOrderedSlots_Test final : private slots::TOrderedSlots<TOrderedSlots_TestStorage<TIndex, TMeta>, TIndex, TMeta>
+class TOrderedSlotManager_Test final : private slots::TOrderedSlotManager<TOrderedSlotManager_TestStorage<TIndex, TMeta>, TIndex, TMeta>
 {
-    using SlotBacking = TOrderedSlots_TestStorage<TIndex, TMeta>;
-    using Base = slots::TOrderedSlots<SlotBacking, TIndex, TMeta>;
+    using SlotBacking = TOrderedSlotManager_TestStorage<TIndex, TMeta>;
+    using Base = slots::TOrderedSlotManager<SlotBacking, TIndex, TMeta>;
 
 public:
-    TOrderedSlots_Test() noexcept = default;
+    TOrderedSlotManager_Test() noexcept = default;
 
     bool init(uint32_t cap) noexcept
     {
@@ -305,7 +305,7 @@ private:
 };
 
 template<typename TIndex, typename TMeta>
-int32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_compare_keys(const int32_t source, const int32_t target) const noexcept
+int32_t TOrderedSlotManager_TestStorage<TIndex, TMeta>::on_compare_keys(const int32_t source, const int32_t target) const noexcept
 {
     const int a = m_payload[static_cast<size_t>(source)];
     const int b = m_payload[static_cast<size_t>(target)];
@@ -315,14 +315,14 @@ int32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_compare_keys(const int32_t 
 }
 
 template<typename TIndex, typename TMeta>
-int32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_compare_query(const query_type& query, const int32_t candidate) const noexcept
+int32_t TOrderedSlotManager_TestStorage<TIndex, TMeta>::on_compare_query(const query_type& query, const int32_t candidate) const noexcept
 {
     const int value = m_payload[static_cast<size_t>(candidate)];
     return (query < value) ? -1 : ((query > value) ? 1 : 0);
 }
 
 template<typename TIndex, typename TMeta>
-void TOrderedSlots_TestStorage<TIndex, TMeta>::on_move_payload(const int32_t source, const int32_t target) noexcept
+void TOrderedSlotManager_TestStorage<TIndex, TMeta>::on_move_payload(const int32_t source, const int32_t target) noexcept
 {
     if (source == target)
         hard_fail_contract("on_move_payload: source == target");
@@ -354,7 +354,7 @@ void TOrderedSlots_TestStorage<TIndex, TMeta>::on_move_payload(const int32_t sou
 }
 
 template<typename TIndex, typename TMeta>
-uint32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_reserve_empty(
+uint32_t TOrderedSlotManager_TestStorage<TIndex, TMeta>::on_reserve_empty(
     const uint32_t minimum_capacity,
     const uint32_t recommended_capacity) noexcept
 {
@@ -364,7 +364,7 @@ uint32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_reserve_empty(
 }
 
 template<typename TIndex, typename TMeta>
-void TOrderedSlots_TestStorage<TIndex, TMeta>::ensure_payload_capacity_matches_slots(const uint32_t capacity) noexcept
+void TOrderedSlotManager_TestStorage<TIndex, TMeta>::ensure_payload_capacity_matches_slots(const uint32_t capacity) noexcept
 {
     if (m_payload.size() != capacity) m_payload.resize(capacity);
 }
@@ -375,7 +375,7 @@ void TOrderedSlots_TestStorage<TIndex, TMeta>::ensure_payload_capacity_matches_s
 template<typename TIndex, typename TMeta>
 static bool test_exhaustive_delete_orders(const TOrderedConfig& cfg, TestLogger& log)
 {
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     const int N = cfg.N;
     std::vector<int> base_keys;
@@ -506,7 +506,7 @@ static bool test_exhaustive_delete_orders(const TOrderedConfig& cfg, TestLogger&
 template<typename TIndex, typename TMeta>
 static bool test_exhaustive_insert_delete_orders(const TOrderedConfig& cfg, TestLogger& log)
 {
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     const int N = cfg.N;
     std::vector<int> keys;
@@ -622,7 +622,7 @@ template<typename TIndex, typename TMeta>
 static bool test_duplicates_and_stable_equals(const TOrderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     Harness h;
     if (!h.init(64))
@@ -691,7 +691,7 @@ template<typename TIndex, typename TMeta>
 static bool test_find_and_bounds(const TOrderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     Harness h;
     if (!h.init(64))
@@ -823,7 +823,7 @@ template<typename TIndex, typename TMeta>
 static bool test_rank_index_mapping(const TOrderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     Harness h;
     if (!h.init(64))
@@ -922,7 +922,7 @@ template<typename TIndex, typename TMeta>
 static bool test_traversal_semantics(const TOrderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     Harness h;
     if (!h.init(32))
@@ -983,7 +983,7 @@ template<typename TIndex, typename TMeta>
 static bool test_sort_and_compact_postconditions(const TOrderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     for (int pass = 0; pass < 2; ++pass)
     {
@@ -1113,7 +1113,7 @@ static bool test_sort_and_compact_postconditions(const TOrderedConfig& cfg, Test
 template<typename TIndex, typename TMeta>
 static bool test_fuzz_lightweight(const TOrderedConfig& cfg, TestLogger& log)
 {
-    using Harness = TOrderedSlots_Test<TIndex, TMeta>;
+    using Harness = TOrderedSlotManager_Test<TIndex, TMeta>;
 
     Harness h;
 
@@ -1456,7 +1456,7 @@ static bool run_suite_typed(const TOrderedConfig& cfg, TestLogger& log)
 static void print_usage()
 {
     std::cout <<
-        "TOrderedSlots test harness options:\n"
+        "TOrderedSlotManager test harness options:\n"
         "  --fast                 Quick run (small N, limits perms, no insert+delete exhaustive)\n"
         "  --soak                 Longer run (bigger N, full perms unless limited)\n"
         "  --N=<int>              Set N for exhaustive tests\n"

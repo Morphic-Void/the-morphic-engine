@@ -57,7 +57,7 @@ The approved observation prerequisites are now implemented:
   storage without teaching the data model about container internals.
 - `TPodOrderedSlots::key_at_slot()` returns the key paired with a live keyed
   slot in O(1). The concrete key array belongs to that façade;
-  `TOrderedSlots` knows only slot metadata and delegates comparison to its
+  `TOrderedSlotManager` knows only slot metadata and delegates comparison to its
   backing, so the generic slot layer cannot naturally provide the observation.
 - `TOrderedCollection::key_at_slot()` provides the same O(1) observation for
   constructed slots in the non-POD keyed façade, keeping the two keyed

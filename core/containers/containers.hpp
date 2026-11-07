@@ -31,6 +31,8 @@
 #include "containers/TVector.hpp"
 #include "containers/TPodOrderedSlots.hpp"
 #include "containers/TPodUnorderedSlots.hpp"
+#include "containers/TOrderedSlots.hpp"
+#include "containers/TUnorderedSlots.hpp"
 #include "containers/TOrderedCollection.hpp"
 #include "containers/TUnorderedCollection.hpp"
 

@@ -12,7 +12,7 @@
 //
 //  Unordered POD slot manager with slot-based identity.
 //
-//  Uses TUnorderedSlots for slot management.
+//  Uses TUnorderedSlotManager for slot management.
 //  Stores trivial payload data directly in slot-indexed POD storage.
 //
 //  IMPORTANT TERMINOLOGY NOTE
@@ -35,7 +35,7 @@
 #include <type_traits>  //  std::is_const_v, std::is_copy_assignable_v, std::is_trivially_copyable_v
 
 #include "memory/memory_policies.hpp"
-#include "slots/TUnorderedSlots.hpp"
+#include "slots/TUnorderedSlotManager.hpp"
 #include "slots/SlotsRankMap.hpp"
 #include "TPodVector.hpp"
 
@@ -70,11 +70,11 @@ protected:
 };
 
 template<typename T>
-class TPodUnorderedSlots : public slots::TUnorderedSlots<TPodUnorderedSlotsStorage<T>, std::int32_t>
+class TPodUnorderedSlots : public slots::TUnorderedSlotManager<TPodUnorderedSlotsStorage<T>, std::int32_t>
 {
 private:
     using slot_data_class = TPodUnorderedSlotsStorage<T>;
-    using slot_meta_class = slots::TUnorderedSlots<slot_data_class, std::int32_t>;
+    using slot_meta_class = slots::TUnorderedSlotManager<slot_data_class, std::int32_t>;
 
     static_assert(!std::is_const_v<T>, "TPodUnorderedSlots<T> requires non-const T.");
     static_assert(std::is_copy_assignable_v<T>, "TPodUnorderedSlots<T> requires copy-assignable T.");
@@ -363,8 +363,7 @@ inline memory::SMemoryAttribution TPodUnorderedSlots<T>::memory_attribution() co
 
 template<typename T>
 inline void TPodUnorderedSlots<T>::unsafe_replace_memory_context_without_accounting(
-    memory::CMemoryContext* const expected_source,
-    memory::CMemoryContext* const target) noexcept
+    memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
 {
     slot_data_class::unsafe_replace_memory_context_without_accounting(expected_source, target);
     slot_meta_class::unsafe_replace_memory_context_without_accounting(expected_source, target);

@@ -41,6 +41,7 @@
 #include "tests/test_suites/LiveDocument_test_suite.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
 #include "tests/test_suites/MessageHelpers_test_suite.hpp"
+#include "tests/test_suites/MovableSlots_test_suite.hpp"
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/test_suites/TInstance_test_suite.hpp"
@@ -50,8 +51,8 @@
 #include "tests/test_suites/TPodVector_test_suite.hpp"
 #include "tests/test_suites/TVector_test_suite.hpp"
 #include "tests/test_suites/TUnorderedCollection_test_suite.hpp"
-#include "tests/test_suites/TOrderedSlots_test_harness.hpp"
-#include "tests/test_suites/TUnorderedSlots_test_harness.hpp"
+#include "tests/test_suites/TOrderedSlotManager_test_harness.hpp"
+#include "tests/test_suites/TUnorderedSlotManager_test_harness.hpp"
 #include "tests/test_suites/TextLinter_test_suite.hpp"
 #include "tests/test_suites/TQueueTransport_test_suite.hpp"
 #include "tests/test_suites/TMpmcTransport_test_suite.hpp"
@@ -300,6 +301,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("StringBuffers", &run_string_buffer_tests);
     cumulative_result += run_isolated_suite("TOrderedCollection", &run_ordered_collection_tests);
     cumulative_result += run_isolated_suite("TUnorderedCollection", &run_unordered_collection_tests);
+    cumulative_result += run_isolated_suite("MovableSlots", &run_movable_slots_tests);
     cumulative_result += run_isolated_suite("TOwningTransport", &run_owning_transport_tests);
     cumulative_result += run_isolated_suite("TQueueTransport", &run_queue_transport_tests);
     cumulative_result += run_isolated_suite("TRingTransport", &run_ring_transport_tests);
@@ -318,7 +320,7 @@ int run_tests(ETestRunMode mode)
         }
 
         cumulative_result += run_isolated_suite(
-            "TOrderedSlots", [&tlex_cfg]() { return run_all_tests(tlex_cfg); });
+            "TOrderedSlotManager", [&tlex_cfg]() { return run_all_tests(tlex_cfg); });
     }
 
     if (mode >= ETestRunMode::core)
@@ -326,7 +328,7 @@ int run_tests(ETestRunMode mode)
         TUnorderedConfig tun_cfg;
 
         cumulative_result += run_isolated_suite(
-            "TUnorderedSlots", [&tun_cfg]() { return run_all_tests(tun_cfg); });
+            "TUnorderedSlotManager", [&tun_cfg]() { return run_all_tests(tun_cfg); });
     }
 
     return cumulative_result;

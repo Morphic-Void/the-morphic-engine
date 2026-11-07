@@ -1,15 +1,15 @@
 Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited  
 License: MIT (see LICENSE file in repository root)  
 
-File:   TOrderedSlots.md  
+File:   TOrderedSlotManager.md  
 Author: Ritchie Brannan  
 Date:   1 Apr 26  
 
-# TOrderedSlots<TSlotBacking, TIndex, TMeta>
+# TOrderedSlotManager<TSlotBacking, TIndex, TMeta>
 
 ## Purpose
 
-TOrderedSlots<TSlotBacking, TIndex, TMeta> is a general-purpose ordering and
+TOrderedSlotManager<TSlotBacking, TIndex, TMeta> is a general-purpose ordering and
 slot-management toolkit that maintains an ordered index over selected
 occupied slots for a lower slot-backing layer.
 
@@ -26,7 +26,7 @@ This template is intended as a base class, not a concrete container.
 
 ## Toolkit nature
 
-TOrderedSlots is a composable structural layer.
+TOrderedSlotManager is a composable structural layer.
 
 The slot-backing layer:
 
@@ -47,7 +47,7 @@ Ordering and traversal are optional and depend on facade usage.
 The interface is primarily protected.
 
 The lower TSlotBacking provides container-specific state and primitive
-operations. TOrderedSlots provides metadata and structure. The upper facade
+operations. TOrderedSlotManager provides metadata and structure. The upper facade
 defines public behaviour.
 
 ## Structural model
@@ -127,7 +127,7 @@ The slot-backing layer owns:
 - payload movement
 - payload reserve coordination
 
-TOrderedSlots owns:
+TOrderedSlotManager owns:
 
 - metadata
 - tree and list structures

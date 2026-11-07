@@ -2,7 +2,7 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   TOrderedSlots.hpp
+//  File:   TOrderedSlotManager.hpp
 //  Author: Ritchie Brannan
 //  Date:   10 Jan 26
 //
@@ -25,17 +25,17 @@
 //
 //  Migration notes
 //  ---------------
-//  Do not assume occupied-only rank semantics from TUnorderedSlots.
+//  Do not assume occupied-only rank semantics from TUnorderedSlotManager.
 //
 //  Rank is full-domain. Ordered, loose, and empty slots all participate
 //  in rank and remapping.
 //
-//  See docs/containers/slots/TOrderedSlots.md for the full documentation.
+//  See docs/slots/TOrderedSlotManager.md for the full documentation.
 
 #pragma once
 
-#ifndef TORDERED_SLOTS_HPP_INCLUDED
-#define TORDERED_SLOTS_HPP_INCLUDED
+#ifndef TORDERED_SLOT_MANAGER_HPP_INCLUDED
+#define TORDERED_SLOT_MANAGER_HPP_INCLUDED
 
 #include <algorithm>    //  std::fill_n, std::max, std::min
 #include <cstddef>      //  std::size_t
@@ -55,20 +55,20 @@ namespace slots
 
 /// An ordered index over slot metadata for externally stored payload items.
 ///
-/// TOrderedSlots stores only slot metadata (tree/list links, balance, occupancy).
+/// TOrderedSlotManager stores only slot metadata (tree/list links, balance, occupancy).
 /// The derived class owns the payload items, defines how keys are compared and
 /// how payload items are moved between slots.
 ///
-/// See docs/TOrderedSlots.md for full terminology and usage patterns.
+/// See docs/slots/TOrderedSlotManager.md for full terminology and usage patterns.
 template<typename TSlotBacking, typename TIndex = std::int32_t, typename TMeta = std::int16_t>
-class TOrderedSlots : protected TSlotBacking
+class TOrderedSlotManager : protected TSlotBacking
 {
 public:
-    TOrderedSlots() noexcept = default;
-    TOrderedSlots(TOrderedSlots&& src) noexcept;
-    TOrderedSlots(const TOrderedSlots& src) noexcept;
-    TOrderedSlots(const std::uint32_t capacity) noexcept { (void)initialise(capacity); }
-    ~TOrderedSlots() noexcept { (void)shutdown(); }
+    TOrderedSlotManager() noexcept = default;
+    TOrderedSlotManager(TOrderedSlotManager&& src) noexcept;
+    TOrderedSlotManager(const TOrderedSlotManager& src) noexcept;
+    TOrderedSlotManager(const std::uint32_t capacity) noexcept { (void)initialise(capacity); }
+    ~TOrderedSlotManager() noexcept { (void)shutdown(); }
 
 public:
 
@@ -85,11 +85,11 @@ private:
 
 protected:
 
-    TOrderedSlots& operator=(TOrderedSlots&& src) noexcept;
-    TOrderedSlots& operator=(const TOrderedSlots& src) noexcept;
+    TOrderedSlotManager& operator=(TOrderedSlotManager&& src) noexcept;
+    TOrderedSlotManager& operator=(const TOrderedSlotManager& src) noexcept;
 
-    [[nodiscard]] bool take(TOrderedSlots& src) noexcept;
-    [[nodiscard]] bool clone(const TOrderedSlots& src) noexcept;
+    [[nodiscard]] bool take(TOrderedSlotManager& src) noexcept;
+    [[nodiscard]] bool clone(const TOrderedSlotManager& src) noexcept;
 
     //  Limits
     [[nodiscard]] static constexpr std::uint32_t index_limit() { return k_index_limit; }
@@ -258,7 +258,7 @@ protected:
     //  In-place mode uses cycle resolution with derived temporary storage (-1).
     //  External mode performs a single pass to a complete external payload domain.
     //
-    //  See docs/TOrderedSlots.md for further detail.
+    //  See docs/slots/TOrderedSlotManager.md for further detail.
     void sort_and_pack(const bool use_external_payload = false) noexcept;
 
     //  Rebuild list order in ascending slot index order.
@@ -499,8 +499,8 @@ private:
     [[nodiscard]] std::uint32_t subtree_weight(const std::int32_t slot_index) const noexcept;
 
     //  These functions should only be called on construction or after shutdown().
-    bool move_from(TOrderedSlots& src) noexcept;
-    bool copy_from(const TOrderedSlots& src) noexcept;
+    bool move_from(TOrderedSlotManager& src) noexcept;
+    bool copy_from(const TOrderedSlotManager& src) noexcept;
     void set_empty() noexcept;
 
 private:
@@ -531,58 +531,58 @@ private:
 
     //  Verify that Slot is trivially copyable (it should be, so just defending against compiler variants)
     static_assert(std::is_trivially_copyable_v<Slot>,
-        "TOrderedSlots: Slot must be trivially copyable.");
+        "TOrderedSlotManager: Slot must be trivially copyable.");
 
     static_assert((sizeof(Slot) <= 0xffffu),
-        "TOrderedSlots: Slot metadata stride exceeds the memory token stride field.");
+        "TOrderedSlotManager: Slot metadata stride exceeds the memory token stride field.");
 
     //  Enforce std::size_t has at least 32 bits
     static_assert((sizeof(std::size_t) >= sizeof(std::uint32_t)),
-        "TOrderedSlots: std::size_t must be at least 32 bits.");
+        "TOrderedSlotManager: std::size_t must be at least 32 bits.");
 
     //  Enforce signed integer types so that negative sentinels and sign-based comparisons behave correctly
     static_assert(std::is_signed_v<TIndex> && std::is_signed_v<TMeta>,
-        "TOrderedSlots: TIndex and TMeta must be signed integer types.");
+        "TOrderedSlotManager: TIndex and TMeta must be signed integer types.");
 
     //  Enforce 2:1 index-to-metadata size ratio for predictable Slot layout and packing
     static_assert(((sizeof(TMeta) * 2) == sizeof(TIndex)),
-        "TOrderedSlots: sizeof(TMeta) must be exactly half of sizeof(TIndex).");
+        "TOrderedSlotManager: sizeof(TMeta) must be exactly half of sizeof(TIndex).");
 
     //  Enforce the only supported type pairs
     static_assert((
         (std::is_same_v<TIndex, std::int32_t> && std::is_same_v<TMeta, std::int16_t>) ||
         (std::is_same_v<TIndex, std::int16_t> && std::is_same_v<TMeta, std::int8_t>)),
-        "TOrderedSlots: Supported type pairs are (std::int32_t,std::int16_t) and (std::int16_t,std::int8_t).");
+        "TOrderedSlotManager: Supported type pairs are (std::int32_t,std::int16_t) and (std::int16_t,std::int8_t).");
 
 };
 
 //==============================================================================
-//  TOrderedSlots<TSlotBacking, TIndex, TMeta> out of class function bodies
+//  TOrderedSlotManager<TSlotBacking, TIndex, TMeta> out of class function bodies
 //==============================================================================
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline TOrderedSlots<TSlotBacking, TIndex, TMeta>::TOrderedSlots(TOrderedSlots&& src) noexcept : TSlotBacking(std::move(src))
+inline TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::TOrderedSlotManager(TOrderedSlotManager&& src) noexcept : TSlotBacking(std::move(src))
 {
     set_empty();
     (void)move_from(src);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline TOrderedSlots<TSlotBacking, TIndex, TMeta>::TOrderedSlots(const TOrderedSlots& src) noexcept : TSlotBacking(src)
+inline TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::TOrderedSlotManager(const TOrderedSlotManager& src) noexcept : TSlotBacking(src)
 {
     set_empty();
     (void)copy_from(src);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-constexpr bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::Slot::is_occupied() const noexcept
+constexpr bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::Slot::is_occupied() const noexcept
 {
     const SlotState state = get_slot_state();
     return (state == SlotState::is_loose_slot) || (state == SlotState::is_lexed_slot);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-constexpr std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::Slot::get_child_mask() const noexcept
+constexpr std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::Slot::get_child_mask() const noexcept
 {
     return
         ((static_cast<std::uint32_t>(child_index[0]) >> 31) & 1u) |
@@ -592,7 +592,7 @@ constexpr std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::Slot::get_ch
 //! Protected function bodies
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline TOrderedSlots<TSlotBacking, TIndex, TMeta>& TOrderedSlots<TSlotBacking, TIndex, TMeta>::operator=(TOrderedSlots&& src) noexcept
+inline TOrderedSlotManager<TSlotBacking, TIndex, TMeta>& TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::operator=(TOrderedSlotManager&& src) noexcept
 {
     if (this != &src)
     {
@@ -604,7 +604,7 @@ inline TOrderedSlots<TSlotBacking, TIndex, TMeta>& TOrderedSlots<TSlotBacking, T
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline TOrderedSlots<TSlotBacking, TIndex, TMeta>& TOrderedSlots<TSlotBacking, TIndex, TMeta>::operator=(const TOrderedSlots& src) noexcept
+inline TOrderedSlotManager<TSlotBacking, TIndex, TMeta>& TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::operator=(const TOrderedSlotManager& src) noexcept
 {
     if (this != &src)
     {
@@ -616,7 +616,7 @@ inline TOrderedSlots<TSlotBacking, TIndex, TMeta>& TOrderedSlots<TSlotBacking, T
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::take(TOrderedSlots& src) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::take(TOrderedSlotManager& src) noexcept
 {
     if (!shutdown())
     {
@@ -627,7 +627,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::take(TOrderedSlots& src)
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::clone(const TOrderedSlots& src) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::clone(const TOrderedSlotManager& src) noexcept
 {
     if (!shutdown())
     {
@@ -638,73 +638,73 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::clone(const TOrderedSlot
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_initialised() const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_initialised() const noexcept
 {
     return meta_slots() != nullptr;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_empty() const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_empty() const noexcept
 {
     return occupied_count() == 0u;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::capacity() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::capacity() const noexcept
 {
     return m_capacity;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::minimum_safe_capacity() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::minimum_safe_capacity() const noexcept
 {
     return static_cast<std::uint32_t>(m_high_index) + 1u;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::peak_usage() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::peak_usage() const noexcept
 {
     return m_peak_usage;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::peak_index() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::peak_index() const noexcept
 {
     return m_peak_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::high_index() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::high_index() const noexcept
 {
     return m_high_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::lexed_count() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::lexed_count() const noexcept
 {
     return m_lexed_count;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::loose_count() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::loose_count() const noexcept
 {
     return m_loose_count;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::empty_count() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::empty_count() const noexcept
 {
     return m_empty_count;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::occupied_count() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::occupied_count() const noexcept
 {
     return m_lexed_count + m_loose_count;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::clear() noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::clear() noexcept
 {
     if (is_safe())
     {
@@ -723,7 +723,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::clear() noexcept
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::shutdown() noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::shutdown() noexcept
 {
     if (is_safe(true))
     {
@@ -735,19 +735,19 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::shutdown() noexcept
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::initialise(const std::uint32_t capacity) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::initialise(const std::uint32_t capacity) noexcept
 {
     return shutdown() ? private_resize(capacity) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::safe_resize(const std::uint32_t requested_capacity) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::safe_resize(const std::uint32_t requested_capacity) noexcept
 {
     return is_safe(true) ? private_resize(requested_capacity) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::reserve_empty(const std::uint32_t slot_count) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::reserve_empty(const std::uint32_t slot_count) noexcept
 {
     bool reserved = false;
     if (is_safe(true))
@@ -774,25 +774,25 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::reserve_empty(const std:
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::shrink_to_fit() noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::shrink_to_fit() noexcept
 {
     return (is_safe() && (m_high_index >= 0)) ? private_resize(static_cast<std::uint32_t>(m_high_index) + 1u) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
 {
     return is_safe() ? private_acquire(query, slot_index, lex, require_unique, false) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::reserve_and_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::reserve_and_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
 {
     return is_safe() ? private_acquire(query, slot_index, lex, require_unique, true) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::erase(const std::int32_t slot_index) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::erase(const std::int32_t slot_index) noexcept
 {
     if (is_occupied(slot_index))
     {
@@ -815,37 +815,37 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::erase(const std::int32_t
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_occupied(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_occupied(const std::int32_t slot_index) const noexcept
 {
     return is_safe_slot(slot_index) && meta_slots()[slot_index].is_occupied();
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_safe_slot(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_safe_slot(const std::int32_t slot_index) const noexcept
 {
     return is_safe() && (static_cast<std::uint32_t>(slot_index) < m_capacity);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_lexed_slot(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_lexed_slot(const std::int32_t slot_index) const noexcept
 {
     return is_safe_slot(slot_index) && meta_slots()[slot_index].is_lexed_slot();
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_loose_slot(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_loose_slot(const std::int32_t slot_index) const noexcept
 {
     return is_safe_slot(slot_index) && meta_slots()[slot_index].is_loose_slot();
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_empty_slot(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_empty_slot(const std::int32_t slot_index) const noexcept
 {
     return is_safe_slot(slot_index) && meta_slots()[slot_index].is_empty_slot();
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::first_lexed() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::first_lexed() const noexcept
 {
     std::int32_t first_index = -1;
     if (is_safe())
@@ -857,7 +857,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::first_lexed() co
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::last_lexed() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::last_lexed() const noexcept
 {
     std::int32_t last_index = -1;
     if (is_safe())
@@ -869,31 +869,31 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::last_lexed() con
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::prev_lexed(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::prev_lexed(const std::int32_t slot_index) const noexcept
 {
     return is_lexed_slot(slot_index) ? private_prev_lexed(slot_index) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::next_lexed(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::next_lexed(const std::int32_t slot_index) const noexcept
 {
     return is_lexed_slot(slot_index) ? private_next_lexed(slot_index) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::first_loose() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::first_loose() const noexcept
 {
     return is_safe() ? m_loose_list_head : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::last_loose() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::last_loose() const noexcept
 {
     return (is_safe() && (m_loose_list_head != -1)) ? meta_slots()[m_loose_list_head].child_index[0] : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::prev_loose(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::prev_loose(const std::int32_t slot_index) const noexcept
 {
     if (is_loose_slot(slot_index) && (slot_index != m_loose_list_head))
     {
@@ -903,7 +903,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::prev_loose(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::next_loose(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::next_loose(const std::int32_t slot_index) const noexcept
 {
     if (is_loose_slot(slot_index))
     {
@@ -917,19 +917,19 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::next_loose(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::first_empty() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::first_empty() const noexcept
 {
     return is_safe() ? m_empty_list_head : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::last_empty() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::last_empty() const noexcept
 {
     return (is_safe() && (m_empty_list_head != -1)) ? meta_slots()[m_empty_list_head].child_index[0] : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::prev_empty(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::prev_empty(const std::int32_t slot_index) const noexcept
 {
     if (is_empty_slot(slot_index) && (slot_index != m_empty_list_head))
     {
@@ -939,7 +939,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::prev_empty(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::next_empty(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::next_empty(const std::int32_t slot_index) const noexcept
 {
     if (is_empty_slot(slot_index))
     {
@@ -953,43 +953,43 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::next_empty(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_key(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::has_duplicate_key(const std::int32_t slot_index) const noexcept
 {
     return is_occupied(slot_index) ? private_has_duplicate_key(slot_index) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_key_in_lexed(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::has_duplicate_key_in_lexed(const std::int32_t slot_index) const noexcept
 {
     return is_occupied(slot_index) ? private_has_duplicate_key_in_lexed(slot_index) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_key_in_loose(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::has_duplicate_key_in_loose(const std::int32_t slot_index) const noexcept
 {
     return is_occupied(slot_index) ? private_has_duplicate_key_in_loose(slot_index) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_query(const query_type& query) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::has_duplicate_query(const query_type& query) const noexcept
 {
     return is_safe() ? private_has_duplicate_key(-1, &query) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_query_in_lexed(const query_type& query) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::has_duplicate_query_in_lexed(const query_type& query) const noexcept
 {
     return is_safe() ? private_has_duplicate_key_in_lexed(-1, &query) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_query_in_loose(const query_type& query) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::has_duplicate_query_in_loose(const query_type& query) const noexcept
 {
     return is_safe() ? private_has_duplicate_key_in_loose(-1, &query) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::lex(const std::int32_t slot_index) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::lex(const std::int32_t slot_index) noexcept
 {
     if (is_loose_slot(slot_index))
     {
@@ -1000,7 +1000,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::lex(const std::int32_t s
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::unlex(const std::int32_t slot_index) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::unlex(const std::int32_t slot_index) noexcept
 {
     if (is_lexed_slot(slot_index))
     {
@@ -1011,7 +1011,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::unlex(const std::int32_t
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::relex(const std::int32_t slot_index) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::relex(const std::int32_t slot_index) noexcept
 {
     if (is_lexed_slot(slot_index))
     {
@@ -1027,7 +1027,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::relex(const std::int32_t
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::lex_all() noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::lex_all() noexcept
 {
     if (is_safe() && (m_loose_count != 0))
     {
@@ -1050,7 +1050,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::lex_all() noexcept
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::unlex_all() noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::unlex_all() noexcept
 {
     if (is_safe() && (m_lexed_count != 0))
     {
@@ -1071,7 +1071,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::unlex_all() noexcept
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::relex_all() noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::relex_all() noexcept
 {
     if (is_safe() && (m_lexed_count != 0))
     {
@@ -1091,7 +1091,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::relex_all() noexcept
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-[[nodiscard]] RankMap TOrderedSlots<TSlotBacking, TIndex, TMeta>::build_rank_map() const noexcept
+[[nodiscard]] RankMap TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::build_rank_map() const noexcept
 {
     RankMap rank_map;
     if (is_safe() && (m_capacity != 0u))
@@ -1151,7 +1151,7 @@ template<typename TSlotBacking, typename TIndex, typename TMeta>
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::sort_and_pack(const bool use_external_payload) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::sort_and_pack(const bool use_external_payload) noexcept
 {
     if (is_safe())
     {
@@ -1160,7 +1160,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::sort_and_pack(const bool
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::rebuild_loose_in_index_order() noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::rebuild_loose_in_index_order() noexcept
 {
     if (is_safe() && (m_loose_count != 0))
     {
@@ -1169,7 +1169,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::rebuild_loose_in_index_o
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::rebuild_empty_in_index_order() noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::rebuild_empty_in_index_order() noexcept
 {
     if (is_safe() && (m_empty_count != 0))
     {
@@ -1180,13 +1180,13 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::rebuild_empty_in_index_o
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::rank_index_of(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::rank_index_of(const std::int32_t slot_index) const noexcept
 {
     return is_safe_slot(slot_index) ? convert_to_rank_index(slot_index) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_by_rank_index(const std::int32_t rank_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_by_rank_index(const std::int32_t rank_index) const noexcept
 {
     if (!is_safe())
     {
@@ -1256,7 +1256,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_by_rank_ind
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_any_equal(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_any_equal(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1277,7 +1277,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_any_equal(c
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_equal(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_first_equal(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1299,7 +1299,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_equal
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_greater(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_first_greater(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1321,7 +1321,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_great
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_greater_equal(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_first_greater_equal(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1343,7 +1343,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_great
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_equal(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_last_equal(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1365,7 +1365,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_equal(
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_last_less(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1387,7 +1387,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less(c
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less_equal(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::find_last_less_equal(const query_type& query) const noexcept
 {
     if (!is_safe())
     {
@@ -1409,31 +1409,31 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less_e
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::lower_bound_by_lex(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::lower_bound_by_lex(const query_type& query) const noexcept
 {
     return find_first_greater_equal(query);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::upper_bound_by_lex(const query_type& query) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::upper_bound_by_lex(const query_type& query) const noexcept
 {
     return find_first_greater(query);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::tree_height() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::tree_height() const noexcept
 {
     return is_safe() ? subtree_height(m_lexed_tree_root) : 0;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::tree_weight() const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::tree_weight() const noexcept
 {
     return is_safe() ? subtree_weight(m_lexed_tree_root) : 0;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::validate_tree(const LexCheck lex_check) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::validate_tree(const LexCheck lex_check) const noexcept
 {
     bool valid = false;
     if (is_safe())
@@ -1451,7 +1451,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::validate_tree(const LexC
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::check_integrity() const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::check_integrity() const noexcept
 {
     return is_safe() ? private_integrity_check() : false;
 }
@@ -1459,25 +1459,25 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::check_integrity() const 
 //! Private function bodies
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::is_safe(const bool allow_null) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::is_safe(const bool allow_null) const noexcept
 {
     return allow_null || (meta_slots() != nullptr);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline TSlotBacking& TOrderedSlots<TSlotBacking, TIndex, TMeta>::slot_backing() noexcept
+inline TSlotBacking& TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::slot_backing() noexcept
 {
     return static_cast<TSlotBacking&>(*this);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline const TSlotBacking& TOrderedSlots<TSlotBacking, TIndex, TMeta>::slot_backing() const noexcept
+inline const TSlotBacking& TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::slot_backing() const noexcept
 {
     return static_cast<const TSlotBacking&>(*this);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_single_rotate(const std::int32_t slot_index, const std::int32_t heavy_side) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::avl_single_rotate(const std::int32_t slot_index, const std::int32_t heavy_side) noexcept
 {
     Slot* const meta = meta_slots();
 
@@ -1516,7 +1516,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_single_rotat
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_double_rotate(const std::int32_t slot_index, const std::int32_t heavy_side) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::avl_double_rotate(const std::int32_t slot_index, const std::int32_t heavy_side) noexcept
 {
     Slot* const meta = meta_slots();
 
@@ -1608,7 +1608,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_double_rotat
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::int32_t slot_index, const query_type* const query) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::avl_insert(const std::int32_t slot_index, const query_type* const query) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -1676,7 +1676,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::in
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_remove(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::avl_remove(const std::int32_t slot_index) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -1816,20 +1816,20 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_remove(const std::in
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::apply_growth_policy(const std::uint32_t capacity) noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::apply_growth_policy(const std::uint32_t capacity) noexcept
 {
     return static_cast<std::uint32_t>(memory::vector_growth_policy(static_cast<std::size_t>(capacity), static_cast<std::size_t>(k_capacity_limit)));
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::failed_validate_subtree() noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::failed_validate_subtree() noexcept
 {
-    MV_ASSERT_REPORT("TOrderedSlots subtree validation failed");
+    MV_ASSERT_REPORT("TOrderedSlotManager subtree validation failed");
     return -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_validate_subtree(const std::int32_t slot_index, const LexCheck lex_check) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_validate_subtree(const std::int32_t slot_index, const LexCheck lex_check) const noexcept
 {
     if (static_cast<std::uint32_t>(slot_index) >= m_capacity)
     {   //  early out on an invalid slot_index
@@ -1933,13 +1933,13 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_validate
 //  This function only exists as a debug convenience to help capture integrity check failure causes.
 //  It may be expanded on in the future as a potential logging site.
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline memory::SMemoryAttribution TOrderedSlots<TSlotBacking, TIndex, TMeta>::memory_attribution() const noexcept
+inline memory::SMemoryAttribution TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::memory_attribution() const noexcept
 {
     return memory::observe_memory_attribution(m_meta_slot_array);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::unsafe_replace_memory_context_without_accounting(
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::unsafe_replace_memory_context_without_accounting(
     memory::CMemoryContext* const expected_source,
     memory::CMemoryContext* const target) noexcept
 {
@@ -1947,14 +1947,14 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::unsafe_replace_memory_co
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::failed_integrity_check() noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::failed_integrity_check() noexcept
 {
-    MV_ASSERT_REPORT("TOrderedSlots integrity check failed");
+    MV_ASSERT_REPORT("TOrderedSlotManager integrity check failed");
     return false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_integrity_check() const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_integrity_check() const noexcept
 {
     if (!m_meta_slot_array.is_relocatable() ||
         (m_meta_slot_array.stride() != sizeof(Slot)) ||
@@ -2314,7 +2314,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_integrity_check(
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_resize(const std::uint32_t requested_capacity) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_resize(const std::uint32_t requested_capacity) noexcept
 {
     bool resized = false;
     if ((requested_capacity != 0) && (requested_capacity <= k_capacity_limit))
@@ -2356,7 +2356,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_resize(const std
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique, const bool allow_reserve) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique, const bool allow_reserve) noexcept
 {
     std::int32_t acquired_index = -1;
     if ((static_cast<std::uint32_t>(slot_index) + 1u) <= k_capacity_limit)
@@ -2428,7 +2428,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_acquire(
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_prev_lexed(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_prev_lexed(const std::int32_t slot_index) const noexcept
 {
     const Slot* const meta = meta_slots();
     std::int32_t prev_index = -1;
@@ -2445,7 +2445,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_prev_lex
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_next_lexed(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_next_lexed(const std::int32_t slot_index) const noexcept
 {
     const Slot* const meta = meta_slots();
     std::int32_t next_index = -1;
@@ -2462,13 +2462,13 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_next_lex
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key(const std::int32_t slot_index, const query_type* const query) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key(const std::int32_t slot_index, const query_type* const query) const noexcept
 {
     return private_has_duplicate_key_in_lexed(slot_index, query) || private_has_duplicate_key_in_loose(slot_index, query);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_lexed(const std::int32_t slot_index, const query_type* const query) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_lexed(const std::int32_t slot_index, const query_type* const query) const noexcept
 {
     const Slot* const meta = meta_slots();
     bool has_duplicate = false;
@@ -2509,7 +2509,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_ke
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_loose(const std::int32_t slot_index, const query_type* const query) const noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_loose(const std::int32_t slot_index, const query_type* const query) const noexcept
 {
     const Slot* const meta = meta_slots();
     bool has_duplicate = false;
@@ -2532,7 +2532,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_ke
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_sort_and_compact(const bool use_external_payload) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::private_sort_and_compact(const bool use_external_payload) noexcept
 {
     if (m_capacity != 0u)
     {
@@ -2609,7 +2609,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_sort_and_compact
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::build_balanced_subtree(const std::int32_t lower_index, const std::int32_t upper_index, const std::int32_t parent_index) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::build_balanced_subtree(const std::int32_t lower_index, const std::int32_t upper_index, const std::int32_t parent_index) noexcept
 {
     std::int32_t split_index = -1;
     if (lower_index <= upper_index)
@@ -2634,7 +2634,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::build_balanced_s
 //
 //  Note: This does not move payload items.
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::lexed_to_list() noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::lexed_to_list() noexcept
 {
     Slot* const meta = meta_slots();
     std::int32_t list_index = -1;
@@ -2676,7 +2676,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::lexed_to_list() 
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::state_to_list(const std::int32_t lower_index, const std::int32_t upper_index, const SlotState state) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::state_to_list(const std::int32_t lower_index, const std::int32_t upper_index, const SlotState state) noexcept
 {
     std::int32_t head_index = -1;
     if ((lower_index <= upper_index) && (lower_index >= 0))
@@ -2713,7 +2713,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::state_to_list(co
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::range_to_list(const std::int32_t lower_index, const std::int32_t upper_index, SlotState state) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::range_to_list(const std::int32_t lower_index, const std::int32_t upper_index, SlotState state) noexcept
 {
     if ((lower_index <= upper_index) && (lower_index >= 0))
     {
@@ -2738,7 +2738,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::range_to_list(co
 
 //  Convert a range of slot indices to a bi-directional list (slot metadata only).
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::combine_lists(const std::int32_t list1_head_index, const std::int32_t list2_head_index) noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::combine_lists(const std::int32_t list1_head_index, const std::int32_t list2_head_index) noexcept
 {
     if (list1_head_index < 0)
     {
@@ -2759,7 +2759,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::combine_lists(co
 
 //  Set the parent_index of slots in a list to be an ordinal index
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::set_list_ordinals(const std::int32_t list_index, const std::uint32_t list_count, const std::int32_t ordinal_start) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::set_list_ordinals(const std::int32_t list_index, const std::uint32_t list_count, const std::int32_t ordinal_start) noexcept
 {
     Slot* const meta = meta_slots();
     std::int32_t ordinal_index = ordinal_start;
@@ -2774,21 +2774,21 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::set_list_ordinals(const 
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::append_range_to_loose_list(const std::int32_t lower_index, const std::int32_t upper_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::append_range_to_loose_list(const std::int32_t lower_index, const std::int32_t upper_index) noexcept
 {
     m_loose_count += static_cast<std::uint32_t>(upper_index - lower_index) + 1u;
     m_loose_list_head = combine_lists(m_loose_list_head, range_to_list(lower_index, upper_index, SlotState::is_loose_slot));
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::append_range_to_empty_list(const std::int32_t lower_index, const std::int32_t upper_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::append_range_to_empty_list(const std::int32_t lower_index, const std::int32_t upper_index) noexcept
 {
     m_empty_count += static_cast<std::uint32_t>(upper_index - lower_index) + 1u;
     m_empty_list_head = combine_lists(m_empty_list_head, range_to_list(lower_index, upper_index, SlotState::is_empty_slot));
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_lexed(const std::int32_t slot_index, const query_type* const query) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::attach_to_lexed(const std::int32_t slot_index, const query_type* const query) noexcept
 {
     Slot& slot = meta_slots()[slot_index];
     slot.parent_index = -1;
@@ -2800,7 +2800,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_lexed(const st
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_loose(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::attach_to_loose(const std::int32_t slot_index) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -2823,7 +2823,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_loose(const st
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_empty(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::attach_to_empty(const std::int32_t slot_index) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -2846,7 +2846,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_empty(const st
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_lexed(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::remove_from_lexed(const std::int32_t slot_index) noexcept
 {
     Slot& slot = meta_slots()[slot_index];
     --m_lexed_count;
@@ -2858,7 +2858,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_lexed(const 
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_loose(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::remove_from_loose(const std::int32_t slot_index) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -2879,7 +2879,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_loose(const 
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_empty(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::remove_from_empty(const std::int32_t slot_index) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -2900,7 +2900,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_empty(const 
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const std::int32_t slot_index, const query_type* const query) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const std::int32_t slot_index, const query_type* const query) noexcept
 {
     switch (meta_slots()[slot_index].get_slot_state())
     {
@@ -2924,7 +2924,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_loose_list(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::move_to_loose_list(const std::int32_t slot_index) noexcept
 {
     switch (meta_slots()[slot_index].get_slot_state())
     {
@@ -2948,7 +2948,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_loose_list(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_empty_list(const std::int32_t slot_index) noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::move_to_empty_list(const std::int32_t slot_index) noexcept
 {
     switch (meta_slots()[slot_index].get_slot_state())
     {
@@ -2972,7 +2972,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_empty_list(const
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::convert_to_rank_index(const std::int32_t slot_index) const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::convert_to_rank_index(const std::int32_t slot_index) const noexcept
 {
     std::int32_t rank_index = -1;
     const Slot* const meta = meta_slots();
@@ -3014,7 +3014,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::convert_to_rank_
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::min_occupied_index() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::min_occupied_index() const noexcept
 {
     const Slot* const meta = meta_slots();
     std::int32_t slot_index = 0;
@@ -3031,7 +3031,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::min_occupied_ind
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::max_occupied_index() const noexcept
+inline std::int32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::max_occupied_index() const noexcept
 {
     const Slot* const meta = meta_slots();
     std::int32_t slot_index = static_cast<std::int32_t>(m_capacity - 1u);
@@ -3048,7 +3048,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::max_occupied_ind
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::subtree_height(const std::int32_t slot_index) const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::subtree_height(const std::int32_t slot_index) const noexcept
 {
     if (slot_index >= 0)
     {
@@ -3059,7 +3059,7 @@ inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::subtree_height(
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::subtree_weight(const std::int32_t slot_index) const noexcept
+inline std::uint32_t TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::subtree_weight(const std::int32_t slot_index) const noexcept
 {
     if (slot_index >= 0)
     {
@@ -3071,7 +3071,7 @@ inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::subtree_weight(
 
 //  This function should only be called on construction or after a call to shutdown().
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_from(TOrderedSlots& src) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::move_from(TOrderedSlotManager& src) noexcept
 {
     m_capacity = src.m_capacity;
     m_peak_usage = src.m_peak_usage;
@@ -3090,7 +3090,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_from(TOrderedSlots&
 
 //  This function should only be called on construction or after a call to shutdown().
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::copy_from(const TOrderedSlots& src) noexcept
+inline bool TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::copy_from(const TOrderedSlotManager& src) noexcept
 {
     if (src.is_initialised())
     {
@@ -3118,7 +3118,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::copy_from(const TOrdered
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::set_empty() noexcept
+inline void TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::set_empty() noexcept
 {
     m_capacity = 0;
     m_peak_usage = 0;
@@ -3135,4 +3135,4 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::set_empty() noexcept
 
 }   //  namespace slots
 
-#endif  //  TORDERED_SLOTS_HPP_INCLUDED
+#endif  //  TORDERED_SLOT_MANAGER_HPP_INCLUDED

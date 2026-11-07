@@ -86,7 +86,7 @@ using TCollection = TOrderedCollection<TTrackedValue, TTrackedKey>;
 
 struct TReadQueries : TPodOrderedSlots<int, TTrackedKey>
 {
-    using Metadata = slots::TOrderedSlots<TPodOrderedSlotsStorage<int, TTrackedKey>>;
+    using Metadata = slots::TOrderedSlotManager<TPodOrderedSlotsStorage<int, TTrackedKey>>;
     using Metadata::find_any_equal;
     using Metadata::find_first_equal;
     using Metadata::find_first_greater;
@@ -225,7 +225,7 @@ struct TAttributionContainer : TAttributionBase<Pod, Ordered>
     using Backing = std::conditional_t<Ordered,
         std::conditional_t<Pod, TPodOrderedSlotsStorage<int, TTrackedKey>, TOrderedCollectionStorage<int, TTrackedKey>>,
         std::conditional_t<Pod, TPodUnorderedSlotsStorage<int>, TUnorderedCollectionStorage<int>>>;
-    using Metadata = std::conditional_t<Ordered, slots::TOrderedSlots<Backing>, slots::TUnorderedSlots<Backing>>;
+    using Metadata = std::conditional_t<Ordered, slots::TOrderedSlotManager<Backing>, slots::TUnorderedSlotManager<Backing>>;
 
     int insert_value(const int value) noexcept
     {

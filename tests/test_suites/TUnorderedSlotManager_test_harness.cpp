@@ -2,7 +2,7 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    TUnorderedSlots_test_harness.cpp
+//  File:    TUnorderedSlotManager_test_harness.cpp
 //  Primary implementation: OpenAI Codex
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    21 Oct 26
@@ -23,8 +23,8 @@
 #include <string>
 
 #include "containers/TPodUnorderedSlots.hpp"
-#include "containers/slots/TUnorderedSlots.hpp"
-#include "tests/test_suites/TUnorderedSlots_test_harness.hpp"
+#include "slots/TUnorderedSlotManager.hpp"
+#include "tests/test_suites/TUnorderedSlotManager_test_harness.hpp"
 #include "tests/support/slot_harness_helpers.hpp"
 
 using tests::slot_harness::TestLogger;
@@ -37,7 +37,7 @@ using tests::slot_harness::vec_to_string;
 // Harness: derived test adapter
 // -----------------------------
 template<typename TIndex>
-class TUnorderedSlots_TestStorage
+class TUnorderedSlotManager_TestStorage
 {
 public:
     void on_move_payload(const int32_t source_index, const int32_t target_index) noexcept;
@@ -51,13 +51,13 @@ protected:
 };
 
 template<typename TIndex>
-class TUnorderedSlots_Test final : private slots::TUnorderedSlots<TUnorderedSlots_TestStorage<TIndex>, TIndex>
+class TUnorderedSlotManager_Test final : private slots::TUnorderedSlotManager<TUnorderedSlotManager_TestStorage<TIndex>, TIndex>
 {
-    using SlotBacking = TUnorderedSlots_TestStorage<TIndex>;
-    using Base = slots::TUnorderedSlots<SlotBacking, TIndex>;
+    using SlotBacking = TUnorderedSlotManager_TestStorage<TIndex>;
+    using Base = slots::TUnorderedSlotManager<SlotBacking, TIndex>;
 
 public:
-    TUnorderedSlots_Test() noexcept
+    TUnorderedSlotManager_Test() noexcept
         : m_next_value(1)
     {
     }
@@ -343,7 +343,7 @@ private:
 };
 
 template<typename TIndex>
-void TUnorderedSlots_TestStorage<TIndex>::on_move_payload(const int32_t source_index, const int32_t target_index) noexcept
+void TUnorderedSlotManager_TestStorage<TIndex>::on_move_payload(const int32_t source_index, const int32_t target_index) noexcept
 {
     if (source_index == target_index)
         hard_fail_contract("on_move_payload: source == target");
@@ -376,7 +376,7 @@ void TUnorderedSlots_TestStorage<TIndex>::on_move_payload(const int32_t source_i
 }
 
 template<typename TIndex>
-uint32_t TUnorderedSlots_TestStorage<TIndex>::on_reserve_empty(
+uint32_t TUnorderedSlotManager_TestStorage<TIndex>::on_reserve_empty(
     const uint32_t minimum_capacity,
     const uint32_t recommended_capacity) noexcept
 {
@@ -386,7 +386,7 @@ uint32_t TUnorderedSlots_TestStorage<TIndex>::on_reserve_empty(
 }
 
 template<typename TIndex>
-void TUnorderedSlots_TestStorage<TIndex>::ensure_payload_capacity_matches_slots(const uint32_t capacity) noexcept
+void TUnorderedSlotManager_TestStorage<TIndex>::ensure_payload_capacity_matches_slots(const uint32_t capacity) noexcept
 {
     if (m_payload.size() != static_cast<size_t>(capacity))
         m_payload.resize(static_cast<size_t>(capacity));
@@ -399,7 +399,7 @@ template<typename TIndex>
 static bool test_smoke(const TUnorderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using H = TUnorderedSlots_Test<TIndex>;
+    using H = TUnorderedSlotManager_Test<TIndex>;
 
     H h;
     if (!h.init(cfg.initial_capacity))
@@ -472,7 +472,7 @@ template<typename TIndex>
 static bool test_traversal_semantics(const TUnorderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using H = TUnorderedSlots_Test<TIndex>;
+    using H = TUnorderedSlotManager_Test<TIndex>;
 
     H h;
     if (!h.init(std::max<uint32_t>(cfg.initial_capacity, 16u)))
@@ -528,7 +528,7 @@ template<typename TIndex>
 static bool test_compact_postconditions(const TUnorderedConfig& cfg, TestLogger& log)
 {
     (void)cfg;
-    using H = TUnorderedSlots_Test<TIndex>;
+    using H = TUnorderedSlotManager_Test<TIndex>;
 
     H h;
     if (!h.init(std::max<uint32_t>(cfg.initial_capacity, 32u)))
@@ -629,7 +629,7 @@ static bool test_compact_postconditions(const TUnorderedConfig& cfg, TestLogger&
 template<typename TIndex>
 static bool test_resize_reserve(const TUnorderedConfig& cfg, TestLogger& log)
 {
-    using H = TUnorderedSlots_Test<TIndex>;
+    using H = TUnorderedSlotManager_Test<TIndex>;
 
     H h;
     if (!h.init(std::max<uint32_t>(cfg.initial_capacity, 8u)))
@@ -794,7 +794,7 @@ static bool test_pod_unordered_slots_smoke(TestLogger& log)
 template<typename TIndex>
 static bool test_fuzz(const TUnorderedConfig& cfg, TestLogger& log)
 {
-    using H = TUnorderedSlots_Test<TIndex>;
+    using H = TUnorderedSlotManager_Test<TIndex>;
 
     H h;
 
@@ -1047,7 +1047,7 @@ static bool test_fuzz(const TUnorderedConfig& cfg, TestLogger& log)
 static void print_usage()
 {
     std::cout <<
-        "TUnorderedSlots test harness options:\n"
+        "TUnorderedSlotManager test harness options:\n"
         "  --fast                 Quick run (no fuzz)\n"
         "  --soak                 Run all non-fuzz tests\n"
         "  --fuzz                 Enable deterministic fuzz\n"

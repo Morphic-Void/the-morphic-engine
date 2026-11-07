@@ -13,7 +13,7 @@
 //  Ordered collection over stable storage with slot-based identity
 //  and key-based ordering.
 //
-//  Uses TOrderedSlots for ordering and slot management and
+//  Uses TOrderedSlotManager for ordering and slot management and
 //  memory::CMemoryToken in stable mode for address-stable object backing.
 //  Attribution covers object backing, slots, keys and metadata; allocations
 //  owned by contained T objects are excluded.
@@ -43,7 +43,7 @@
 #include "algo/validate_permutations.hpp"
 #include "memory/memory_policies.hpp"
 #include "memory/memory_token.hpp"
-#include "slots/TOrderedSlots.hpp"
+#include "slots/TOrderedSlotManager.hpp"
 #include "slots/SlotsRankMap.hpp"
 #include "bit_utils/bit_ops.hpp"
 #include "TPodVector.hpp"
@@ -101,11 +101,11 @@ protected:
 };
 
 template<typename T, typename TKey>
-class TOrderedCollection : public slots::TOrderedSlots<TOrderedCollectionStorage<T, TKey>, std::int32_t>
+class TOrderedCollection : public slots::TOrderedSlotManager<TOrderedCollectionStorage<T, TKey>, std::int32_t>
 {
 private:
     using slot_data_class = TOrderedCollectionStorage<T, TKey>;
-    using slot_meta_class = slots::TOrderedSlots<slot_data_class, std::int32_t>;
+    using slot_meta_class = slots::TOrderedSlotManager<slot_data_class, std::int32_t>;
 
     static_assert(!std::is_const_v<T>, "TOrderedCollection<T, TKey> requires non-const T.");
     static_assert(!std::is_const_v<TKey>, "TOrderedCollection<T, TKey> requires non-const TKey.");

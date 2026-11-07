@@ -2,15 +2,15 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    TOrderedSlots_test_harness.hpp
+//  File:    TOrderedSlotManager_test_harness.hpp
 //  Primary implementation: OpenAI Codex
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    21 Oct 26
 
 #pragma once
 
-#ifndef TORDERED_SLOTS_TEST_HARNESS_HPP_INCLUDED
-#define TORDERED_SLOTS_TEST_HARNESS_HPP_INCLUDED
+#ifndef TORDERED_SLOT_MANAGER_TEST_HARNESS_HPP_INCLUDED
+#define TORDERED_SLOT_MANAGER_TEST_HARNESS_HPP_INCLUDED
 
 #include <cstdint>
 
@@ -63,4 +63,4 @@ struct TOrderedConfig
 
 int run_all_tests(const TOrderedConfig& cfg_in);
 
-#endif  //  TORDERED_SLOTS_TEST_HARNESS_HPP_INCLUDED
+#endif  //  TORDERED_SLOT_MANAGER_TEST_HARNESS_HPP_INCLUDED
