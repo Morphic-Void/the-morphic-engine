@@ -65,6 +65,7 @@ class TOrderedSlotManager : protected TSlotBacking
 {
 public:
     TOrderedSlotManager() noexcept = default;
+    explicit TOrderedSlotManager(memory::CMemoryContext& context) noexcept;
     TOrderedSlotManager(TOrderedSlotManager&& src) noexcept;
     TOrderedSlotManager(const TOrderedSlotManager& src) noexcept;
     TOrderedSlotManager(const std::uint32_t capacity) noexcept { (void)initialise(capacity); }
@@ -559,6 +560,12 @@ private:
 //==============================================================================
 //  TOrderedSlotManager<TSlotBacking, TIndex, TMeta> out of class function bodies
 //==============================================================================
+
+template<typename TSlotBacking, typename TIndex, typename TMeta>
+inline TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::TOrderedSlotManager(memory::CMemoryContext& context) noexcept
+    : TSlotBacking(context), m_meta_slot_array(sizeof(Slot), memory::t_default_align<Slot>(), &context)
+{
+}
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline TOrderedSlotManager<TSlotBacking, TIndex, TMeta>::TOrderedSlotManager(TOrderedSlotManager&& src) noexcept : TSlotBacking(std::move(src))

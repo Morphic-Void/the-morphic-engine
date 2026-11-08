@@ -59,6 +59,9 @@ template<typename T, typename TKey>
 class TOrderedCollectionStorage
 {
 public:
+    TOrderedCollectionStorage() noexcept;
+    explicit TOrderedCollectionStorage(memory::CMemoryContext& context) noexcept;
+
     using query_type = TKey;
 
     enum class SlotState : std::size_t
@@ -116,6 +119,7 @@ public:
 
     //  Default and deleted lifetime
     TOrderedCollection() noexcept = default;
+    explicit TOrderedCollection(memory::CMemoryContext& context) noexcept;
     TOrderedCollection(const TOrderedCollection&) noexcept = delete;
     TOrderedCollection& operator=(const TOrderedCollection&) noexcept = delete;
     TOrderedCollection(TOrderedCollection&&) noexcept = default;
@@ -205,6 +209,23 @@ inline TOrderedCollection<T, TKey>& TOrderedCollection<T, TKey>::operator=(TOrde
         slot_meta_class::operator=(std::move(src));
     }
     return *this;
+}
+
+template<typename T, typename TKey>
+inline TOrderedCollectionStorage<T, TKey>::TOrderedCollectionStorage() noexcept
+{
+    (void)m_storage.set_context();
+}
+
+template<typename T, typename TKey>
+inline TOrderedCollectionStorage<T, TKey>::TOrderedCollectionStorage(memory::CMemoryContext& context) noexcept : m_slots(context), m_keys(context)
+{
+    (void)m_storage.set_context(&context);
+}
+
+template<typename T, typename TKey>
+inline TOrderedCollection<T, TKey>::TOrderedCollection(memory::CMemoryContext& context) noexcept : slot_meta_class(context)
+{
 }
 
 template<typename T, typename TKey>
@@ -490,8 +511,9 @@ inline bool TOrderedCollection<T, TKey>::initialise(const std::size_t initial_sl
     deallocate();
     if (slot_meta_class::initialise(std::max(static_cast<std::uint32_t>(initial_slot_count), 32u)))
     {
-        memory::CMemoryToken storage;
-        if (storage.configure_stable(k_element_size, k_element_align, std::max(slots_per_buffer, std::size_t{ 32u })))
+        memory::CMemoryToken storage{ k_element_size, k_element_align,
+            std::max(slots_per_buffer, std::size_t{ 32u }), this->m_storage.context() };
+        if (storage.is_stable())
         {
             const std::size_t size = slot_meta_class::capacity();
             if (this->m_slots.allocate(size))
@@ -520,7 +542,6 @@ inline void TOrderedCollection<T, TKey>::deallocate() noexcept
     deconstruct_payload();
     (void)slot_meta_class::shutdown();
     this->m_storage.deallocate();
-    this->m_storage = memory::CMemoryToken{};
     this->m_slots.deallocate();
     this->m_keys.deallocate();
 }

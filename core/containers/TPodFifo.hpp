@@ -56,6 +56,7 @@ private:
 
 public:
     TPodFifo() noexcept = default;
+    explicit TPodFifo(memory::CMemoryContext& context) noexcept;
     TPodFifo(const TPodFifo&) noexcept = delete;
     TPodFifo& operator=(const TPodFifo&) noexcept = delete;
 
@@ -132,6 +133,11 @@ private:
 //==============================================================================
 //  TPodFifo<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TPodFifo<T>::TPodFifo(memory::CMemoryContext& context) noexcept : m_token(k_element_size, k_align, &context)
+{
+}
 
 template<typename T>
 inline TPodFifo<T>::TPodFifo(TPodFifo&& src) noexcept
@@ -283,7 +289,7 @@ inline bool TPodFifo<T>::reallocate(const std::size_t capacity) noexcept
             return true;
         }
 
-        memory::CMemoryToken token{ k_element_size, k_align };
+        memory::CMemoryToken token{ k_element_size, k_align, m_token.context() };
         if (token.allocate(capacity, false))
         {
             pack(static_cast<T*>(token.data()), data());

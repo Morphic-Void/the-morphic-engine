@@ -7,6 +7,10 @@ Date:   1 Apr 2026
 
 # TOrderedCollection<T, TKey>
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 ## Overview
 
 TOrderedCollection<T, TKey> is a move-only ordered collection wrapper

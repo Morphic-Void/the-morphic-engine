@@ -300,11 +300,11 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
     TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == 0u);
 }
 
-void test_stable_strings_mixed_sources(TTestContext& ctx)
+void test_stable_strings_context_retention(TTestContext& ctx)
 {
-    memory::CMemoryAllocator allocator{nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory};
-    memory::CMemoryContext source{allocator};
-    memory::CMemoryContext target{allocator};
+    memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory };
+    memory::CMemoryContext source{ allocator };
+    memory::CMemoryContext target{ allocator };
     const tests::TMemoryContextScope source_scope{ &source };
     {
         CStableStrings table;
@@ -312,25 +312,24 @@ void test_stable_strings_mixed_sources(TTestContext& ctx)
         //  Keep target active through table destruction; source_scope restores the caller's context.
         (void)memory::set_thread_memory_context(&target);
         TEST_EXPECT(ctx, table.ensure_free(memory::k_buffer_growth_policy_min_capacity + 1u));
-        const auto id = table.append(reinterpret_cast<const std::uint8_t*>("mixed-source"));
-        TEST_EXPECT(ctx, id != CStableStrings::k_invalid_id);
-        TEST_EXPECT(ctx, !source.is_attribution_empty() && !target.is_attribution_empty());
-        const auto source_count = source.get_live_allocation_count();
-        const auto source_bytes = source.get_live_allocated_bytes();
-        const auto target_count = target.get_live_allocation_count();
-        const auto target_bytes = target.get_live_allocated_bytes();
-        const auto* const address = table.view(id).string();
-        const auto mixed = table.memory_attribution();
-        TEST_EXPECT(ctx, mixed.source_state == memory::EMemorySourceState::mixed && mixed.source == nullptr);
-        TEST_EXPECT(ctx, mixed.allocation_count == source_count + target_count);
-        TEST_EXPECT(ctx, mixed.allocation_size == source_bytes + target_bytes);
-        TEST_EXPECT(ctx, !memory::can_reattribute_to(table, &target) && !memory::reattribute(table, &target));
-        TEST_EXPECT(ctx, !memory::reattribute(table, &source));
-        TEST_EXPECT(ctx, table.view(id).string() == address);
-        TEST_EXPECT(ctx, source.get_live_allocation_count() == source_count);
-        TEST_EXPECT(ctx, source.get_live_allocated_bytes() == source_bytes);
-        TEST_EXPECT(ctx, target.get_live_allocation_count() == target_count);
-        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == target_bytes);
+        const std::size_t id = table.append("retained-source");
+        TEST_EXPECT(ctx, (id != CStableStrings::k_invalid_id));
+        TEST_EXPECT(ctx, (table.append("another-string") != CStableStrings::k_invalid_id));
+        TEST_EXPECT(ctx, table.sort());
+        TEST_EXPECT(ctx, (!source.is_attribution_empty() && target.is_attribution_empty()));
+        const std::uint32_t source_count = source.get_live_allocation_count();
+        const std::uint64_t source_bytes = source.get_live_allocated_bytes();
+        const std::uint8_t* const address = table.view(id).string();
+        const memory::SMemoryAttribution attribution = table.memory_attribution();
+        TEST_EXPECT(ctx, ((attribution.source_state == memory::EMemorySourceState::coherent) && (attribution.source == &source)));
+        TEST_EXPECT(ctx, (attribution.allocation_count == source_count));
+        TEST_EXPECT(ctx, (attribution.allocation_size == source_bytes));
+        TEST_EXPECT(ctx, memory::can_reattribute_to(table, &target));
+        TEST_EXPECT(ctx, memory::reattribute(table, &target));
+        TEST_EXPECT(ctx, (table.view(id).string() == address));
+        TEST_EXPECT(ctx, source.is_attribution_empty());
+        TEST_EXPECT(ctx, (target.get_live_allocation_count() == source_count));
+        TEST_EXPECT(ctx, (target.get_live_allocated_bytes() == source_bytes));
     }
     TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty());
 }
@@ -346,7 +345,7 @@ int run_string_buffer_tests()
     test_stable_strings_lookup_duplicates_and_sort(ctx);
     test_stable_strings_reserve_shrink_and_invariants(ctx);
     test_stable_strings_direct_storage_reattribution(ctx);
-    test_stable_strings_mixed_sources(ctx);
+    test_stable_strings_context_retention(ctx);
 
     return ctx.report("StringBuffers");
 }

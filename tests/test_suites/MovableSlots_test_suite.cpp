@@ -338,6 +338,57 @@ void test_key_from_incoming_value(TTestContext& ctx)
     TEST_EXPECT(ctx, ((slots.occupied_count() == 2u) && slots.check_integrity()));
 }
 
+template<bool Ordered>
+void test_explicit_context(TTestContext& ctx)
+{
+    using TSlots = std::conditional_t<Ordered, TOrderedTokens, TUnorderedSlots<memory::CMemoryToken>>;
+    static_assert(std::is_nothrow_constructible_v<TSlots, memory::CMemoryContext&>);
+    static_assert(std::is_nothrow_constructible_v<TPodVector<SKey>, memory::CMemoryContext&>);
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    memory::CMemoryContext* const previous_module = memory::set_module_memory_context(nullptr);
+    {
+        const tests::TMemoryContextScope no_thread{ nullptr };
+        TSlots slots{ context };
+        TEST_EXPECT(ctx, (slots.is_valid() && slots.is_empty() && !slots.is_ready()));
+        TEST_EXPECT(ctx, (fixture.attempts == 0u));
+        TEST_EXPECT(ctx, slots.initialise());
+        TEST_EXPECT(ctx, (slots.memory_attribution().source == &context));
+        for (std::int32_t i = 0; i < 65; ++i)
+        {
+            memory::CMemoryToken token{ 1u, 16u, &context };
+            TEST_EXPECT(ctx, token.allocate(13u, false));
+            if constexpr (Ordered)
+            {
+                TEST_EXPECT(ctx, (slots.insert(SKey{ i }, std::move(token)) >= 0));
+            }
+            else
+            {
+                TEST_EXPECT(ctx, (slots.insert(std::move(token)) >= 0));
+            }
+        }
+        TEST_EXPECT(ctx, slots.check_integrity());
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == (65u + (Ordered ? 3u : 2u))));
+        if constexpr (Ordered)
+        {
+            slots.sort_and_pack();
+        }
+        else
+        {
+            slots.pack();
+        }
+        TEST_EXPECT(ctx, slots.check_integrity());
+        slots.deallocate();
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        TEST_EXPECT(ctx, slots.initialise());
+        TEST_EXPECT(ctx, (slots.memory_attribution().source == &context));
+        TEST_EXPECT(ctx, (memory::get_ambient_memory_context() == nullptr));
+    }
+    (void)memory::set_module_memory_context(previous_module);
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
 }   //  namespace
 
 int run_movable_slots_tests()
@@ -350,5 +401,7 @@ int run_movable_slots_tests()
     test_failed_growth<false>(ctx);
     test_failed_growth<true>(ctx);
     test_key_from_incoming_value(ctx);
+    test_explicit_context<false>(ctx);
+    test_explicit_context<true>(ctx);
     return ctx.report("MovableSlots");
 }

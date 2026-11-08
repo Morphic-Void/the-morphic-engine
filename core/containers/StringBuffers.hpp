@@ -166,6 +166,7 @@ public:
 
     //  Default and deleted lifetime
     CSimpleString() noexcept = default;
+    explicit CSimpleString(memory::CMemoryContext& context) noexcept;
     CSimpleString(const CSimpleString&) = delete;
     CSimpleString& operator=(const CSimpleString&) = delete;
 
@@ -251,6 +252,7 @@ public:
 
     //  Default and deleted lifetime
     CStringBuffer() noexcept = default;
+    explicit CStringBuffer(memory::CMemoryContext& context) noexcept;
     CStringBuffer(const CStringBuffer&) = delete;
     CStringBuffer& operator=(const CStringBuffer&) = delete;
     CStringBuffer(CStringBuffer&&) noexcept = default;
@@ -339,6 +341,7 @@ public:
 
     //  Default and deleted lifetime
     CStableStrings() noexcept = default;
+    explicit CStableStrings(memory::CMemoryContext& context) noexcept;
     CStableStrings(const CStableStrings&) = delete;
     CStableStrings& operator=(const CStableStrings&) = delete;
     CStableStrings(CStableStrings&&) noexcept = default;
@@ -508,6 +511,10 @@ inline bool CStringView::set(const std::uint8_t* const string, const std::size_t
 //  CSimpleString out of class function bodies
 //==============================================================================
 
+inline CSimpleString::CSimpleString(memory::CMemoryContext& context) noexcept : m_string(1u, 1u, &context)
+{
+}
+
 inline CSimpleString::CSimpleString(CSimpleString&& src) noexcept
 {
     m_string = std::move(src.m_string);
@@ -575,6 +582,10 @@ inline bool CSimpleString::private_allocate(const std::uint8_t* const string, co
 //==============================================================================
 //  CStringBuffer out of class function bodies
 //==============================================================================
+
+inline CStringBuffer::CStringBuffer(memory::CMemoryContext& context) noexcept : m_buffer(context)
+{
+}
 
 [[nodiscard]] inline const std::uint8_t* CStringBuffer::string(const std::size_t offset) const noexcept
 {
@@ -833,11 +844,11 @@ inline bool CStableStrings::sort() noexcept
 
     if (m_string_refs.size() > 2u)
     {   //  there is something to sort
-        CStringBuffer string_buffer;
-        TPodVector<StringRef> string_refs;
-        TPodVector<std::size_t> ref_index_to_id;
-        TPodVector<std::size_t> id_to_ref_index;
-        TPodVector<std::size_t> sorted_ref_indices;
+        CStringBuffer string_buffer{ *m_string_buffer.memory_attribution().source };
+        TPodVector<StringRef> string_refs{ *m_string_refs.memory_attribution().source };
+        TPodVector<std::size_t> ref_index_to_id{ *m_ref_index_to_id.memory_attribution().source };
+        TPodVector<std::size_t> id_to_ref_index{ *m_id_to_ref_index.memory_attribution().source };
+        TPodVector<std::size_t> sorted_ref_indices{ *m_sorted_ref_indices.memory_attribution().source };
 
         const std::size_t count = m_string_refs.size();
 
@@ -893,6 +904,15 @@ inline bool CStableStrings::sort() noexcept
     }
 
     return success;
+}
+
+inline CStableStrings::CStableStrings(memory::CMemoryContext& context) noexcept
+    : m_string_buffer(context)
+    , m_string_refs(context)
+    , m_ref_index_to_id(context)
+    , m_id_to_ref_index(context)
+    , m_sorted_ref_indices(context)
+{
 }
 
 inline bool CStableStrings::initialise(const std::size_t string_count, const std::size_t string_storage_size) noexcept

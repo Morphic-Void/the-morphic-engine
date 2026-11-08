@@ -138,6 +138,7 @@ public:
 
     //  Default and deleted lifetime
     TPodVector() noexcept = default;
+    explicit TPodVector(memory::CMemoryContext& context) noexcept;
     TPodVector(const TPodVector&) noexcept = delete;
     TPodVector& operator=(const TPodVector&) noexcept = delete;
 
@@ -375,6 +376,11 @@ private:
 //==============================================================================
 //  TPodVector<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TPodVector<T>::TPodVector(memory::CMemoryContext& context) noexcept : m_token(k_element_size, k_align, &context)
+{
+}
 
 template<typename T>
 inline TPodVector<T>::TPodVector(TPodVector&& src) noexcept

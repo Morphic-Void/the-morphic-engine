@@ -64,6 +64,9 @@ class TOrderedSlotsStorage
 public:
     using query_type = TKey;
 
+    TOrderedSlotsStorage() noexcept = default;
+    explicit TOrderedSlotsStorage(memory::CMemoryContext& context) noexcept;
+
     void on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept;
     [[nodiscard]] std::uint32_t on_reserve_empty(const std::uint32_t minimum_capacity, const std::uint32_t recommended_capacity) noexcept;
     [[nodiscard]] std::int32_t on_compare_query(const query_type& query, const std::int32_t candidate_index) const noexcept;
@@ -90,6 +93,7 @@ public:
 
     //  Default and deleted lifetime
     TOrderedSlots() noexcept = default;
+    explicit TOrderedSlots(memory::CMemoryContext& context) noexcept;
     TOrderedSlots(const TOrderedSlots&) = delete;
     TOrderedSlots& operator=(const TOrderedSlots&) = delete;
     TOrderedSlots(TOrderedSlots&&) noexcept = default;
@@ -163,6 +167,16 @@ private:
 //==============================================================================
 //  TOrderedSlots<T, TKey> out of class function bodies
 //==============================================================================
+
+template<typename T, typename TKey>
+inline TOrderedSlotsStorage<T, TKey>::TOrderedSlotsStorage(memory::CMemoryContext& context) noexcept : m_slots(context), m_keys(context)
+{
+}
+
+template<typename T, typename TKey>
+inline TOrderedSlots<T, TKey>::TOrderedSlots(memory::CMemoryContext& context) noexcept : slot_meta_class(context)
+{
+}
 
 template<typename T, typename TKey>
 inline void TOrderedSlotsStorage<T, TKey>::on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept

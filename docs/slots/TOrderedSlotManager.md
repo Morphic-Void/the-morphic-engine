@@ -24,6 +24,12 @@ It stores metadata only and does not store or access payload.
 
 This template is intended as a base class, not a concrete container.
 
+An explicit `TOrderedSlotManager(memory::CMemoryContext& context)` constructor
+forwards the context to `TSlotBacking(context)` and configures the metadata
+token from the same context, without allocating. Using this overload requires a
+backing type with a nonthrowing context-taking constructor. The default
+construction path and other backing types are unaffected.
+
 ## Toolkit nature
 
 TOrderedSlotManager is a composable structural layer.

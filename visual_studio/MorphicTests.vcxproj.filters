@@ -89,6 +89,7 @@
     <ClCompile Include="..\tests\test_suites\DocumentBoundary_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BuddyAllocator_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BuddyAllocatorChain_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\ContainerContexts_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BumpBuffer_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ByteBuffers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\PermutationValidation_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -169,6 +170,7 @@
     <ClInclude Include="..\tests\test_suites\DocumentBoundary_test_cases.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BuddyAllocator_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BuddyAllocatorChain_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\ContainerContexts_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BumpBuffer_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\ByteBuffers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\PermutationValidation_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

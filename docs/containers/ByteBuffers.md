@@ -7,6 +7,10 @@ Date:   1 Apr 26
 
 # ByteBuffers
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 ## Overview
 
 This document defines the behaviour of contiguous and rectangular byte

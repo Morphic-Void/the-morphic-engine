@@ -7,6 +7,10 @@ Date:   27 Oct 26
 
 # BumpBuffer
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 ## Overview
 
 This document defines the behaviour of CBumpBuffer, implemented in
@@ -243,9 +247,10 @@ size and alignment must support that request.
 
 ## Memory accounting
 
-The first valid allocate configuration selects the ambient memory context
-unless a context was already installed by ownership-transfer infrastructure.
-Reconfiguration preserves the token's existing context.
+Default construction captures the ambient memory context where available;
+the explicit context-taking constructor selects it directly without allocating.
+Allocation, reconfiguration and reuse preserve that selection. Use
+`memory::reattribute` to change the owning context explicitly.
 
 memory_attribution observes all owned backing allocations, including the
 token directory and allocator-conditioned sizes. Use this for backing

@@ -50,6 +50,9 @@ template<typename T>
 class TPodUnorderedSlotsStorage
 {
 public:
+    TPodUnorderedSlotsStorage() noexcept = default;
+    explicit TPodUnorderedSlotsStorage(memory::CMemoryContext& context) noexcept;
+
     void on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept;
     [[nodiscard]] std::uint32_t on_reserve_empty(const std::uint32_t minimum_capacity, const std::uint32_t recommended_capacity) noexcept;
 
@@ -84,6 +87,7 @@ public:
 
     //  Default and deleted lifetime
     TPodUnorderedSlots() noexcept = default;
+    explicit TPodUnorderedSlots(memory::CMemoryContext& context) noexcept;
     TPodUnorderedSlots(const TPodUnorderedSlots&) noexcept = delete;
     TPodUnorderedSlots& operator=(const TPodUnorderedSlots&) noexcept = delete;
     TPodUnorderedSlots(TPodUnorderedSlots&&) noexcept = default;
@@ -147,6 +151,16 @@ private:
 //==============================================================================
 //  TPodUnorderedSlots<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TPodUnorderedSlotsStorage<T>::TPodUnorderedSlotsStorage(memory::CMemoryContext& context) noexcept : m_slots(context)
+{
+}
+
+template<typename T>
+inline TPodUnorderedSlots<T>::TPodUnorderedSlots(memory::CMemoryContext& context) noexcept : slot_meta_class(context)
+{
+}
 
 template<typename T>
 inline void TPodUnorderedSlotsStorage<T>::on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept

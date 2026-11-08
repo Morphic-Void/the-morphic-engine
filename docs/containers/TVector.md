@@ -7,6 +7,10 @@ Date:    06 Nov 26
 
 # TVector<T>
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 `TVector<T>` is a move-only owner of contiguous, tightly packed objects. It
 requires C++17 and uses no exceptions. `TPodVector<T>` remains the byte-copying
 container for trivially copyable elements; `TOrderedCollection` and

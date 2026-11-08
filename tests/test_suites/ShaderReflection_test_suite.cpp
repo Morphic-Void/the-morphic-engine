@@ -2535,7 +2535,10 @@ static void lifetime(tests::TTestContext& ctx, const shader::CShaderCompileRepor
     memory::CMemoryContext b_context{ b_allocator };
     CResult first, second;
     {
+        //  Each owner captures its context when constructed, before prepare allocates.
+        const SContextScope a_owner_scope{ a_context };
         CReflectJob a_job{ { &report, CStringView{ "first" } } };
+        const SContextScope b_owner_scope{ b_context };
         CReflectJob b_job{ { &report, CStringView{ "second" } } };
         a_job.run();
         TEST_EXPECT(ctx, a_job.result.status() == EStatus::not_executed);

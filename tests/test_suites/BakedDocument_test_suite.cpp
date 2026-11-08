@@ -1590,7 +1590,7 @@ static void test_adoption_lifetime(TTestContext& ctx)
     memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_test_memory, &tests::deallocate_test_memory };
     memory::CMemoryContext source_context{ allocator }, old_context{ allocator };
     {
-        CByteBuffer source;
+        CByteBuffer source{ source_context };
         CBakedDocumentBlock destination;
         {
             const tests::TMemoryContextScope scope{ &old_context };
@@ -1766,6 +1766,10 @@ static void test_appended_storage(TTestContext& ctx)
 
 static void test_resizing_storage(TTestContext& ctx)
 {
+    tests::TAllocatorFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_test_memory, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    const tests::TMemoryContextScope owner_scope{ &context };
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
     TEST_EXPECT(ctx, live.append_child(live.root(), live.create_unsigned_integer(0u, CStringView{ "size" })).succeeded());
@@ -1822,14 +1826,10 @@ static void test_resizing_storage(TTestContext& ctx)
     TEST_EXPECT(ctx, !block.resize_buffer(0u));
     TEST_EXPECT(ctx, !block.resize_buffer(memory::k_byte_size_ceiling + 1u));
     TEST_EXPECT(ctx, !block.resize_buffer(full_size, memory::k_byte_size_ceiling + 1u));
-    tests::TAllocatorFixture rejecting{ true };
-    memory::CMemoryAllocator allocator{ &rejecting, &tests::allocate_test_memory, &tests::deallocate_test_memory };
-    memory::CMemoryContext context{ allocator };
-    {
-        const tests::TMemoryContextScope scope{ &context };
-        TEST_EXPECT(ctx, !block.resize_buffer(capacity + 128u, 256u));
-    }
-    TEST_EXPECT(ctx, context.is_attribution_empty());
+    fixture.reject_allocation = true;
+    TEST_EXPECT(ctx, !block.resize_buffer((capacity + 128u), 256u));
+    fixture.reject_allocation = false;
+    TEST_EXPECT(ctx, (block.memory_attribution().source == &context));
     TEST_EXPECT(ctx, block.buffer_bytes().data() == pointer && block.buffer_bytes().size() == full_size);
     TEST_EXPECT(ctx, block.buffer_capacity() == capacity && block.buffer_bytes().align() == 128u);
     TEST_EXPECT(ctx, block.memory_attribution().source == attribution.source);

@@ -50,6 +50,9 @@ template<typename T, typename TKey>
 class TPodOrderedSlotsStorage
 {
 public:
+    TPodOrderedSlotsStorage() noexcept = default;
+    explicit TPodOrderedSlotsStorage(memory::CMemoryContext& context) noexcept;
+
     using query_type = TKey;
 
     void on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept;
@@ -95,6 +98,7 @@ public:
 
     //  Default and deleted lifetime
     TPodOrderedSlots() noexcept = default;
+    explicit TPodOrderedSlots(memory::CMemoryContext& context) noexcept;
     TPodOrderedSlots(const TPodOrderedSlots&) noexcept = delete;
     TPodOrderedSlots& operator=(const TPodOrderedSlots&) noexcept = delete;
     TPodOrderedSlots(TPodOrderedSlots&&) noexcept = default;
@@ -165,6 +169,17 @@ private:
 //==============================================================================
 //  TPodOrderedSlots<T, TKey> out of class function bodies
 //==============================================================================
+
+template<typename T, typename TKey>
+inline TPodOrderedSlotsStorage<T, TKey>::TPodOrderedSlotsStorage(memory::CMemoryContext& context) noexcept : m_slots(context)
+    , m_keys(context)
+{
+}
+
+template<typename T, typename TKey>
+inline TPodOrderedSlots<T, TKey>::TPodOrderedSlots(memory::CMemoryContext& context) noexcept : slot_meta_class(context)
+{
+}
 
 template<typename T, typename TKey>
 inline void TPodOrderedSlotsStorage<T, TKey>::on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept

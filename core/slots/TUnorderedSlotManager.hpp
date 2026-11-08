@@ -64,6 +64,7 @@ class TUnorderedSlotManager : protected TSlotBacking
 {
 public:
     TUnorderedSlotManager() noexcept = default;
+    explicit TUnorderedSlotManager(memory::CMemoryContext& context) noexcept;
     TUnorderedSlotManager(TUnorderedSlotManager&& src) noexcept;
     TUnorderedSlotManager(const TUnorderedSlotManager& src) noexcept;
     TUnorderedSlotManager(const std::uint32_t capacity) noexcept { (void)initialise(capacity); }
@@ -410,6 +411,12 @@ private:
 //==============================================================================
 //  TUnorderedSlotManager<TSlotBacking, TIndex> out of class function bodies
 //==============================================================================
+
+template<typename TSlotBacking, typename TIndex>
+inline TUnorderedSlotManager<TSlotBacking, TIndex>::TUnorderedSlotManager(memory::CMemoryContext& context) noexcept
+    : TSlotBacking(context), m_meta_slot_array(sizeof(Slot), memory::t_default_align<Slot>(), &context)
+{
+}
 
 template<typename TSlotBacking, typename TIndex>
 inline TUnorderedSlotManager<TSlotBacking, TIndex>::TUnorderedSlotManager(TUnorderedSlotManager&& src) noexcept : TSlotBacking(std::move(src))

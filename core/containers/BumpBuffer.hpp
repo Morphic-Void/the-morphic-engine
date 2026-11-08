@@ -40,7 +40,8 @@ class CBumpBuffer
 public:
 
     //  Default and deleted lifetime
-    CBumpBuffer() noexcept = default;
+    CBumpBuffer() noexcept;
+    explicit CBumpBuffer(memory::CMemoryContext& context) noexcept;
     CBumpBuffer(const CBumpBuffer&) noexcept = delete;
     CBumpBuffer& operator=(const CBumpBuffer&) noexcept = delete;
 
@@ -107,6 +108,16 @@ private:
 //==============================================================================
 //  CBumpBuffer out of class function bodies
 //==============================================================================
+
+inline CBumpBuffer::CBumpBuffer() noexcept
+{
+    (void)m_token.set_context();
+}
+
+inline CBumpBuffer::CBumpBuffer(memory::CMemoryContext& context) noexcept
+{
+    (void)m_token.set_context(&context);
+}
 
 inline CBumpBuffer::CBumpBuffer(CBumpBuffer&& other) noexcept
     : m_token(std::move(other.m_token))

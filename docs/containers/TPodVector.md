@@ -7,6 +7,10 @@ Date:   1 Apr 2026
 
 # TPodVector<T>
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 ## Overview
 
 This document defines POD vector and typed view utilities implemented
@@ -18,6 +22,11 @@ typed views.
 
 The implementation is noexcept. Allocation failure is reported by
 return value. Accessors are fail-safe.
+
+`explicit TPodVector(memory::CMemoryContext& context) noexcept` configures empty
+storage using the supplied context, without allocating or requiring an ambient
+context. Growth and reuse after `deallocate()` retain that context. The context
+must outlive owned storage.
 
 ## Requirements and scope
 

@@ -8,6 +8,8 @@ or that work has been authorised.
 
 - [Memory and attribution](memory/memory_subsystem.md), with individual
   [container references](containers/ByteBuffers.md) alongside it.
+- [Container memory contexts](containers/memory_contexts.md): explicit construction,
+  context retention through growth/reuse and shallow ownership transfer.
 - [Message construction and ownership](system/erased_owner.md#message-construction-and-inspection),
   with the [messaging completion record](project/completed_milestones.md#message-and-ownership-consolidation).
 - [Document model](data_model/README.md): semantic model, text grammar,

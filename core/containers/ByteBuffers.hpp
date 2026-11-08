@@ -106,6 +106,7 @@ public:
 
     //  Default and deleted lifetime
     CByteBuffer() noexcept = default;
+    explicit CByteBuffer(memory::CMemoryContext& context) noexcept;
     CByteBuffer(const CByteBuffer&) noexcept = delete;
     CByteBuffer& operator=(const CByteBuffer&) noexcept = delete;
 
@@ -320,6 +321,7 @@ public:
 
     //  Default and deleted lifetime
     CByteRectBuffer() noexcept = default;
+    explicit CByteRectBuffer(memory::CMemoryContext& context) noexcept;
     CByteRectBuffer(const CByteRectBuffer&) noexcept = delete;
     CByteRectBuffer& operator=(const CByteRectBuffer&) noexcept = delete;
 
@@ -527,6 +529,10 @@ private:
 //  CByteBuffer out of class function bodies
 //==============================================================================
 
+inline CByteBuffer::CByteBuffer(memory::CMemoryContext& context) noexcept : m_token(1u, 1u, &context)
+{
+}
+
 inline CByteBuffer::CByteBuffer(CByteBuffer&& other) noexcept
 {
     m_token = other.disown(m_meta);
@@ -659,7 +665,7 @@ inline void CByteBuffer::unsafe_replace_memory_context_without_accounting(
 
         //  Reallocation path
         {
-            memory::CMemoryToken token{ 1u, norm_align };
+            memory::CMemoryToken token{ 1u, norm_align, m_token.context() };
             if (token.allocate(capacity, false))
             {
                 const std::size_t copy_size = std::min(size, m_meta.size);
@@ -726,7 +732,7 @@ inline void CByteBuffer::unsafe_replace_memory_context_without_accounting(
 
     //  Construction and copy path
     {
-        memory::CMemoryToken token{ 1u, view.align() };
+        memory::CMemoryToken token{ 1u, view.align(), m_token.context() };
         if (token.allocate(view.size(), false))
         {
             std::memcpy(token.data(), view.data(), view.size());
@@ -876,6 +882,10 @@ inline CByteConstView& CByteConstView::set(const memory::CMemoryConstView& view,
 //  CByteRectBuffer out of class function bodies
 //==============================================================================
 
+inline CByteRectBuffer::CByteRectBuffer(memory::CMemoryContext& context) noexcept : m_token(1u, 1u, &context)
+{
+}
+
 inline CByteRectBuffer::CByteRectBuffer(CByteRectBuffer&& other) noexcept
 {
     m_token = other.disown(m_meta);
@@ -971,7 +981,7 @@ inline void CByteRectBuffer::unsafe_replace_memory_context_without_accounting(
             //  Reallocation path
             {   //  something meaningful has changed that requires reallocation
                 const std::size_t bytes = row_pitch * row_count;
-                memory::CMemoryToken token{ 1u, use_align };
+                memory::CMemoryToken token{ 1u, use_align, m_token.context() };
                 if (token.allocate(bytes, false))
                 {   //  the allocation succeeded
                     if (is_ready())
@@ -1041,7 +1051,7 @@ inline void CByteRectBuffer::unsafe_replace_memory_context_without_accounting(
         const std::size_t row_width = view.row_width();
         const std::size_t row_count = view.row_count();
         const std::size_t row_pitch = bit_ops::round_up_to_pow2_multiple(row_width, row_align);
-        memory::CMemoryToken token{ 1u, row_align };
+        memory::CMemoryToken token{ 1u, row_align, m_token.context() };
         if (token.allocate((row_pitch * row_count), false))
         {
             const std::size_t src_pitch = view.row_pitch();

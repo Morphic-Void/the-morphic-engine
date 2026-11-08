@@ -62,6 +62,7 @@ public:
 
     //  Default and deleted lifetime
     TInstance() noexcept = default;
+    explicit TInstance(memory::CMemoryContext& context) noexcept;
     TInstance(const TInstance&) = delete;
     TInstance& operator=(const TInstance&) = delete;
 
@@ -131,6 +132,11 @@ inline TInstance<T> make_object_owner(TArgs&&... args) noexcept
 //==============================================================================
 //  TInstance<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TInstance<T>::TInstance(memory::CMemoryContext& context) noexcept : m_token(1u, k_align, &context)
+{
+}
 
 template<typename T>
 inline TInstance<T>& TInstance<T>::operator=(TInstance<T>&& other) noexcept

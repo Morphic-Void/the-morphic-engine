@@ -7,6 +7,10 @@ Date:    07 Nov 26
 
 # Movable slot containers
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 `TUnorderedSlots<T>` and `TOrderedSlots<T, TKey>` own movable objects at
 reusable slot indices. They use the same slot managers as the POD facades.
 The ordered form stores unique keys, supports keyed lookup, and traverses
@@ -24,6 +28,13 @@ copyable, support nonthrowing copy assignment, and use the same
 `relationship()` contract as `TPodOrderedSlots`.
 
 `initialise()` creates an empty slot domain with at least 32 slots.
+Both containers accept an explicit `memory::CMemoryContext&` constructor
+argument. This configures metadata and value backing, plus key backing for the
+ordered form, without allocating or requiring an ambient context.
+Initialization, growth and reuse after deallocation retain that context. It must
+outlive the owned storage. These constructors do not configure the contexts of
+allocations later owned by individual payloads.
+
 `insert()` returns the acquired index or `-1` if acquisition fails. An
 ordered insertion with a duplicate key fails before assigning the payload.
 The caller must keep the source and any key argument valid throughout

@@ -56,6 +56,9 @@ class TUnorderedSlotsStorage
     static_assert(std::is_nothrow_move_assignable_v<T>, "TUnorderedSlots requires nonthrowing move assignment.");
 
 public:
+    TUnorderedSlotsStorage() noexcept = default;
+    explicit TUnorderedSlotsStorage(memory::CMemoryContext& context) noexcept;
+
     void on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept;
 
     [[nodiscard]] std::uint32_t on_reserve_empty(
@@ -75,6 +78,7 @@ public:
 
     //  Default and deleted lifetime
     TUnorderedSlots() noexcept = default;
+    explicit TUnorderedSlots(memory::CMemoryContext& context) noexcept;
     TUnorderedSlots(const TUnorderedSlots&) = delete;
     TUnorderedSlots& operator=(const TUnorderedSlots&) = delete;
     TUnorderedSlots(TUnorderedSlots&&) noexcept = default;
@@ -141,6 +145,16 @@ private:
 //==============================================================================
 //  TUnorderedSlots<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TUnorderedSlotsStorage<T>::TUnorderedSlotsStorage(memory::CMemoryContext& context) noexcept : m_slots(context)
+{
+}
+
+template<typename T>
+inline TUnorderedSlots<T>::TUnorderedSlots(memory::CMemoryContext& context) noexcept : slot_meta_class(context)
+{
+}
 
 template<typename T>
 inline void TUnorderedSlotsStorage<T>::on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept

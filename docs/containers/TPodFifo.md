@@ -7,6 +7,10 @@ Date:   20 Apr 2026
 
 # TPodFifo<T>
 
+Owning storage follows the [container memory-context contract](memory_contexts.md):
+explicit-context construction allocates nothing, and growth, replacement and
+reuse retain the selected context until ownership transfer or reattribution.
+
 ## Overview
 
 This document defines FIFO storage utilities implemented in

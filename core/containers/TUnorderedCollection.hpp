@@ -58,6 +58,9 @@ template<typename T>
 class TUnorderedCollectionStorage
 {
 public:
+    TUnorderedCollectionStorage() noexcept;
+    explicit TUnorderedCollectionStorage(memory::CMemoryContext& context) noexcept;
+
     enum class SlotState : std::size_t
     {
         Unmapped = 0u,
@@ -105,6 +108,7 @@ public:
 
     //  Default and deleted lifetime
     TUnorderedCollection() noexcept = default;
+    explicit TUnorderedCollection(memory::CMemoryContext& context) noexcept;
     TUnorderedCollection(const TUnorderedCollection&) noexcept = delete;
     TUnorderedCollection& operator=(const TUnorderedCollection&) noexcept = delete;
     TUnorderedCollection(TUnorderedCollection&&) noexcept = default;
@@ -187,6 +191,23 @@ inline TUnorderedCollection<T>& TUnorderedCollection<T>::operator=(TUnorderedCol
         slot_meta_class::operator=(std::move(src));
     }
     return *this;
+}
+
+template<typename T>
+inline TUnorderedCollectionStorage<T>::TUnorderedCollectionStorage() noexcept
+{
+    (void)m_storage.set_context();
+}
+
+template<typename T>
+inline TUnorderedCollectionStorage<T>::TUnorderedCollectionStorage(memory::CMemoryContext& context) noexcept : m_slots(context)
+{
+    (void)m_storage.set_context(&context);
+}
+
+template<typename T>
+inline TUnorderedCollection<T>::TUnorderedCollection(memory::CMemoryContext& context) noexcept : slot_meta_class(context)
+{
 }
 
 template<typename T>
@@ -408,8 +429,9 @@ template<typename T>
 inline bool TUnorderedCollection<T>::initialise(const std::size_t initial_slot_count, const std::size_t slots_per_buffer) noexcept
 {
     deallocate();
-    memory::CMemoryToken storage;
-    if (!storage.configure_stable(k_element_size, k_element_align, std::max(slots_per_buffer, std::size_t{ 32u })))
+    memory::CMemoryToken storage{ k_element_size, k_element_align,
+        std::max(slots_per_buffer, std::size_t{ 32u }), this->m_storage.context() };
+    if (!storage.is_stable())
     {
         return false;
     }
@@ -436,7 +458,7 @@ inline void TUnorderedCollection<T>::deallocate() noexcept
 {
     deconstruct_payload();
     (void)slot_meta_class::shutdown();
-    this->m_storage = memory::CMemoryToken{};
+    this->m_storage.deallocate();
     this->m_slots.deallocate();
 }
 
