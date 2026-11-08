@@ -173,7 +173,5 @@ proportional to the active slot count.
 [`BuddyAllocator_test_suite.cpp`](../../tests/test_suites/BuddyAllocator_test_suite.cpp)
 covers both word widths, independent geometry expectations, routing state,
 split/merge, invalid frees, capacity recovery, allocation failures, payloads,
-enumeration, moves and attribution. See the
-[design validation record](../memory/buddy_allocator_design.md#staged-delivery-and-acceptance)
-for completed platform runs. For automatic growth across backings, use
+enumeration, moves and attribution. For automatic growth across backings, use
 [TBuddyAllocatorChain](TBuddyAllocatorChain.md).

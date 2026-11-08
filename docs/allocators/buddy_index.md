@@ -148,6 +148,4 @@ allocate, lookup and release rather than editing these arrays.
 checks both representations using independent interval reconstruction, literal
 geometry cases, bounded exhaustive sequences, mixed operations and full-capacity
 fill/release. It checks cross-word transitions and rejected-free preservation
-as well as the owning interface. The
-[design plan](../memory/buddy_allocator_design.md#staged-delivery-and-acceptance)
-records the logical review, coverage limits and completed validation runs.
+as well as the owning interface.

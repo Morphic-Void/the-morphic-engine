@@ -144,6 +144,4 @@ tests both word widths: fragmented growth, initialization and insertion failure,
 descriptor relocation, pointer routing, reset/reuse, moves between contexts,
 deep accounting and operation without an ambient context. The
 [TVector reference](../containers/TVector.md) describes the underlying relocation
-and explicit-context contracts. Completed validation runs and later shader
-measurement/integration stages remain in the
-[design plan](../memory/buddy_allocator_design.md#staged-delivery-and-acceptance).
+and explicit-context contracts.

@@ -7,7 +7,7 @@
 //  Date:    07 Nov 26
 //
 //  Compact movable owner of separate packed buddy management and payload storage.
-//  Exclusive access is required. See docs/memory/buddy_allocator_design.md.
+//  Exclusive access is required. See docs/allocators/TBuddyAllocator.md.
 
 #pragma once
 

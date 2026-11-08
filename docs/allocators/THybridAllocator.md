@@ -166,8 +166,7 @@ tested with immediate explicit teardown and scope destruction, without a retry.
 A rejecting ambient context checks explicit-context isolation.
 
 The standalone buddy suite continues to validate the common configuration and
-layout implementation. No reflection callback or measurement routing is changed
-by adding this wrapper.
+layout implementation.
 
 Windows x64 Debug and Linux Debug ordinary suites passed on 08 November 2026,
 including 4,256 hybrid-specific checks per platform. Build-time policy validation,
