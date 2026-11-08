@@ -53,8 +53,9 @@ Related references:
 
 - [Memory and attribution](../memory/memory_subsystem.md).
 - [TVector](../containers/TVector.md), which owns the chain's manager descriptors.
-- [Buddy allocator and SPIRV-Reflect design plan](../memory/buddy_allocator_design.md),
-  including rationale, validation records, shader measurement and later integration.
 
-Shader allocation measurement and SPIRV-Reflect integration, including selection
-of an exceptional large-block path, remain separate future stages.
+The [SPIRV-Reflect memory findings](reflection_memory_findings.md) summarize
+the Windows x64 request sizes and buddy/tracked allocator trade-offs.
+The [reflection integration](../modules/shader_reflection_design.md) selects
+32-bit words, native alignment slots, 64 KiB backing and a 16 KiB threshold,
+with individual free validation and an audit before independent sweep.

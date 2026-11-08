@@ -60,6 +60,8 @@ or that work has been authorised.
 - [Allocators](allocators/README.md), including the [packed buddy index](allocators/buddy_index.md).
 - [Hybrid allocator](allocators/THybridAllocator.md): lazy buddy/tracked ownership,
   explicit size/alignment routing and collective cleanup.
+- [SPIRV-Reflect memory findings](allocators/reflection_memory_findings.md):
+  request sizes, memory use and allocator configuration trade-offs.
 - [Standalone buddy allocator](allocators/TBuddyAllocator.md):
   32-bit and 64-bit packed managers, checked individual frees, bulk reset and
   explicit-context ownership.
@@ -71,9 +73,6 @@ or that work has been authorised.
 
 ## Direction and future design
 
-- [Buddy allocator and SPIRV-Reflect containment](memory/buddy_allocator_design.md):
-  planned shader allocation measurements and later validated vendor allocation
-  integration above the buddy chain.
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)

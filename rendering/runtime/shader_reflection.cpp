@@ -13,6 +13,7 @@
 #include "schema/schema.hpp"
 #include "text/utf8_string.hpp"
 #include <charconv>
+#include <limits>
 #include <new>
 
 #define SPV_ENABLE_UTILITY_CODE
@@ -86,12 +87,10 @@ struct SNode
     std::uint32_t offset;
     std::uint32_t edge;
     std::uint32_t expanded;
-    std::uint32_t expanded_members;
     std::uint32_t height;
     std::uint32_t rank;
     std::uint32_t annotation;
     std::uint16_t opcode;
-    std::uint16_t words;
     std::uint8_t colour;
 };
 
@@ -166,10 +165,6 @@ public:
     }
 
     [[nodiscard]] EStatus run(const std::uint64_t owner_bytes, SStorageStatistics& statistics) noexcept;
-    [[nodiscard]] const detail::SAllocationPlan& allocation_plan() const noexcept
-    {
-        return m_plan;
-    }
     [[nodiscard]] const std::uint32_t* words() const noexcept
     {
         return m_words;
@@ -198,7 +193,7 @@ public:
 private:
     [[nodiscard]] bool scan() noexcept;
     [[nodiscard]] EStatus index() noexcept;
-    [[nodiscard]] bool count_expansions() noexcept;
+    [[nodiscard]] bool validate_roots() noexcept;
     [[nodiscard]] bool edge(const std::uint32_t from, const std::uint32_t to) noexcept;
     [[nodiscard]] bool visit(const std::uint32_t id, const std::uint32_t depth) noexcept;
     [[nodiscard]] bool fail(const EStatus status, const EReason reason, const std::uint32_t offset) noexcept;
@@ -209,8 +204,6 @@ private:
     TPodVector<SNode> m_nodes;
     TPodVector<SEdge> m_edges;
     TPodVector<SAnnotation> m_annotations;
-    detail::SAllocationCounts m_counts;
-    detail::SAllocationPlan m_plan;
     std::size_t m_edge_count{ 0u };
     std::size_t m_annotation_count{ 0u };
     EStatus m_status{ EStatus::success };
@@ -262,7 +255,6 @@ bool CPreflight::visit(const std::uint32_t id, const std::uint32_t depth) noexce
     }
     node.colour = 1u;
     node.height = node.expanded = 1u;
-    node.expanded_members = (node.opcode == SpvOpTypeStruct) ? node.words - 2u : 0u;
     const bool array = (node.opcode == SpvOpTypeArray) || (node.opcode == SpvOpTypeRuntimeArray);
     node.rank = array ? 1u : 0u;
     for (auto item = node.edge; item != 0u; item = m_edges[item - 1u].next)
@@ -279,12 +271,6 @@ bool CPreflight::visit(const std::uint32_t id, const std::uint32_t depth) noexce
             return fail(EStatus::limit_exceeded, EReason::dependency_limit, node.offset);
         }
         node.expanded += child.expanded;
-        if ((node.expanded_members > m_limits.document_nodes) ||
-            (child.expanded_members > (m_limits.document_nodes - node.expanded_members)))
-        {
-            return fail(EStatus::limit_exceeded, EReason::dependency_limit, node.offset);
-        }
-        node.expanded_members += child.expanded_members;
         if (array)
         {
             node.rank = child.rank + 1u;
@@ -312,14 +298,9 @@ bool CPreflight::scan() noexcept
     {
         return fail(EStatus::limit_exceeded, EReason::allocation_size_limit, 0u);
     }
-    m_counts.input_bytes = static_cast<std::uint32_t>(m_count * 4u);
-    m_counts.id_bound = m_words[3];
-    //  Scalar tallies below are bounded by input words (at most twice that for
-    //  copy-memory accesses). The 2 GiB artifact ceiling therefore bounds them
-    //  in uint32_t. Repeated graph/source expansion uses checked additions.
+    std::uint32_t instructions = 0u, resources = 0u, interfaces = 0u, entry_points = 0u;
     bool function = false;
     bool source_present = false;
-    std::uint32_t source_length = 0u;
     for (std::size_t offset = 5u; offset < m_count;)
     {
         const auto words = m_words[offset] >> 16u;
@@ -329,7 +310,7 @@ bool CPreflight::scan() noexcept
         {
             return fail(EStatus::invalid_input, EReason::malformed_artifact, position);
         }
-        if (++m_counts.instructions > m_limits.instructions)
+        if (++instructions > m_limits.instructions)
         {
             return fail(EStatus::limit_exceeded, EReason::instruction_limit, position);
         }
@@ -339,10 +320,6 @@ bool CPreflight::scan() noexcept
         if (result && (words <= (type ? 2u : 1u)))
         {
             return fail(EStatus::invalid_input, EReason::malformed_artifact, position);
-        }
-        if (result && !type && type_opcode(opcode))
-        {
-            ++m_counts.types;
         }
         std::uint32_t start = 0u;
         std::uint32_t end = 0u;
@@ -369,11 +346,6 @@ bool CPreflight::scan() noexcept
 
         switch (opcode)
         {
-            case (SpvOpTypeStruct):
-            {
-                m_counts.declared_members += words - 2u;
-                break;
-            }
             case (SpvOpVariable):
             {
                 if (words < 4u)
@@ -384,17 +356,13 @@ bool CPreflight::scan() noexcept
                 if ((storage == SpvStorageClassUniformConstant) || (storage == SpvStorageClassUniform) ||
                     (storage == SpvStorageClassStorageBuffer))
                 {
-                    ++m_counts.resources;
+                    ++resources;
                 }
                 if ((storage == SpvStorageClassInput) || (storage == SpvStorageClassOutput))
                 {
-                    ++m_counts.interfaces;
+                    ++interfaces;
                 }
-                if (storage == SpvStorageClassPushConstant)
-                {
-                    ++m_counts.push_constant_roots;
-                }
-                if ((m_counts.resources > m_limits.resources) || (m_counts.interfaces > m_limits.interface_values))
+                if ((resources > m_limits.resources) || (interfaces > m_limits.interface_values))
                 {
                     return fail(EStatus::limit_exceeded, EReason::member_limit, position);
                 }
@@ -406,23 +374,17 @@ bool CPreflight::scan() noexcept
                 {
                     return fail(EStatus::invalid_input, EReason::malformed_artifact, position);
                 }
-                ++m_counts.entry_points;
+                ++entry_points;
                 break;
             }
             case (SpvOpFunction):
             {
                 function = true;
-                ++m_counts.functions;
                 break;
             }
             case (SpvOpFunctionEnd):
             {
                 function = false;
-                break;
-            }
-            case (SpvOpFunctionParameter):
-            {
-                ++m_counts.parameters;
                 break;
             }
             case (SpvOpFunctionCall):
@@ -431,8 +393,6 @@ bool CPreflight::scan() noexcept
                 {
                     return fail(EStatus::invalid_input, EReason::malformed_artifact, position);
                 }
-                ++m_counts.calls;
-                m_counts.access_records += words - 4u;
                 break;
             }
             case (SpvOpAccessChain):
@@ -442,42 +402,6 @@ bool CPreflight::scan() noexcept
                 {
                     return fail(EStatus::invalid_input, EReason::malformed_artifact, position);
                 }
-                ++m_counts.access_chains;
-                m_counts.access_indices += words - 4u;
-                if (function)
-                {
-                    ++m_counts.access_records;
-                }
-                break;
-            }
-            case (SpvOpLoad):
-            case (SpvOpStore):
-            case (SpvOpPtrAccessChain):
-            case (SpvOpInBoundsPtrAccessChain):
-            case (SpvOpArrayLength):
-            case (SpvOpUntypedArrayLengthKHR):
-            case (SpvOpGenericPtrMemSemantics):
-            case (SpvOpImageTexelPointer):
-            case (SpvOpUntypedImageTexelPointerEXT):
-            {
-                if (function)
-                {
-                    ++m_counts.access_records;
-                }
-                break;
-            }
-            case (SpvOpCopyMemory):
-            case (SpvOpCopyMemorySized):
-            {
-                if (function)
-                {
-                    m_counts.access_records += 2u;
-                }
-                break;
-            }
-            case (SpvOpString):
-            {
-                ++m_counts.strings;
                 break;
             }
             case (SpvOpSource):
@@ -499,27 +423,7 @@ bool CPreflight::scan() noexcept
                 {
                     return fail(EStatus::invalid_input, EReason::malformed_artifact, position);
                 }
-                if (!continued)
-                {
-                    source_length = 0u;
-                }
-                if (!detail::add_count(source_length, static_cast<std::uint32_t>(terminator - text)) ||
-                    !detail::add_count(m_counts.cumulative_source_bytes, source_length) ||
-                    !detail::add_count(m_counts.cumulative_source_bytes, 1u))
-                {
-                    return fail(EStatus::limit_exceeded, EReason::allocation_size_limit, position);
-                }
                 source_present = true;
-                ++m_counts.source_allocations;
-                break;
-            }
-            case (SpvOpSpecConstantTrue):
-            case (SpvOpSpecConstantFalse):
-            case (SpvOpSpecConstant):
-            case (SpvOpSpecConstantComposite):
-            case (SpvOpSpecConstantOp):
-            {
-                ++m_counts.specializations;
                 break;
             }
             default:
@@ -529,152 +433,88 @@ bool CPreflight::scan() noexcept
         }
         offset += words;
     }
-    if (source_present && (!detail::add_count(m_counts.cumulative_source_bytes, source_length) ||
-        !detail::add_count(m_counts.cumulative_source_bytes, 1u)))
-    {
-        return fail(EStatus::limit_exceeded, EReason::allocation_size_limit, 0u);
-    }
     //  This was already required by extraction; reject before vendor allocation.
-    return (m_counts.entry_points == 1u) || fail(EStatus::invalid_input, EReason::context_mismatch, 0u);
+    return (entry_points == 1u) || fail(EStatus::invalid_input, EReason::context_mismatch, 0u);
 }
 
 static bool preflight_storage(std::uint64_t& total, const std::size_t count,
     const std::size_t stride, const std::size_t alignment) noexcept
 {
-    if (count == 0u)
-    {
-        return true;
-    }
-    auto bytes = static_cast<std::uint64_t>(count);
-    if (!detail::multiply_size(bytes, stride) || (bytes > memory::k_byte_size_ceiling))
+    if (count == 0u) return true;
+    if ((stride == 0u) || (count > (memory::k_byte_size_ceiling / stride)))
     {
         return false;
     }
-    const auto conditioned = memory::condition_bytes(memory::condition_alignment(alignment), static_cast<std::size_t>(bytes));
-    return (conditioned != 0u) && detail::add_size(total, conditioned);
+    const std::size_t conditioned = memory::condition_bytes(memory::condition_alignment(alignment), (count * stride));
+    if ((conditioned == 0u) || (conditioned > (std::numeric_limits<std::uint64_t>::max() - total)))
+    {
+        return false;
+    }
+    total += conditioned;
+    return true;
 }
 
 EStatus CPreflight::run(const std::uint64_t owner_bytes, SStorageStatistics& statistics) noexcept
 {
     statistics.reflection_owner_bytes = owner_bytes;
-    if (!scan())
-    {
-        return m_status;
-    }
+    if (!scan()) return m_status;
     std::uint64_t storage = 0u;
     if (!preflight_storage(storage, m_words[3], sizeof(SNode), alignof(SNode)) ||
         !preflight_storage(storage, m_edge_count, sizeof(SEdge), alignof(SEdge)) ||
-        !preflight_storage(storage, m_annotation_count, sizeof(SAnnotation), alignof(SAnnotation)) ||
-        !detail::estimate_baseline(m_counts, m_plan))
+        !preflight_storage(storage, m_annotation_count, sizeof(SAnnotation), alignof(SAnnotation)))
     {
         (void)fail(EStatus::limit_exceeded, EReason::allocation_size_limit, 0u);
         return m_status;
     }
-    statistics.preflight_bytes = storage;
-    auto working = static_cast<std::uint64_t>(m_counts.input_bytes);
-    if (!detail::multiply_size(working, 8u) || !detail::add_size(working, 64u * 1024u) ||
-        !detail::add_size(working, storage) || !detail::add_size(working, owner_bytes))
-    {
-        (void)fail(EStatus::limit_exceeded, EReason::working_limit, 0u);
-        return m_status;
-    }
-    const auto other_working = working;
-    if (!detail::add_size(working, m_plan.reserved_bytes))
-    {
-        (void)fail(EStatus::limit_exceeded, EReason::working_limit, 0u);
-        return m_status;
-    }
-    statistics.working_estimate = EWorkingEstimate::bootstrap;
-    statistics.estimated_working_bytes = working;
-    if (working > m_limits.estimated_working_bytes)
-    {
-        (void)fail(EStatus::limit_exceeded, EReason::working_limit, 0u);
-        return m_status;
-    }
-    const auto status = index();
-    if (status != EStatus::success)
-    {
-        return status;
-    }
-    const auto allocated = m_nodes.memory_attribution().allocation_size + m_edges.memory_attribution().allocation_size +
+    const EStatus status = index();
+    statistics.preflight_bytes = m_nodes.memory_attribution().allocation_size + m_edges.memory_attribution().allocation_size +
         m_annotations.memory_attribution().allocation_size;
-    if ((allocated != storage) || (m_edges.size() != m_edge_count) || (m_annotations.size() != m_annotation_count))
+    if (status != EStatus::success) return status;
+    if ((statistics.preflight_bytes != storage) || (m_edges.size() != m_edge_count) || (m_annotations.size() != m_annotation_count))
     {
         (void)fail(EStatus::invalid_input, EReason::malformed_artifact, 0u);
         return m_status;
     }
-    if (!count_expansions())
-    {
-        return m_status;
-    }
-    if (!detail::estimate_allocation(m_counts, m_plan))
-    {
-        (void)fail(EStatus::limit_exceeded, EReason::allocation_size_limit, 0u);
-        return m_status;
-    }
-    statistics.reflection_arena_estimated_bytes = m_plan.estimated_bytes;
-    statistics.reflection_arena_requested_bytes = m_plan.requested_bytes;
-    statistics.reflection_arena_reserved_bytes = m_plan.reserved_bytes;
-    working = other_working;
-    if (!detail::add_size(working, m_plan.reserved_bytes))
-    {
-        (void)fail(EStatus::limit_exceeded, EReason::working_limit, 0u);
-        return m_status;
-    }
-    statistics.working_estimate = EWorkingEstimate::complete;
-    statistics.estimated_working_bytes = working;
-    if (working > m_limits.estimated_working_bytes)
-    {
-        (void)fail(EStatus::limit_exceeded, EReason::working_limit, 0u);
-    }
+    (void)validate_roots();
     return m_status;
 }
 
-bool CPreflight::count_expansions() noexcept
+bool CPreflight::validate_roots() noexcept
 {
+    //  Keep root-reference validation independently of the removed sizing model.
     for (std::size_t offset = 5u; offset < m_count; offset += m_words[offset] >> 16u)
     {
-        const auto opcode = static_cast<SpvOp>(m_words[offset] & 0xffffu);
-        const auto* const words = m_words + offset;
+        const SpvOp opcode = static_cast<SpvOp>(m_words[offset] & 0xffffu);
+        const std::uint32_t* const words = m_words + offset;
         std::uint32_t id = 0u;
-        std::uint32_t* total = nullptr;
+        const bool function = opcode == SpvOpEntryPoint;
         if (type_opcode(opcode))
         {
             id = words[1u];
-            total = &m_counts.expanded_type_members;
         }
         else if (opcode == SpvOpVariable)
         {
-            const auto storage = words[3u];
-            if ((storage == SpvStorageClassUniformConstant) || (storage == SpvStorageClassUniform) ||
-                (storage == SpvStorageClassStorageBuffer) || (storage == SpvStorageClassPushConstant))
+            const std::uint32_t storage = words[3u];
+            if ((storage != SpvStorageClassUniformConstant) && (storage != SpvStorageClassUniform) &&
+                (storage != SpvStorageClassStorageBuffer) && (storage != SpvStorageClassPushConstant) &&
+                (storage != SpvStorageClassInput) && (storage != SpvStorageClassOutput))
             {
-                total = &m_counts.expanded_resource_members;
-            }
-            else if ((storage == SpvStorageClassInput) || (storage == SpvStorageClassOutput))
-            {
-                total = &m_counts.expanded_interface_members;
+                continue;
             }
             id = words[1u];
         }
-        else if (opcode == SpvOpEntryPoint)
+        else if (function)
         {
             id = words[2u];
-            total = &m_counts.expanded_entry_calls;
         }
-        if (total == nullptr)
+        else
         {
             continue;
         }
-        const bool function = opcode == SpvOpEntryPoint;
         if ((id == 0u) || (id >= m_nodes.size()) || (m_nodes[id].colour != 2u) ||
             (function ? (m_nodes[id].opcode != SpvOpFunction) : !type_opcode(static_cast<SpvOp>(m_nodes[id].opcode))))
         {
             return fail(EStatus::invalid_input, EReason::malformed_artifact, static_cast<std::uint32_t>(offset));
-        }
-        if (!detail::add_count(*total, function ? m_nodes[id].expanded : m_nodes[id].expanded_members))
-        {
-            return fail(EStatus::limit_exceeded, EReason::allocation_size_limit, static_cast<std::uint32_t>(offset));
         }
     }
     return true;
@@ -731,7 +571,6 @@ EStatus CPreflight::index() noexcept
             }
             m_nodes[id].offset = position;
             m_nodes[id].opcode = static_cast<std::uint16_t>(opcode);
-            m_nodes[id].words = static_cast<std::uint16_t>(words);
         }
         std::uint32_t start = 0u;
         std::uint32_t end = 0u;
@@ -2966,10 +2805,15 @@ static EStatus build(const SRequest& request, const SLimits& limits, schema::CSc
         return admission;
     }
     bool size_rejected = false;
-    const auto reflected = module.create(artifact.size(), artifact.data(), index.allocation_plan(), size_rejected, request.component_identity);
+    const auto reflected = module.create(artifact.size(), artifact.data(), size_rejected, request.component_identity);
     diagnostic.library_result = static_cast<std::int32_t>(reflected);
     if (reflected != SPV_REFLECT_RESULT_SUCCESS)
     {
+        if (!module.audit_clean())
+        {
+            diagnostic.reason = EReason::allocation_audit;
+            return EStatus::reflection_failed;
+        }
         diagnostic.reason = (reflected == SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED) ? EReason::allocation : EReason::library_failure;
         if (size_rejected)
         {
@@ -2979,8 +2823,14 @@ static EStatus build(const SRequest& request, const SLimits& limits, schema::CSc
         return (reflected == SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED) ? EStatus::allocation_failed : EStatus::reflection_failed;
     }
 
-    const auto status = extract(request, limits, document, diagnostic, index, module);
+    const EStatus status = module.audit_clean() ?
+        extract(request, limits, document, diagnostic, index, module) : EStatus::reflection_failed;
     module.close();
+    if (!module.audit_clean())
+    {
+        diagnostic.reason = EReason::allocation_audit;
+        return EStatus::reflection_failed;
+    }
     return status;
 }
 
@@ -3144,8 +2994,11 @@ EStatus CReflection::reflect_module(const SRequest& request, const SLimits& limi
         return fail(EStatus::allocation_failed, EReason::allocation);
     }
     result.m_status = build(request, limits, staging, result.m_diagnostic, module, owner_bytes, result.m_statistics);
-    result.m_statistics.reflection_arena_capacity = module.arena_capacity();
-    result.m_statistics.reflection_arena_consumed = module.arena_consumed();
+    result.m_statistics.vendor_peak_owned_bytes = module.peak_owned();
+    result.m_statistics.vendor_peak_live_bytes = module.peak_live();
+    result.m_statistics.vendor_invalid_frees = module.allocations().invalid_frees;
+    result.m_statistics.vendor_outstanding_allocations = module.allocations().outstanding_count;
+    result.m_statistics.vendor_outstanding_bytes = module.allocations().outstanding_bytes;
     if (result.m_status == EStatus::success)
     {
         result.m_schema = std::move(staging);

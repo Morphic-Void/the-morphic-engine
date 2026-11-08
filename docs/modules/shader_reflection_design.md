@@ -56,7 +56,7 @@ diagnostics remain unchanged. `CReflectJob` supplies the existing batch callback
 shape without adding Host messages or SYSTEM identities. Its `prepare()` must
 succeed on the rendering/requester thread before dispatch. Each job owns a
 nonmovable `CReflection` instance containing the private module and operation
-arena; the callback exclusively borrows that prepared instance. Preparation
+allocator; the callback exclusively borrows that prepared instance. Preparation
 failure leaves the result `not_executed`. Direct synchronous `reflect()` calls
 instead own a temporary module on their calling thread.
 
@@ -183,142 +183,96 @@ processing, including repeated paths through shared dependencies.
 Retained names/metadata have a 4 KiB individual limit and 4 MiB aggregate limit;
 diagnostics have a 64 KiB limit and truncation flag. Embedded source/debug blobs
 use the artifact limit, not the retained-name limit. The retained-result default
-is 16 MiB. Working-storage admission retains the 128 MiB default. It charges the
-conditioned arena reservation, exact conditioned node/edge/annotation storage,
-the prepared job owner's actual conditioned allocation (zero for a synchronous
-stack-owned module), eight times artifact bytes and a 64 KiB allowance. The last
-two terms remain approximate extraction/miscellaneous storage. This is an
-estimate, not an enforced or measured peak. Counts, checked arithmetic and
-ordinary allocation failure remain independent checks. The codebase-wide 2 GiB
-single-allocation ceiling is unchanged.
+is 16 MiB. There is no aggregate working-memory estimate or limit. Explicit
+artifact, count, depth, expansion and retained-result limits remain in force,
+as does the engine-wide 2 GiB per-allocation ceiling. Preflight checks the
+conditioned size of each index allocation before attempting it.
 
 The private `spirv_reflect_adapter.cpp` compiles unmodified vendored source.
-Each nonmovable module owns one `CBumpBuffer` for the entire reflection operation.
-It initially allocates one block and can add blocks when the heuristic sizing is
-insufficient. Vendor `malloc` and `calloc` bump within those blocks; allocations
-are aligned to `std::max_align_t`, and `calloc` zeroes its requested bytes.
-Zero-sized requests consume at least one byte. All addresses stay stable across
-growth: there is no relocation, wraparound or reuse of released space. Vendor
-`free` is a no-op. Cumulative consumption includes alignment padding and all
-abandoned temporaries, but excludes skipped block tails and the block directory.
-Invalid or missed vendor frees are deliberately not tracked or diagnosed; this is
-the accepted tradeoff for whole-arena reclamation.
+Each nonmovable module owns a `CHybridAllocator32`: a chained buddy allocator
+with 64 KiB payload backing per manager, a `std::max_align_t` minimum slot,
+and a 16 KiB rounded-extent threshold. Larger requests use individually owned
+memory tokens indexed by exact start address. This configuration favors fewer
+underlying allocations over the smaller 16 KiB / 4 KiB alternative. The
+[memory findings](../allocators/reflection_memory_findings.md) summarize the
+request sizes and configuration trade-offs.
 
-The raw arena demand is **64 KiB + twice the structural estimate of cumulative
-vendor allocation**. The exact baseline is input bytes plus one native vendor
-parser node per instruction and a four-byte entry per header ID. Instructions
-include debug records. Residual terms charge type descriptions, declared member
-metadata, expanded member occurrences across every type/resource/interface root,
-functions/parameters/calls, accesses/index operands, entry points, strings and
-cumulative embedded-source replacement/continuation copies. Arrays propagate
-member descriptions without multiplying by element count; repeated shared types
-are charged each time. Coefficients use vendor-private `sizeof` values in the
-adapter, with the frozen model's padding and miscellaneous allowances. Vendor
-updates require re-auditing those allocation categories, not merely recompiling.
+The module captures its allocation context at construction. The first buddy
+manager and chain directory are prepared before vendor entry; failure is
+recoverable and releases partial setup. Further managers and tracked storage
+are allocated lazily. Vendor `malloc` and `calloc` requests have native
+`std::max_align_t` alignment. Zero-size requests allocate at least one byte;
+`calloc` checks multiplication before allocation and zeroes the requested bytes.
+Backing bases also carry the generic buddy allocator's 128-byte alignment.
 
-A bounded, non-allocating scan counts instructions and exact index capacities.
-Bootstrap admission uses that storage plus a baseline-only arena lower bound.
-Only after it passes are the three local index vectors allocated exactly. The
-existing memoized DAG traversal additionally computes expanded member weights;
-a bounded root scan completes the estimate. Final working-memory admission
-precedes arena allocation and all vendor entry. There is only one preflight
-index, retained through extraction. The existing single-entrypoint requirement
-is now rejected before vendor invocation. The 23 stored sizing counters and
-per-node member weights are 32-bit; repeated source/graph totals reject beyond
-the allocation ceiling. Checked products and aggregate working totals use
-64-bit arithmetic. Oversized values are rejected, never clipped into admission.
+Vendor `free(nullptr)` is inert. Other frees must match a currently live start
+address. Unknown, interior and already-freed pointers leave ownership unchanged
+and increment a sticky audit counter. Valid frees reclaim their allocation;
+buddy space may be reused immediately and empty managers remain until sweep.
+After normal extraction, vendor destruction runs, then outstanding allocations
+are counted before all backing, tracked payloads and metadata are independently
+released. Any invalid free or outstanding allocation makes the result
+`reflection_failed` / `allocation_audit`, overriding an extraction result and
+preventing schema publication. Statistics retain the audit evidence after sweep.
+Ordinary vendor creation errors also audit and sweep, without blindly calling
+a destructor on partially initialized vendor state. The noexcept C++ destructor
+only releases ownership and never calls vendor code.
 
-The raw demand is explicitly rounded using the memory context's alignment
-conditioning and then up to a power of two before admission, matching
-`CBumpBuffer::allocate`. Admission charges that full initial block reservation;
-rounding can therefore reject a request that previously fitted the working-memory limit.
-The arena uses the full `block_size()` and may add blocks during vendor execution.
-Growth is an escape hatch for an underestimated workload: it is not rejected by
-the initial working-memory admission estimate. The estimate is not a runtime cap.
-Each request must still fit one block; `CBumpBuffer` cannot split a request across
-blocks or enlarge its configured block size. Such a request fails through the
-same panic path as failed growth.
-Consumption comes from `allocated_size_with_alignment()` and is retained after
-cleanup for reporting. Heap-private padding and headers are not payload.
-Arena alignment is currently 16 bytes on GCC Linux x64
-and eight on MSVC x64/x86; use native policies, not those constants. This remains
-per-operation admission, not an aggregate concurrency memory limit.
+This protects allocation bookkeeping and catches observed cleanup regressions.
+It cannot prevent arbitrary vendor reads/writes, detect a stale pointer whose
+address has been reallocated, or make corrupted vendor traversal safe. Guards,
+poisoning and delayed reuse are not part of this integration.
 
-The capacity formula is an empirical
-allowance, not a proven bound on vendor expansion. Overflow-safe sizing and the
-2 GiB single-allocation ceiling are enforced before vendor entry. Failure to
-allocate the initial arena is an ordinary recoverable allocation failure.
-Failed bumps inside vendor execution never return null to the vendor: they invoke
-`MV_PANIC` and terminate, since upstream allocation/partial-cleanup paths are not reliably
-null-safe. The panic includes identity (up to 512 bytes plus its full length),
-input size, total block capacity, consumed bytes, requested allocation dimensions,
-structural estimate/raw demand/initial reservation, block count, block size and
-actual attributed allocation bytes (including directory storage).
+Hybrid ownership grows as needed; allocation and cleanup auditing remain
+independent of shader size predictions.
+
+A bounded nonallocating scan validates instruction boundaries, counts exact
+preflight index capacities and checks explicit service limits. Source/debug
+strings must terminate within their instruction, and continuation records need
+an earlier embedded source. These are parser-safety checks, not sizing heuristics.
+After index allocation, DAG traversal bounds type and static call-graph expansion,
+and a separate root pass validates referenced types and entry-point functions.
+All of these checks precede vendor entry. There is no aggregate memory cap.
+
+Allocation failure after vendor entry still invokes `MV_PANIC`: upstream
+allocation/partial-cleanup paths have not been established as null-safe. The
+best-effort panic records identity (bounded to 512 bytes plus its full length),
+input size, request dimensions, manager and tracked counts, live extents and
+deep owned bytes. Disposable subprocess tests cover chain growth, tracked index
+and payload failure, oversized requests and multiplication overflow. Ordinary
+failure sweeps cover recoverable preparation and engine-side allocations.
 
 Direct create/destroy entry and completion records bypass informational macro
-filtering and attempt immediate write/flush. These and panic reporting are best
-effort, not guaranteed durable or allocation-free: the debug service uses fixed
-formatting storage but also CRT formatting/output, and panic's file write may be
-skipped on lock contention. An entry without completion locates the unfinished
-vendor phase. No recovery from arbitrary corruption or ordinary parser-error
-cleanup faults is claimed. The adapter introduces no exceptions or exception
-compiler settings; unrelated DXC external-exception containment is unchanged.
+filtering. Audit diagnostics use the same immediate reporting path. Reporting
+uses fixed formatting storage but CRT formatting/output and lock contention
+mean it is neither guaranteed durable nor guaranteed allocation-free. Scoped
+thread-local routing restores the previous owner after nested calls; concurrent
+jobs have independent owners. Storage remains alive through extraction and
+vendor destruction. Worker completion releases vendor storage before publication;
+the requester retains the small prepared module object until drain/destruction.
+Copied results never borrow vendor storage.
 
-Scoped thread-local state routes allocation calls to the active operation;
-nested calls restore the previous owner and concurrent jobs have independent
-arenas. The private module object is constructed during requester-side job
-preparation in aligned engine-owned storage. Arena allocation and vendor parsing
-occur during execution under the memory context installed by batch work. After
-extraction, vendor destruction runs while the arena remains alive, then all blocks
-and the directory are released before publication. Ordinary creation errors also
-release the storage. The noexcept destructor is an arena-only fallback and never
-invokes vendor code. The job retains its module object until requester-side
-destruction after drain. Copied results do not borrow arena storage. The narrow
-placement-construction policy allowance remains confined to the implementation.
+`SStorageStatistics` reports storage and audit evidence:
 
-`SStorageStatistics` distinguishes estimated vendor usage, raw demand, selected
-initial reservation, actual total block capacity and alignment-inclusive consumption.
-Actual capacity remains zero until allocation succeeds and may exceed the initial
-reservation after growth. Capacity excludes directory storage; consumption excludes
-skipped block tails and directory storage. Capacity and consumption remain
-available after reclamation; they do not indicate currently live memory.
-`working_estimate` distinguishes unavailable, bootstrap lower bound and complete
-working estimates, including early/final admission failures. Preflight and owner
-allocation charges are also recorded. Re-measure after vendor updates or materially different
-shader workloads. The October 2026 calibration includes existing resource,
-buffer, packed-layout and stage fixtures, plus scaling shaders with 256 input
-bindings or 128/512 live structure fields, with and without debug/source data.
-The sample is a capacity regression corpus, not a comprehensive production
-shader workload.
+- `preflight_bytes` records actual index storage, including partial allocations
+  on failure; `reflection_owner_bytes` records prepared module storage and
+  `retained_bytes` records result storage. Preflight size rejection records zero
+  allocated index bytes.
+- `vendor_peak_live_bytes` counts peak live usable extents: rounded buddy blocks
+  and requested tracked sizes, not original request traffic.
+- `vendor_peak_owned_bytes` includes payload backing and all allocator metadata.
+  Both peaks sample completed allocator operations; transient old/new directory
+  overlap during growth is excluded. Setup failure leaves them zero.
+- `vendor_invalid_frees`, `vendor_outstanding_allocations` and
+  `vendor_outstanding_bytes` retain the audit before the independent sweep.
 
-| Scaling fixture | SPIR-V bytes | Consumed bytes (Linux x64) | Raw arena demand |
-| --- | ---: | ---: | ---: |
-| 256 bindings, no debug | 60,192 | 1,142,820 | 2,577,904 |
-| 256 bindings, source debug | 159,212 | 1,742,420 | 3,853,456 |
-| 128 fields, no debug | 25,516 | 650,372 | 1,480,992 |
-| 128 fields, source debug | 79,052 | 992,164 | 2,208,368 |
-| 512 fields, no debug | 99,244 | 2,507,396 | 5,502,240 |
-| 512 fields, source debug | 280,172 | 3,790,820 | 8,235,584 |
-
-These demands precede the power-of-two rounding required by `CBumpBuffer`;
-the full rounded reservation is charged to working-memory admission.
-
-The structural model was frozen against 32 calibration cases before 63 broader
-holdouts were generated. Its minimum observed Linux x64 headroom was 2.0006x,
-with no underestimated cumulative consumption. This is empirical, not a bound
-on arbitrary shaders, extensions or vendor versions. Native alignment and debug
-data can differ. Production estimates matched the frozen model on all 95 inputs
-using a separate diagnostic harness; that harness widened limits only to compare
-previously classified stress inputs and did not change production admission.
-
-The old input-byte allowance exhausted on eleven holdouts, seven passing its
-default preflight. Four were DXC-generated nested/shared-type shaders; three
-were synthetic sparse-ID or continued-source stress. Valid SPIR-V and preflight
-admission do not themselves establish supported engine extraction. Regression
-tests now compile the four nested shapes through the engine facade and check
-their extraction, test the synthetic sizing boundaries separately, and reject
-the oversized continuation case before arena allocation. Existing per-job,
-failure-injection and isolated fatal tests retain the lifetime/failure contract.
+Regression coverage includes null/zero requests, alignment and zeroing, mixed
+buddy/tracked storage, chain growth, interior/foreign/double frees, cleanup
+omissions, failed publication, captured-context isolation, nested/concurrent
+routing and fallback reclamation. Isolated fatal tests cover allocation failures
+after vendor entry. Sparse IDs, nested/shared types, source replacement and
+continuations, and generated large shader workloads remain covered. Oversized
+preflight storage and invalid root references are rejected before vendor entry.
 
 ### Renderer-local composed conditioning
 
@@ -351,7 +305,7 @@ routes, exit/context-install discards, queue-saturation inline fallback, stage/s
 failures and retained reports after input/job destruction. These are not live Host
 pool or DLL-unload tests. Standalone job tests also verify that allocation hooks
 on two workers route to the exact distinct instances prepared by the requester,
-that vendor access and arena reclamation finish before return, and that owner destruction follows
+that vendor access and allocator reclamation finish before return, and that owner destruction follows
 drain while retained reports and their allocation contexts remain alive. The
 compile-only Host message contract is unchanged;
 this checkpoint adds no production combined-group service or publication envelope.

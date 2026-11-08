@@ -6,10 +6,9 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    26 Oct 26
 //
-//  Private allocation routing for unmodified SPIRV-Reflect. One growing arena
-//  keeps vendor addresses stable until extraction and destruction complete.
+//  Private hybrid allocation routing and cleanup auditing for SPIRV-Reflect.
 //  Initial allocation can fail normally; allocation failure during vendor execution
-//  terminates with a best-effort diagnostic. Vendor frees are intentionally inert.
+//  terminates with a best-effort diagnostic. Teardown sweeps all remaining storage.
 
 #include "memory/memory_context.hpp"
 #include <stdlib.h>
@@ -25,11 +24,6 @@ namespace rendering::shader_reflection::detail
 {
 
 static thread_local SAllocationOwner* t_allocations{ nullptr };
-
-//  Empirical allowance, not a bound on arbitrary vendor expansion. Consumption
-//  includes alignment and temporary allocations even after vendor free calls.
-static constexpr std::size_t k_arena_allowance = 64u * 1024u;
-static constexpr std::size_t k_arena_multiplier = 2u;
 
 class CActiveOwner final
 {
@@ -52,47 +46,47 @@ private:
     SAllocationOwner* const m_previous;
 };
 
-bool plan_allocation(const std::uint64_t estimated_bytes, SAllocationPlan& plan) noexcept
-{
-    plan = {};
-    if (estimated_bytes > ((memory::k_byte_size_ceiling - k_arena_allowance) / k_arena_multiplier))
-    {
-        return false;
-    }
-    const auto requested = k_arena_allowance + (static_cast<std::size_t>(estimated_bytes) * k_arena_multiplier);
-    const auto alignment = memory::condition_alignment(alignof(std::max_align_t));
-    const auto conditioned = memory::condition_bytes(alignment, requested);
-    if (conditioned == 0u)
-    {
-        return false;
-    }
-    const auto reserved = bit_ops::round_up_to_pow2(conditioned);
-    plan = { static_cast<std::uint32_t>(estimated_bytes), requested, reserved, alignment };
-    return true;
-}
-
 [[noreturn]] void SAllocationOwner::exhausted(const std::size_t count, const std::size_t bytes) const noexcept
 {
     //  Bound identity text so numeric evidence fits the fixed panic buffer.
-    MV_PANIC("SPIRV-Reflect arena allocation failed: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu requested=%zu x %zu bytes estimate=%llu demand=%zu reserved=%zu blocks=%zu block_size=%zu allocated=%llu",
+    MV_PANIC("SPIRV-Reflect allocation failed: identity=%.*s identity_bytes=%zu input=%zu requested=%zu x %zu bytes managers=%zu tracked=%zu live=%llu owned=%llu",
         static_cast<int>(std::min(identity.length(), std::size_t{ 512u })),
         identity.cstring() != nullptr ? identity.cstring() : "", identity.length(),
-        input_bytes, capacity, consumed, count, bytes,
-        static_cast<unsigned long long>(plan.estimated_bytes), plan.requested_bytes, plan.reserved_bytes,
-        arena.buffer_count(), arena.block_size(), static_cast<unsigned long long>(arena.memory_attribution().allocation_size));
+        input_bytes, count, bytes, allocator.manager_count(), allocator.tracked_allocation_count(),
+        static_cast<unsigned long long>(allocator.allocated_size()),
+        static_cast<unsigned long long>(allocator.total_owned_size()));
+}
+
+bool SAllocationOwner::prepare() noexcept
+{
+    constexpr SHybridConfig config{ { alignof(std::max_align_t), 64u * 1024u }, 16u * 1024u };
+    if ((context == nullptr) || !allocator.initialise(config, *context))
+    {
+        return false;
+    }
+    //  Materialise the first manager before vendor entry, where failure can be
+    //  reported normally. Subsequent vendor allocations must never return null.
+    void* const probe = allocator.allocate(1u);
+    if (probe == nullptr)
+    {
+        allocator.deallocate();
+        return false;
+    }
+    (void)allocator.free(probe);
+    peak_owned = allocator.total_owned_size();
+    return true;
 }
 
 void* SAllocationOwner::allocate(const std::size_t size) noexcept
 {
-    constexpr auto alignment = alignof(std::max_align_t);
-    const auto bytes = std::max(size, std::size_t{ 1u });
-    void* const address = arena.bump(bytes, alignment);
+    const std::size_t bytes = std::max(size, std::size_t{ 1u });
+    void* const address = allocator.allocate(bytes, alignof(std::max_align_t));
     if (address == nullptr)
     {
         exhausted(1u, size);
     }
-    consumed = arena.allocated_size_with_alignment();
-    capacity = arena.buffer_count() * arena.block_size();
+    peak_live = std::max(peak_live, allocator.allocated_size());
+    peak_owned = std::max(peak_owned, allocator.total_owned_size());
     return address;
 }
 
@@ -106,6 +100,30 @@ void* SAllocationOwner::allocate_zeroed(const std::size_t count, const std::size
     void* const allocation = allocate(bytes);
     std::memset(allocation, 0, bytes);
     return allocation;
+}
+
+CHybridAllocator32::EFreeResult SAllocationOwner::free(void* const pointer) noexcept
+{
+    const auto result = allocator.free(pointer);
+    if (result == CHybridAllocator32::EFreeResult::invalid_allocation)
+    {
+        ++invalid_frees;
+    }
+    return result;
+}
+
+void SAllocationOwner::sweep() noexcept
+{
+    outstanding_count = allocator.allocation_count();
+    outstanding_bytes = allocator.allocated_size();
+    if ((invalid_frees != 0u) || (outstanding_count != 0u))
+    {
+        (void)debug_system::report_immediate(debug_system::EEventLevel::error, MV_INTERNAL_USAGE_POINT,
+            "SPIRV-Reflect allocation audit failed: invalid_frees=%llu outstanding=%llu bytes=%llu",
+            static_cast<unsigned long long>(invalid_frees), static_cast<unsigned long long>(outstanding_count),
+            static_cast<unsigned long long>(outstanding_bytes));
+    }
+    allocator.deallocate();
 }
 
 static void* reflect_malloc(const std::size_t size) noexcept
@@ -126,9 +144,14 @@ static void* reflect_calloc(const std::size_t count, const std::size_t size) noe
     return t_allocations->allocate_zeroed(count, size);
 }
 
-static void reflect_free(void*) noexcept
+static void reflect_free(void* const pointer) noexcept
 {
-    //  No per-allocation tracking or reclamation. The operation owns the arena.
+    if (t_allocations == nullptr)
+    {
+        if (pointer == nullptr) return;
+        MV_PANIC("SPIRV-Reflect free outside an active module");
+    }
+    (void)t_allocations->free(pointer);
 }
 
 static void breadcrumb(const SAllocationOwner& owner, const char* const phase, const SpvReflectResult result) noexcept
@@ -136,13 +159,12 @@ static void breadcrumb(const SAllocationOwner& owner, const char* const phase, c
     //  Direct reporting deliberately bypasses informational macro filtering.
     //  Fixed formatting storage and immediate flush do not guarantee delivery.
     (void)debug_system::report_immediate(debug_system::EEventLevel::info, MV_INTERNAL_USAGE_POINT,
-        "SPIRV-Reflect %s: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu result=%d estimate=%llu demand=%zu reserved=%zu blocks=%zu block_size=%zu allocated=%llu",
+        "SPIRV-Reflect %s: identity=%.*s identity_bytes=%zu input=%zu result=%d managers=%zu tracked=%zu live=%llu owned=%llu",
         phase, static_cast<int>(std::min(owner.identity.length(), std::size_t{ 512u })),
         owner.identity.cstring() != nullptr ? owner.identity.cstring() : "", owner.identity.length(),
-        owner.input_bytes, owner.capacity, owner.consumed, static_cast<int>(result),
-        static_cast<unsigned long long>(owner.plan.estimated_bytes), owner.plan.requested_bytes, owner.plan.reserved_bytes,
-        owner.arena.buffer_count(), owner.arena.block_size(),
-        static_cast<unsigned long long>(owner.arena.memory_attribution().allocation_size));
+        owner.input_bytes, static_cast<int>(result), owner.allocator.manager_count(), owner.allocator.tracked_allocation_count(),
+        static_cast<unsigned long long>(owner.allocator.allocated_size()),
+        static_cast<unsigned long long>(owner.allocator.total_owned_size()));
 }
 
 }   //  namespace rendering::shader_reflection::detail
@@ -169,101 +191,6 @@ static void breadcrumb(const SAllocationOwner& owner, const char* const phase, c
 namespace rendering::shader_reflection::detail
 {
 
-//  Keep the frozen model's native coefficients beside the vendor definitions.
-//  Updating SPIRV-Reflect requires auditing its allocation sites and these terms.
-class CAllocationEstimate final
-{
-public:
-    [[nodiscard]] bool add(const std::uint64_t count, const std::uint64_t bytes,
-        const std::uint64_t copies = 1u) noexcept
-    {
-        auto term = count;
-        return multiply_size(term, bytes) && multiply_size(term, copies) && add_size(m_total, term);
-    }
-
-    [[nodiscard]] bool finish(SAllocationPlan& plan) const noexcept
-    {
-        return plan_allocation(m_total, plan);
-    }
-
-private:
-    std::uint64_t m_total{ 0u };
-};
-
-static bool baseline(CAllocationEstimate& estimate, const SAllocationCounts& counts) noexcept
-{
-    return estimate.add(counts.input_bytes, 1u) &&
-        estimate.add(counts.instructions, sizeof(SpvReflectPrvNode)) &&
-        estimate.add(counts.id_bound, sizeof(std::uint32_t));
-}
-
-bool estimate_baseline(const SAllocationCounts& counts, SAllocationPlan& plan) noexcept
-{
-    plan = {};
-    CAllocationEstimate estimate;
-    return baseline(estimate, counts) && estimate.finish(plan);
-}
-
-bool estimate_allocation(const SAllocationCounts& counts, SAllocationPlan& plan) noexcept
-{
-    plan = {};
-    CAllocationEstimate estimate;
-    constexpr auto padding = alignof(std::max_align_t);
-    constexpr auto pointer = sizeof(void*);
-    auto passes = static_cast<std::uint64_t>(counts.entry_points);
-    if (!add_size(passes, 1u) || !baseline(estimate, counts))
-    {
-        return false;
-    }
-
-    //  Type copies and declared-member metadata, including repeated DAG paths.
-    if (!estimate.add(counts.types, sizeof(SpvReflectTypeDescription) + padding) ||
-        !estimate.add(counts.expanded_type_members, sizeof(SpvReflectTypeDescription) + padding) ||
-        !estimate.add(counts.declared_members, sizeof(SpvReflectPrvDecorations) + pointer + (2u * padding)))
-    {
-        return false;
-    }
-
-    //  All resource/interface roots are charged, even if not statically used.
-    if (!estimate.add(counts.resources, sizeof(SpvReflectDescriptorBinding)) ||
-        !estimate.add(counts.resources, 64u, passes) ||
-        !estimate.add(counts.push_constant_roots, sizeof(SpvReflectBlockVariable) + padding) ||
-        !estimate.add(counts.expanded_resource_members, sizeof(SpvReflectBlockVariable) + pointer + (2u * padding)) ||
-        !estimate.add(counts.interfaces, sizeof(SpvReflectInterfaceVariable) + pointer + 4u + padding, counts.entry_points) ||
-        !estimate.add(counts.expanded_interface_members, sizeof(SpvReflectInterfaceVariable) + pointer + 4u + padding, counts.entry_points))
-    {
-        return false;
-    }
-
-    //  Access records include argument and copy-memory operands. Per-entry
-    //  scratch is charged without reconstructing the vendor's reachability sets.
-    if (!estimate.add(counts.functions, sizeof(SpvReflectPrvFunction) + (4u * padding)) ||
-        !estimate.add(counts.parameters, 4u) ||
-        !estimate.add(counts.calls, 4u + pointer) ||
-        !estimate.add(counts.expanded_entry_calls, 4u) ||
-        !estimate.add(counts.access_records, sizeof(SpvReflectPrvAccessedVariable) + 8u, passes) ||
-        !estimate.add(counts.access_chains, sizeof(SpvReflectPrvAccessChain) + padding) ||
-        !estimate.add(counts.access_indices, 4u))
-    {
-        return false;
-    }
-
-    //  Embedded source replacements/concatenations remain allocated until close.
-    //  Fixed slack is empirical and deliberately unchanged from the frozen model.
-    if (!estimate.add(counts.strings, sizeof(SpvReflectPrvString) + padding) ||
-        !estimate.add(counts.cumulative_source_bytes, 1u) ||
-        !estimate.add(counts.source_allocations, padding) ||
-        !estimate.add(1u, padding) ||
-        !estimate.add(counts.entry_points, sizeof(SpvReflectEntryPoint) + 64u) ||
-        !estimate.add(1u, 4096u) ||
-        !estimate.add(counts.instructions, 16u) ||
-        !estimate.add(counts.specializations, 64u))
-    {
-        return false;
-    }
-    return estimate.finish(plan);
-}
-
 CModule* CModule::active() noexcept
 {
     return (t_allocations != nullptr) ? t_allocations->module : nullptr;
@@ -278,16 +205,18 @@ void CModule::close() noexcept
 
     CActiveOwner scope{ m_allocations };
     breadcrumb(m_allocations, "destroy begin", SPV_REFLECT_RESULT_SUCCESS);
+    m_allocations.vendor_active = true;
     spvReflectDestroyShaderModule(&m_module);
+    m_allocations.vendor_active = false;
     breadcrumb(m_allocations, "destroy complete", SPV_REFLECT_RESULT_SUCCESS);
-    m_allocations.arena.deallocate();
+    m_allocations.sweep();
     std::memset(&m_module, 0, sizeof(m_module));
     m_created = false;
     m_allocations.identity = {};
 }
 
 SpvReflectResult CModule::create(const std::size_t bytes, const void* const words,
-    const SAllocationPlan& plan, bool& allocation_size_rejected, const CStringView identity) noexcept
+    bool& allocation_size_rejected, const CStringView identity) noexcept
 {
     allocation_size_rejected = false;
     if (m_created)
@@ -295,34 +224,26 @@ SpvReflectResult CModule::create(const std::size_t bytes, const void* const word
         return SPV_REFLECT_RESULT_ERROR_INTERNAL_ERROR;
     }
     m_allocations.input_bytes = bytes;
-    m_allocations.consumed = 0u;
-    m_allocations.capacity = 0u;
-    m_allocations.plan = {};
-    SAllocationPlan checked;
-    if ((bytes > memory::k_byte_size_ceiling) || !plan_allocation(plan.estimated_bytes, checked) ||
-        (checked.requested_bytes != plan.requested_bytes) || (checked.reserved_bytes != plan.reserved_bytes) ||
-        (checked.alignment != plan.alignment))
+    m_allocations.peak_live = 0u;
+    m_allocations.peak_owned = 0u;
+    m_allocations.invalid_frees = 0u;
+    m_allocations.outstanding_count = 0u;
+    m_allocations.outstanding_bytes = 0u;
+    if (bytes > memory::k_byte_size_ceiling)
     {
         allocation_size_rejected = true;
         return SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED;
     }
-    m_allocations.plan = plan;
     CActiveOwner scope{ m_allocations };
-    if (!m_allocations.arena.allocate(plan.reserved_bytes, plan.alignment))
+    if (!m_allocations.prepare())
     {
         return SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED;
     }
-    const auto usable = m_allocations.arena.block_size();
-    if ((m_allocations.arena.buffer_count() != 1u) || (usable != plan.reserved_bytes) ||
-        (m_allocations.arena.memory_attribution().allocation_size != plan.reserved_bytes))
-    {
-        m_allocations.arena.deallocate();
-        return SPV_REFLECT_RESULT_ERROR_INTERNAL_ERROR;
-    }
-    m_allocations.capacity = usable;
     m_allocations.identity = identity;
     breadcrumb(m_allocations, "create begin", SPV_REFLECT_RESULT_SUCCESS);
+    m_allocations.vendor_active = true;
     const auto result = CreateShaderModule(0u, bytes, words, &m_module);
+    m_allocations.vendor_active = false;
     breadcrumb(m_allocations, "create complete", result);
     if (result == SPV_REFLECT_RESULT_SUCCESS)
     {
@@ -332,7 +253,7 @@ SpvReflectResult CModule::create(const std::size_t bytes, const void* const word
     {
         //  Reclaim even allocations abandoned by ordinary vendor error returns.
         //  This does not repair unsafe non-allocation parser failure paths.
-        m_allocations.arena.deallocate();
+        m_allocations.sweep();
         std::memset(&m_module, 0, sizeof(m_module));
         m_allocations.identity = {};
     }

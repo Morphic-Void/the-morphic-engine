@@ -15,8 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <limits>
-#include "containers/BumpBuffer.hpp"
+#include "allocators/THybridAllocator.hpp"
 #include "containers/StringBuffers.hpp"
 #include "external/SPIRV-Reflect/spirv_reflect.h"
 
@@ -25,121 +24,59 @@ namespace rendering::shader_reflection::detail
 
 class CModule;
 
-//  Operation-local counters, independent of the vendor's native type layout.
-struct SAllocationCounts
-{
-    std::uint32_t input_bytes{ 0u };
-    std::uint32_t instructions{ 0u };
-    std::uint32_t id_bound{ 0u };
-    std::uint32_t types{ 0u };
-    std::uint32_t declared_members{ 0u };
-    std::uint32_t expanded_type_members{ 0u };
-    std::uint32_t resources{ 0u };
-    std::uint32_t push_constant_roots{ 0u };
-    std::uint32_t expanded_resource_members{ 0u };
-    std::uint32_t interfaces{ 0u };
-    std::uint32_t expanded_interface_members{ 0u };
-    std::uint32_t entry_points{ 0u };
-    std::uint32_t functions{ 0u };
-    std::uint32_t parameters{ 0u };
-    std::uint32_t calls{ 0u };
-    std::uint32_t expanded_entry_calls{ 0u };
-    std::uint32_t access_records{ 0u };
-    std::uint32_t access_chains{ 0u };
-    std::uint32_t access_indices{ 0u };
-    std::uint32_t strings{ 0u };
-    std::uint32_t cumulative_source_bytes{ 0u };
-    std::uint32_t source_allocations{ 0u };
-    std::uint32_t specializations{ 0u };
-};
-
-struct SAllocationPlan
-{
-    std::uint32_t estimated_bytes{ 0u };
-    std::size_t requested_bytes{ 0u };
-    std::size_t reserved_bytes{ 0u };
-    std::size_t alignment{ 0u };
-};
-
-//  Larger counts cannot contribute to an admitted single arena. Reject rather
-//  than clipping; intermediates/aggregate working estimates remain wider.
-[[nodiscard]] static inline bool add_count(std::uint32_t& total, const std::uint32_t value) noexcept
-{
-    if ((total > memory::k_byte_size_ceiling) || (value > (memory::k_byte_size_ceiling - total)))
-    {
-        return false;
-    }
-    total += value;
-    return true;
-}
-
-[[nodiscard]] static inline bool add_size(std::uint64_t& total, const std::uint64_t value) noexcept
-{
-    if (value > (std::numeric_limits<std::uint64_t>::max() - total))
-    {
-        return false;
-    }
-    total += value;
-    return true;
-}
-
-[[nodiscard]] static inline bool multiply_size(std::uint64_t& value, const std::uint64_t factor) noexcept
-{
-    if ((factor != 0u) && (value > (std::numeric_limits<std::uint64_t>::max() / factor)))
-    {
-        return false;
-    }
-    value *= factor;
-    return true;
-}
-
-[[nodiscard]] bool plan_allocation(const std::uint64_t estimated_bytes, SAllocationPlan& plan) noexcept;
-[[nodiscard]] bool estimate_baseline(const SAllocationCounts& counts, SAllocationPlan& plan) noexcept;
-[[nodiscard]] bool estimate_allocation(const SAllocationCounts& counts, SAllocationPlan& plan) noexcept;
-
 struct SAllocationOwner
 {
     CModule* module;
-    CBumpBuffer arena;
+    //  Preserve construction-time ownership across worker/ambient context changes.
+    memory::CMemoryContext* context{ memory::get_ambient_memory_context() };
+    CHybridAllocator32 allocator;
     CStringView identity;
-    SAllocationPlan plan;
     std::size_t input_bytes{ 0u };
-    std::size_t capacity{ 0u };
-    std::size_t consumed{ 0u };
+    std::uint64_t peak_owned{ 0u }, peak_live{ 0u };
+    std::uint64_t invalid_frees{ 0u }, outstanding_count{ 0u }, outstanding_bytes{ 0u };
+    bool vendor_active{ false };
+    [[nodiscard]] bool prepare() noexcept;
     [[nodiscard]] void* allocate(const std::size_t bytes) noexcept;
     [[nodiscard]] void* allocate_zeroed(const std::size_t count, const std::size_t bytes) noexcept;
+    [[nodiscard]] CHybridAllocator32::EFreeResult free(void* const pointer) noexcept;
+    void sweep() noexcept;
     [[noreturn]] void exhausted(const std::size_t count, const std::size_t bytes) const noexcept;
 };
 
-//  One growing arena owns all vendor storage through creation and extraction.
-//  Vendor frees do nothing; close or destruction reclaims the entire arena.
+//  External allocation metadata validates individual frees; close audits and
+//  sweeps remaining ownership independently of vendor cleanup.
 //  The final engine schema copies its data and does not borrow this owner.
 class CModule final
 {
 
 public:
     CModule() noexcept = default;
-    //  Fallback only: release the arena, never call vendor code here.
+    //  Fallback only: release ownership, never call vendor code here.
     ~CModule() noexcept = default;
     CModule(const CModule&) = delete;
     CModule& operator=(const CModule&) = delete;
     CModule(CModule&&) = delete;
     CModule& operator=(CModule&&) = delete;
 
-    //  Initial arena allocation is recoverable, before vendor entry. Failed bumps
+    //  Initial buddy setup is recoverable, before vendor entry. Failed allocations
     //  during reflection terminate; vendor allocations must never return null.
     //  Identity is borrowed until close, including synchronous log calls.
     [[nodiscard]] SpvReflectResult create(const std::size_t bytes, const void* const words,
-        const SAllocationPlan& plan, bool& allocation_size_rejected, const CStringView identity = {}) noexcept;
+        bool& allocation_size_rejected, const CStringView identity = {}) noexcept;
     void close() noexcept;
-    [[nodiscard]] std::size_t arena_capacity() const noexcept
+    [[nodiscard]] std::uint64_t peak_owned() const noexcept
     {
-        return m_allocations.capacity;
+        return m_allocations.peak_owned;
     }
-    [[nodiscard]] std::size_t arena_consumed() const noexcept
+    [[nodiscard]] std::uint64_t peak_live() const noexcept
     {
-        return m_allocations.consumed;
+        return m_allocations.peak_live;
     }
+    [[nodiscard]] bool audit_clean() const noexcept
+    {
+        return (m_allocations.invalid_frees == 0u) && (m_allocations.outstanding_count == 0u);
+    }
+    [[nodiscard]] const SAllocationOwner& allocations() const noexcept { return m_allocations; }
 
     [[nodiscard]] const SpvReflectShaderModule& value() const noexcept
     {

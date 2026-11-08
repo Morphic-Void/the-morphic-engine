@@ -57,7 +57,6 @@ enum class EReason : std::uint8_t
     node_limit,
     declaration_limit,
     retained_limit,
-    working_limit,
     allocation_size_limit,
     allocation,
     specialization_shape,
@@ -70,6 +69,7 @@ enum class EReason : std::uint8_t
     library_failure,
     schema_failure,
     layout_conflict,
+    allocation_audit,
 };
 
 struct SDiagnostic
@@ -89,8 +89,8 @@ struct SDiagnostic
     std::int32_t library_result{ 0 };
 };
 
-//  Service policy, not device limits. Source/debug blobs use the artifact and
-//  allocation budgets; string_bytes applies only to retained names/metadata.
+//  Service policy, not device limits. Source/debug blobs use the artifact limit;
+//  string_bytes applies only to retained names/metadata.
 struct SLimits
 {
     std::size_t artifact_bytes{ 16u * 1024u * 1024u };
@@ -110,9 +110,6 @@ struct SLimits
     std::size_t strings_bytes{ 4u * 1024u * 1024u };
     std::size_t diagnostic_bytes{ 64u * 1024u };
     std::size_t retained_bytes{ 16u * 1024u * 1024u };
-    //  Preflight estimate, not a hard peak-allocation guarantee. The existing
-    //  engine 2 GiB per-allocation ceiling remains independently enforced.
-    std::size_t estimated_working_bytes{ 128u * 1024u * 1024u };
 };
 
 struct SRequest
@@ -121,29 +118,21 @@ struct SRequest
     CStringView component_identity;
 };
 
-enum class EWorkingEstimate : std::uint8_t
-{
-    unavailable = 0u,
-    bootstrap,
-    complete
-};
-
 struct SStorageStatistics
 {
-    //  Phase distinguishes a bootstrap lower bound from the completed estimate.
-    EWorkingEstimate working_estimate{ EWorkingEstimate::unavailable };
-    std::uint64_t estimated_working_bytes{ 0u };
+    //  Actual index storage, including partial allocations on preflight failure.
     std::uint64_t preflight_bytes{ 0u };
     std::uint64_t reflection_owner_bytes{ 0u };
     std::uint64_t retained_bytes{ 0u };
-    std::uint64_t reflection_arena_estimated_bytes{ 0u };
-    std::uint64_t reflection_arena_requested_bytes{ 0u };
-    std::uint64_t reflection_arena_reserved_bytes{ 0u };
-    //  Actual total block capacity (zero until setup succeeds) may grow beyond
-    //  the initial reservation. Bump usage includes alignment but excludes unused
-    //  block tails and directory storage. Both survive release of the storage.
-    std::uint64_t reflection_arena_capacity{ 0u };
-    std::uint64_t reflection_arena_consumed{ 0u };
+    //  Peaks sampled after successful allocator operations. Owned includes all
+    //  metadata and retained backing, excluding transient old/new growth overlap.
+    //  Live counts usable extents (rounded buddy blocks, requested tracked sizes).
+    //  Values survive teardown; they are not original-request traffic totals.
+    std::uint64_t vendor_peak_owned_bytes{ 0u };
+    std::uint64_t vendor_peak_live_bytes{ 0u };
+    std::uint64_t vendor_invalid_frees{ 0u };
+    std::uint64_t vendor_outstanding_allocations{ 0u };
+    std::uint64_t vendor_outstanding_bytes{ 0u };
 };
 
 class CResult final
@@ -206,9 +195,9 @@ private:
 //  One reflection instance per rendering-owned job. Prepare on the requester
 //  before dispatch; only the executing callback may access it until its terminal
 //  response is consumed. Keep the instance at a stable address through that drain.
-//  The vendor module and operation arena belong to this instance, while the
-//  callback's installed memory context supplies their ordinary allocations.
-//  Vendor access and arena reclamation finish before publication; results do not
+//  The vendor module and allocator belong to this instance. Vendor storage uses
+//  the module's captured context; extraction uses the callback's installed context.
+//  Vendor access and storage reclamation finish before publication; results do not
 //  borrow this instance. Its allocator context and rendering code must outlive it.
 class CReflection final
 {

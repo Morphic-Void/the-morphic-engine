@@ -230,16 +230,16 @@ local commits require a push before those workflows can validate them.
 The separate direct TGA round-trip helper is compiled into `MorphicTests` as a
 manual test but is intentionally not registered or invoked.
 
-Reflection arena fatal allocation failures are tested only in disposable child processes:
+Reflection allocator fatal failures are tested only in disposable child processes:
 
 ```powershell
 python tools/tests/test_reflection_arena_fatal.py --binary build/bin/x64/Debug/MorphicTests.exe --output-directory build/reflection-arena-fatal
 ```
 
 On Linux, `ctest --test-dir build/shader-linux -R MorphicReflectionArenaFatal
---output-on-failure` runs the same harness. It injects failure when growing the
-pointer directory or allocating another block, including an alignment-induced
-block transition. It also checks oversized bumps and `calloc` size overflow,
+--output-on-failure` runs the same harness. It injects failure when adding a buddy
+manager or allocating the tracked index/payload. It also checks oversized
+requests and `calloc` size overflow,
 requiring the expected fatal exit and matching panic fields. Every invocation
 retains logs and captured output in
 a fresh UUID directory, so previous logs cannot satisfy a new run. Do not invoke
