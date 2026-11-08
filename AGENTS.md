@@ -21,10 +21,11 @@ required. The user performs pushes; do not push.
 ## Text files
 
 Follow `.gitattributes` and end text files with a newline unless explicitly exempt.
-Visual Studio primarily edits `*.vcxitems` and `*.filters`: preserve their CRLF,
-encoding, and BOM state, and do not add a final newline solely for normalisation.
-`tools/check_line_endings.ps1` checks line endings and allows these files to lack
-a final newline.
+Visual Studio primarily edits `*.sln`, `*.vcxitems`, and `*.filters`: preserve
+their CRLF, encoding, and BOM state. Solution files require a final newline;
+do not add one to item/filter files solely for normalisation.
+`tools/check_line_endings.ps1` checks line endings and allows only item/filter
+files to lack a final newline.
 
 ## Source file headers
 

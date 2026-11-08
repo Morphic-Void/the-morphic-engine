@@ -1,5 +1,5 @@
 # Normalize text files to LF by default. Explicit Windows command scripts and
-# Visual Studio-managed item/filter metadata are the text exceptions.
+# Visual Studio-managed solution/item/filter metadata are the text exceptions.
 * text=auto eol=lf
 
 # Keep ordinary project text files on LF.
@@ -24,7 +24,7 @@
 .gitignore text eol=lf
 .gitmodules text eol=lf
 
-*.sln text eol=lf
+*.sln text eol=crlf
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
