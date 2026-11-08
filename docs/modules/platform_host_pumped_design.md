@@ -11,6 +11,14 @@ Review: 04 Nov 2026
 
 ## Status and scope
 
+8 November update: the [portable mapper](input_mapping.md) implements binding
+rearming, selective cancellation, analog projection and bounded evaluation, with
+connection integration and focused synthetic coverage. Native input acquisition
+remains a later increment.
+The focused [input connection](input_connections.md) and
+[configuration installation](input_configuration_installation.md) references
+describe their delivered implementations and supersede historical deferrals below.
+
 6 November update: the [Host timed-wait contract](host_timed_wait.md) supersedes
 the historical wait deferral below. Initial Windows/native-queue and Linux/engine
 waiting are implemented with pump ABI V2. Android/macOS native drivers remain

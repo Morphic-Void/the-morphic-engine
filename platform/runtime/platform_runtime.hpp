@@ -37,9 +37,12 @@ public:
 
     //  Native adapter callbacks only record state, publish and perform bounded
     //  maintenance. Record erasure and native destruction stay in outer pump.
-    void native_extent(const std::uint32_t width, const std::uint32_t height,
-        const std::uint32_t dpi, const bool minimised) noexcept;
+    void native_extent(const std::uint32_t width, const std::uint32_t height, const std::uint32_t dpi, const bool minimised) noexcept;
     void native_close() noexcept;
+    void input_focus(const bool focused) noexcept;
+    [[nodiscard]] EInputAdmission input_observation(const input::EConnection kind, const SInputObservation& observation) noexcept;
+    void input_device(const input::EConnection kind, const std::uint64_t instance) noexcept;
+    void input_discontinuity(const input::EConnection kind) noexcept;
     void native_stop() noexcept { m_host_stop = true; }
     void native_failure(const std::uint32_t error) noexcept;
     void enter_callback() noexcept;
@@ -62,8 +65,7 @@ private:
     void flush_completions() noexcept;
     [[nodiscard]] bool command(const services::SDispatchedCommand& command) noexcept;
     void acquire(const services::SDispatchedCommand& command, const bool create, const std::int32_t completion) noexcept;
-    [[nodiscard]] services::EServiceStatus ready(const services::SDispatchedCommand& command,
-        const windows::SWindowReady& request) noexcept;
+    [[nodiscard]] services::EServiceStatus ready(const services::SDispatchedCommand& command, const windows::SWindowReady& request) noexcept;
     [[nodiscard]] bool message(const ::threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] SWindowUse* find(const services::SServiceBorrow borrow) noexcept;
     [[nodiscard]] bool owns(const SWindowUse& use, const services::SDispatchedCommand& command) const noexcept;
@@ -74,6 +76,8 @@ private:
     void input_message(const ::threading::CErasedPodMsg& message) noexcept;
     void close_input(CInputConnection& connection, const services::EServiceStatus status) noexcept;
     void progress_inputs() noexcept;
+    void progress_mappers(const std::uint64_t budget_ns) noexcept;
+    void input_eligibility() noexcept;
     [[nodiscard]] bool configuration_command(const services::SDispatchedCommand& command, const std::int32_t completion) noexcept;
     void configuration_message(const ::threading::CErasedPodMsg& message) noexcept;
     void progress_configurations(const std::uint64_t budget_ns) noexcept;
@@ -123,6 +127,8 @@ private:
     std::uint32_t m_modal_depth[2]{};
     std::uint64_t m_next_window{ 1u };
     std::uint64_t m_next_input{ 1u };
+    std::uint32_t m_mapper_turn{};
+    bool m_input_focus{ true };
     bool m_stopping{ false }, m_failed{ false }, m_maintaining{ false }, m_native_first{ false };
     bool m_host_stop{ false };
 };

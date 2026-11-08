@@ -26,20 +26,20 @@ bool SInputInstallation::contains(const std::uint32_t context) const noexcept
     return false;
 }
 
-bool CInputConnection::initialise(const SInputEndpointV1& identity,
+bool CInputConnection::initialise(const SInputEndpointV2& identity,
     const SInputInstallation& installation, const std::uint32_t context, const std::uint64_t transition) noexcept
 {
     if (!installation.token.value || !installation.profile || !transition || !installation.contains(context) ||
         (installation.kind != identity.kind) || !identity.capacity_wake.is_valid() ||
         !m_actions.initialise(k_action_capacity) ||
         ((identity.kind == EConnection::desktop) && !m_text.initialise(k_text_capacity)) ||
-        !m_gates.resize(installation.subjects.size()) || !m_contexts.resize(installation.contexts.size()))
+        !m_subjects.resize(installation.subjects.size()) || !m_contexts.resize(installation.contexts.size()))
     {
         return false;
     }
-    for (std::size_t index = 0u; index < m_gates.size(); ++index)
+    for (std::size_t index = 0u; index < m_subjects.size(); ++index)
     {
-        m_gates[index] = { installation.subjects[index], 0u, false };
+        m_subjects[index] = installation.subjects[index];
     }
     for (std::size_t index = 0u; index < m_contexts.size(); ++index)
     {
@@ -54,6 +54,7 @@ bool CInputConnection::initialise(const SInputEndpointV1& identity,
     view.state = &m_publication;
     m_state.context = context;
     m_state.transition = transition;
+    m_mapper.initialise(installation);
     return view.is_valid() && boundary((view.text ? k_desktop : k_actions), EReason::initial);
 }
 
@@ -77,7 +78,7 @@ bool CInputConnection::publish() noexcept
 
 bool CInputConnection::start(const ::threading::SNotificationEndpoint endpoint) noexcept
 {
-    if (ready || !endpoint.is_valid() || (m_state.phase == EPhase::closing))
+    if (ready || !m_mapper.prepared() || !endpoint.is_valid() || (m_state.phase == EPhase::closing))
     {
         return false;
     }
@@ -97,12 +98,9 @@ bool CInputConnection::boundary(const std::uint32_t mask, const EReason reason) 
     }
     if (mask & k_actions)
     {
+        m_mapper.invalidate();
         ++m_state.action_generation;
         m_state.action_reasons = static_cast<std::uint32_t>(reason);
-        for (std::size_t index = 0u; index < m_gates.size(); ++index)
-        {
-            m_gates[index].generation = 0u;
-        }
     }
     if (mask & k_text)
     {
@@ -183,13 +181,6 @@ EServiceStatus CInputConnection::acknowledge(const SBoundaryReady& ready) noexce
         return EServiceStatus::busy;
     }
     if (!m_state.pending) return EServiceStatus::success;
-    if (m_state.pending & k_actions)
-    {
-        for (std::size_t index = 0u; index < m_gates.size(); ++index)
-        {
-            if (m_gates[index].neutral) m_gates[index].generation = m_state.action_generation;
-        }
-    }
     m_context_pending = m_target_pending = false;
     m_state.pending = 0u;
     m_state.phase = EPhase::active;
@@ -235,42 +226,26 @@ EServiceStatus CInputConnection::text_target(const STextTarget& target) noexcept
     {
         return EServiceStatus::stale;
     }
-    if (m_context_pending || m_target_pending)
+    if (m_context_pending || m_target_pending || m_mapper.pending())
     {
         return EServiceStatus::busy;
     }
     m_state.text_target = target.target;
     m_target_pending = true;
     m_state.text_enabled = target.target ? 1u : 0u;
+    m_mapper.text_changed();
     return boundary(k_text, EReason::text_target) ? EServiceStatus::success : EServiceStatus::delivery_failed;
 }
 
 void CInputConnection::close(const std::uint32_t failure) noexcept
 {
     if (m_state.phase == EPhase::closing) return;
+    m_mapper.invalidate();
     m_state.phase = EPhase::closing;
     m_state.pending = 0u;
     m_state.text_enabled = 0u;
     m_state.failure = failure;
     (void)publish();
-}
-
-void CInputConnection::observe_subject(const std::uint32_t subject, const bool neutral) noexcept
-{
-    if (m_state.phase == EPhase::closing) return;
-    for (std::size_t index = 0u; index < m_gates.size(); ++index)
-    {
-        if (m_gates[index].subject == subject)
-        {
-            m_gates[index].neutral = neutral;
-            if (neutral) m_gates[index].generation = m_state.action_generation;
-            else if ((m_state.phase != EPhase::active) || (m_state.pending & k_actions))
-            {
-                m_gates[index].generation = 0u;
-            }
-            return;
-        }
-    }
 }
 
 EInputPost CInputConnection::lose(const std::uint32_t stream, const bool overflow) noexcept
@@ -286,7 +261,7 @@ EInputPost CInputConnection::lose(const std::uint32_t stream, const bool overflo
     return success ? (overflow ? EInputPost::overflow : EInputPost::suppressed) : EInputPost::failed;
 }
 
-EInputPost CInputConnection::post_action(SActionInputV1 record) noexcept
+EInputPost CInputConnection::post_action(const SActionInputV1 record) noexcept
 {
     if (m_state.phase == EPhase::closing)
     {
@@ -296,21 +271,35 @@ EInputPost CInputConnection::post_action(SActionInputV1 record) noexcept
     {
         return EInputPost::invalid;
     }
-    SNeutralGate* gate = nullptr;
-    for (std::size_t index = 0u; index < m_gates.size(); ++index)
+    bool found = false;
+    for (std::size_t index = 0u; index < m_subjects.size(); ++index)
     {
-        if (m_gates[index].subject == record.subject)
+        if (m_subjects[index] == record.subject)
         {
-            gate = &m_gates[index];
+            found = true;
             break;
         }
     }
-    if (!gate) return EInputPost::invalid;
-    if ((m_state.phase != EPhase::active) || (m_state.pending & k_actions) ||
-        (gate->generation != m_state.action_generation))
+    if (!found) return EInputPost::invalid;
+    if ((m_state.phase != EPhase::active) || (m_state.pending & k_actions))
     {
-        gate->generation = 0u;
         return lose(k_actions, false);
+    }
+    return post_mapped(record, m_state.action_generation);
+}
+
+EInputPost CInputConnection::post_mapped(SActionInputV1 record, const std::uint64_t generation) noexcept
+{
+    //  Only the resolved mapper (or the validated low-level transport path above)
+    //  can publish here. Physical eligibility is per binding, never per subject.
+    if (m_state.phase == EPhase::closing)
+    {
+        return EInputPost::closed;
+    }
+    if ((generation != m_state.action_generation) || (m_state.phase != EPhase::active) ||
+        (m_state.pending & k_actions))
+    {
+        return EInputPost::suppressed;
     }
     if (!m_actions.writable_count())
     {
@@ -329,7 +318,7 @@ EInputPost CInputConnection::post_action(SActionInputV1 record) noexcept
     return publish() ? EInputPost::published : EInputPost::failed;
 }
 
-static bool unicode_scalar(const STextInputV1& record) noexcept
+bool CInputConnection::valid_text(const STextInputV1& record) noexcept
 {
     if ((record.kind != ETextKind::scalar) || record.sequence || record.reserved ||
         !record.byte_count || (record.byte_count > 4u))
@@ -367,7 +356,7 @@ EInputPost CInputConnection::post_text(STextInputV1 record) noexcept
     {
         return EInputPost::closed;
     }
-    if (!view.text || !unicode_scalar(record))
+    if (!view.text || !valid_text(record))
     {
         return EInputPost::invalid;
     }

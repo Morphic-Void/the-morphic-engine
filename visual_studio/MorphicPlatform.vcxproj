@@ -120,10 +120,14 @@
     <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
     <ClCompile Include="..\platform\runtime\input_connection.cpp" />
+    <ClCompile Include="..\platform\runtime\input_mapper.cpp" />
     <ClCompile Include="..\platform\runtime\input_configuration.cpp" />
     <ClCompile Include="..\platform\runtime\platform_input.cpp" />
     <ClCompile Include="..\platform\runtime\platform_configuration.cpp" />
     <ClInclude Include="..\platform\runtime\input_connection.hpp" />
+    <ClInclude Include="..\platform\runtime\input_mapper.hpp" />
+    <ClInclude Include="..\platform\runtime\input_plan.hpp" />
+    <ClInclude Include="..\platform\runtime\input_storage.hpp" />
     <ClInclude Include="..\platform\runtime\input_configuration.hpp" />
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
     <ClCompile Include="..\platform\runtime\window_record.cpp" />

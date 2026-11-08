@@ -117,6 +117,15 @@ bool ready = (a == b) && (c < d);
 bool active = ((a == b) ? x : y) && ready;
 ```
 
+## Power-of-two integer arithmetic
+
+Prefer explicit shifts for integer multiplication and division by known powers
+of two. For a power-of-two size, use `value & (size - 1)` instead of `value % size`.
+Use named shift counts and masks for recurring sizes so the relationship stays
+visible. Preserve types, signedness, rounding and overflow behaviour; apply these
+forms only when equivalent over the supported input range. Keep floating-point
+arithmetic and operations on sizes not known to be powers of two unchanged.
+
 ## Control flow and switches
 
 Make conditional `break`, `continue`, and `return` easy to see. Short, simple

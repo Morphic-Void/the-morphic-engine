@@ -138,8 +138,7 @@ bool CPlatformRuntime::holder(const services::SDispatchedCommand& command, const
     return false;
 }
 
-void CPlatformRuntime::acquire(const services::SDispatchedCommand& command, const bool create,
-    const std::int32_t completion) noexcept
+void CPlatformRuntime::acquire(const services::SDispatchedCommand& command, const bool create, const std::int32_t completion) noexcept
 {
     const auto slot = m_uses.emplace(m_clock);
     if (slot < 0)
@@ -187,8 +186,7 @@ void CPlatformRuntime::acquire(const services::SDispatchedCommand& command, cons
     publish();
 }
 
-EServiceStatus CPlatformRuntime::ready(const services::SDispatchedCommand& command,
-    const windows::SWindowReady& request) noexcept
+EServiceStatus CPlatformRuntime::ready(const services::SDispatchedCommand& command, const windows::SWindowReady& request) noexcept
 {
     auto* const use = find(request.borrow);
     if (!use || (request.window.value != m_window.token.value))
@@ -591,6 +589,7 @@ void CPlatformRuntime::enter_modal(const bool menu) noexcept
         return;
     }
     m_modal[index][m_modal_depth[index]++] = scope.scope;
+    input_eligibility();
 }
 
 void CPlatformRuntime::leave_modal(const bool menu) noexcept
@@ -602,6 +601,7 @@ void CPlatformRuntime::leave_modal(const bool menu) noexcept
         return;
     }
     const auto scope = m_modal[index][--m_modal_depth[index]];
+    input_eligibility();
     if (m_context.services->leave_restriction(m_context.service_context, scope) != modules::ERestrictionStatus::success)
     {
         native_failure(UINT32_MAX);
@@ -684,6 +684,14 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
     progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
         !m_window.destruction_failed) ? 1u : 0u;
     if (m_configuration_runnable) progress.work_pending = 1u;
+    for (const TInstance<CInputConnection>& connection : m_inputs)
+    {
+        if (connection && (connection->snapshot().phase != input::EPhase::closing) &&
+            (!connection->mapper().prepared() || connection->mapper().pending()))
+        {
+            progress.work_pending = 1u;
+        }
+    }
     progress.native_events_active = (m_window.native.handle && m_window.native.native_events &&
         !m_window.destruction_failed) ? 1u : 0u;
     progress.stop_requested = m_host_stop ? 1u : 0u;
@@ -763,6 +771,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_inputs();
     flush_completions();
     if (!m_native_first) dispatch();
+    progress_mappers(remaining());
     progress_uses();
     progress_inputs();
     progress_window();

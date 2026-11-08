@@ -12,71 +12,18 @@
 
 #include "runtime/input_connection.hpp"
 #include "schema/prepared_schema.hpp"
-#include "containers/TInstance.hpp"
+#include "runtime/input_plan.hpp"
 #include "containers/TUnorderedCollection.hpp"
 
 namespace platform::runtime
 {
 
-//  Small individually owned pages bound growth copies, initialisation and cleanup.
-template<typename T>
-class TConfigurationPages
-{
-    struct SPage { T entries[128]{}; };
-public:
-    [[nodiscard]] bool push(const T& value) noexcept
-    {
-        if ((m_count % 128u) == 0u)
-        {
-            if (!m_ready)
-            {
-                if (!m_pages.initialise()) return false;
-                m_ready = true;
-            }
-            const std::int32_t slot = m_pages.emplace();
-            if (slot < 0) return false;
-            TInstance<SPage>& page = *m_pages.get_object(slot);
-            if (!page.emplace() || !m_order.push_back(slot))
-            {
-                (void)m_pages.erase(slot);
-                return false;
-            }
-        }
-        (*m_pages.get_object(m_order[m_count / 128u]))->entries[m_count % 128u] = value;
-        ++m_count;
-        return true;
-    }
-    [[nodiscard]] std::uint32_t size() const noexcept { return m_count; }
-    [[nodiscard]] T& at(const std::uint32_t index) noexcept
-    { return (*m_pages.get_object(m_order[index / 128u]))->entries[index % 128u]; }
-    [[nodiscard]] const T& at(const std::uint32_t index) const noexcept
-    { return (*m_pages.get_object(m_order[index / 128u]))->entries[index % 128u]; }
-    [[nodiscard]] bool clear_page() noexcept
-    {
-        std::int32_t slot;
-        if (m_order.pop_back(slot))
-        {
-            (void)m_pages.erase(slot);
-            m_count = static_cast<std::uint32_t>(m_order.size()) * 128u;
-            return false;
-        }
-        m_order.deallocate();
-        m_pages.deallocate();
-        m_count = 0u;
-        m_ready = false;
-        return true;
-    }
-private:
-    TUnorderedCollection<TInstance<SPage>> m_pages;
-    TPodVector<std::int32_t> m_order;
-    std::uint32_t m_count{};
-    bool m_ready{ false };
-};
-
 enum class EConfigurationTable : std::uint16_t
 {
     header, action, context, membership, profile, binding, source, modifier, analog, policy, shortcut, shortcut_modifier, count
 };
+inline constexpr std::uint32_t k_configuration_table_count = static_cast<std::uint32_t>(EConfigurationTable::count);
+inline constexpr std::uint32_t k_configuration_max_actions = 1024u, k_configuration_max_relationships = 32768u;
 
 struct SConfigurationRow
 {
@@ -114,34 +61,35 @@ public:
     [[nodiscard]] input::SInstallationResult diagnostic() const noexcept { return m_error; }
     [[nodiscard]] bool ready() const noexcept { return m_stage == EStage::ready; }
 private:
-    enum class EStage { enumerations, layouts, inventory, instances, bulk, sorting, duplicates, references, grouping, conflicts, profiles, ready, failed };
+    enum class EStage { enumerations, layouts, inventory, instances, bulk, sorting, duplicates, references, grouping, conflicts, plan, profiles, ready, failed };
     [[nodiscard]] bool layout() noexcept;
     [[nodiscard]] bool inventory_step() noexcept;
-    [[nodiscard]] bool copy(const schema::CTypesIndex type, const CStringView name,
-        const std::uint8_t* const bytes, const std::size_t size, const bool bulk) noexcept;
+    [[nodiscard]] bool copy(const schema::CTypesIndex type, const CStringView name, const std::uint8_t* const bytes, const std::size_t size, const bool bulk) noexcept;
     [[nodiscard]] bool sort_step() noexcept;
     [[nodiscard]] bool group_step() noexcept;
     [[nodiscard]] bool reference_step() noexcept;
     [[nodiscard]] bool profile_step() noexcept;
+    [[nodiscard]] bool plan_step() noexcept;
     [[nodiscard]] const SConfigurationRow* find(const EConfigurationTable table, const std::uint32_t id) const noexcept;
     [[nodiscard]] bool contains(const EConfigurationTable table, const std::uint32_t first, const std::uint32_t second) const noexcept;
-    [[nodiscard]] bool fail(const input::EConfigurationError reason, const std::uint32_t definition = 0u,
-        const std::uint32_t field = 0u) noexcept;
+    [[nodiscard]] bool fail(const input::EConfigurationError reason, const std::uint32_t definition = 0u, const std::uint32_t field = 0u) noexcept;
     [[nodiscard]] static std::uint64_t key(const SConfigurationRow& row, const std::uint32_t table) noexcept;
     schema::CPreparedSchemaView m_view;
-    SConfigurationTable m_tables[12];
+    SConfigurationTable m_tables[k_configuration_table_count];
     TConfigurationPages<std::uint32_t> m_binding_order[2];
     std::uint32_t m_binding_read{};
     TUnorderedCollection<SInputInstallation> m_profiles;
+    SInputPlan m_plan;
+    bool m_plan_modifiers{ true };
     input::SInstallationResult m_error;
     EStage m_stage{ EStage::failed };
     std::uint32_t m_table{}, m_cursor{}, m_row{}, m_total_relationships{};
-    std::uint32_t m_inventory[12]{};
+    std::uint32_t m_inventory[k_configuration_table_count]{};
     std::uint32_t m_copy_stage{}, m_copy_index{};
     std::uint32_t m_width{ 1u }, m_begin{}, m_left{}, m_right{}, m_end{}, m_output{};
     std::uint32_t m_profile_stage{}, m_profile_cursor{}, m_profile_binding{};
     std::int32_t m_profile_slot{ -1 };
-    bool m_profile_actions[1024]{};
+    bool m_profile_actions[k_configuration_max_actions]{};
     std::uint32_t m_cleanup{};
 };
 

@@ -22,7 +22,10 @@ The 6 November [portable input contract](input_connections.md) supersedes this
 document's prospective input mechanics, including concrete commands, readiness,
 ordering, recovery and the designated-reader restriction. The input transport is
 implemented. Portable configuration installation is described in
-[input configuration installation](input_configuration_installation.md); native acquisition and mapping remain deferred.
+[input configuration installation](input_configuration_installation.md).
+The [portable mapper](input_mapping.md) and connection integration were implemented
+8 November 2026, using input service number 2/version 2 and unchanged record
+framing. Native input acquisition remains outstanding.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.
@@ -358,7 +361,7 @@ all graphics objects before asserting `ServiceBorrowQuiescent`. A descriptor is 
 transfer and cannot outlive its use. Future Linux fields require a new supported
 descriptor variant, not reinterpretation of a Windows pointer.
 
-Input prepared results return a connection token and borrowed `SInputEndpointV1`
+Input prepared results return a connection token and borrowed `SInputEndpointV2`
 pointer plus size/version; check it fits the envelope on x86/x64. The descriptor
 contains only endpoint/snapshot pointers, capacities, clock-domain information and
 tokens. Platform retains it until retirement. Consumer code constructs/uses Core

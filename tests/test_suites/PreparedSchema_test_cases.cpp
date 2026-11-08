@@ -262,7 +262,7 @@ void configuration_edge_cases(TTestContext& ctx)
 {
     using namespace platform::runtime;
     using platform::input::EConfigurationError;
-    for (unsigned scenario = 0u; scenario < 5u; ++scenario)
+    for (unsigned scenario = 0u; scenario < 7u; ++scenario)
     {
         std::string source = tests::input_schema();
         const auto replace = [&](const char* const before, const std::string& after)
@@ -290,7 +290,7 @@ void configuration_edge_cases(TTestContext& ctx)
             duplicate.replace(duplicate.find("\"id\":11"), 7u, "\"id\":12");
             source.insert(end, ("," + duplicate));
         }
-        else
+        else if (scenario == 4u)
         {
             std::string additions;
             for (unsigned index = 0u; index < 1024u; ++index)
@@ -300,6 +300,13 @@ void configuration_edge_cases(TTestContext& ctx)
             }
             replace("\"held\":", additions + "\"held\":");
             expected = EConfigurationError::limit;
+        }
+        else
+        {
+            replace("\"kind\":\"physical_key\"", (scenario == 5u) ? "\"kind\":\"mouse_position\"" : "\"kind\":\"mouse_wheel\"");
+            replace("\"control\":\"key_a\"", (scenario == 5u) ? "\"control\":\"mouse_position\"" : "\"control\":\"mouse_wheel\"");
+            replace("\"direction\":\"whole\"", "\"direction\":\"positive_x\"");
+            replace("\"activation\":\"regular\"", "\"activation\":\"threshold\"");
         }
         CPreparedSchema owner;
         SPreparationDiagnostic diagnostic;
@@ -368,10 +375,75 @@ void configuration_validation(TTestContext& ctx)
             TEST_EXPECT(ctx, (desktop && (desktop->token.value == 71u) && (desktop->subjects.size() == 1u)));
             TEST_EXPECT(ctx, !installation.profile(8u, platform::input::EConnection::desktop));
             TEST_EXPECT(ctx, (installation.binding_at(0u).values[1] == 3u));
+            TEST_EXPECT(ctx, (desktop->plan && (desktop->binding_count == 301u) && (pad->binding_count == 1u)));
+            if (desktop->plan)
+            {
+                const SInputPlan& plan = *desktop->plan;
+                for (std::uint32_t index = 1u; index < desktop->binding_count; ++index)
+                {
+                    TEST_EXPECT(ctx, (plan.bindings.at(desktop->binding_begin + index - 1u).id <
+                        plan.bindings.at(desktop->binding_begin + index).id));
+                }
+                const SInputBinding& stick = plan.bindings.at(pad->binding_begin);
+                TEST_EXPECT(ctx, ((stick.action == 9u) && (stick.control == 270u) &&
+                    (stick.parameters.dead_zone == 0.15f) && (stick.parameters.neutral_enter == 0.12f) &&
+                    (stick.parameters.neutral_leave == 0.15f) && (stick.parameters.press == 0.55f) &&
+                    (stick.parameters.release == 0.45f) && (stick.parameters.scale == 1.0f)));
+            }
         }
         unsigned cleanup = 0u;
         while (!installation.clear_step() && (++cleanup < 10000u)) {}
         TEST_EXPECT(ctx, (cleanup < 10000u));
+    }
+}
+
+void configuration_mapper_plan(TTestContext& ctx)
+{
+    using namespace platform::runtime;
+    for (const bool trigger : { false, true })
+    {
+        std::string source = tests::input_schema();
+        const auto replace = [&](const char* const before, const char* const after)
+        {
+            const std::size_t position = source.find(before);
+            TEST_EXPECT(ctx, (position != std::string::npos));
+            if (position != std::string::npos) source.replace(position, std::strlen(before), after);
+        };
+        replace(R"("InputSourceDefinition":{"key")", R"("InputSourceDefinition":{"modifier":{"declaration":{"id":99,"kind":"physical_key","control":"left_shift","direction":"whole"}},"key")");
+        replace(R"("activation":"regular")", R"("activation":"chord")");
+        replace(R"("data":{"ContextAction")", R"("data":{"BindingModifier":{"modifiers":{"data":[{"binding":5,"source":99}]}},"ContextAction")");
+        replace(R"("source":2,"parameters":0)", R"("source":2,"parameters":12)");
+        replace(R"("BindingDefinition":{"key_binding")", R"("AnalogParameters":{"custom":{"declaration":{"id":12,"dead_zone":0.25,"neutral_enter":0.125,"neutral_leave":0.25,"press":0.75,"release":0.5,"scale":-2}}},"BindingDefinition":{"key_binding")");
+        if (trigger)
+        {
+            replace(R"("kind":"gamepad_stick")", R"("kind":"gamepad_trigger")");
+            replace(R"("control":"pad_left_stick")", R"("control":"pad_left_trigger")");
+            replace(R"("kind":"vector_state")", R"("kind":"scalar_state")");
+        }
+        CPreparedSchema owner;
+        SPreparationDiagnostic diagnostic;
+        TEST_EXPECT(ctx, prepare(owner, source, diagnostic));
+        CInputConfiguration installation;
+        TEST_EXPECT(ctx, installation.begin(owner.descriptor()));
+        EConfigurationBuild result = EConfigurationBuild::building;
+        for (unsigned step = 0u; (step < 10000u) && (result == EConfigurationBuild::building); ++step) result = installation.step();
+        TEST_EXPECT(ctx, (result == EConfigurationBuild::ready));
+        const SInputInstallation* const desktop = installation.profile(3u, platform::input::EConnection::desktop);
+        const SInputInstallation* const controller = installation.profile(8u, platform::input::EConnection::controller);
+        TEST_EXPECT(ctx, (desktop && controller));
+        if (desktop && controller)
+        {
+            const SInputPlan& plan = *desktop->plan;
+            const SInputBinding& key = plan.bindings.at(desktop->binding_begin);
+            TEST_EXPECT(ctx, ((key.modifier_end == (key.modifier_begin + 1u)) &&
+                (plan.modifiers.at(key.modifier_begin) == 98u) && (key.parameters.scale == -2.0f) &&
+                (key.parameters.press == 0.75f) && (key.parameters.dead_zone == 0.25f)));
+            const SInputBinding& analog = plan.bindings.at(controller->binding_begin);
+            TEST_EXPECT(ctx, ((analog.parameters.dead_zone == (trigger ? 0.05f : 0.15f)) &&
+                (analog.parameters.neutral_enter == (trigger ? 0.03f : 0.12f)) &&
+                (analog.parameters.neutral_leave == (trigger ? 0.05f : 0.15f))));
+        }
+        while (!installation.clear_step()) {}
     }
 }
 }
@@ -384,4 +456,5 @@ void run_prepared_schema_cases(tests::TTestContext& ctx)
     prepared_limits(ctx);
     configuration_validation(ctx);
     configuration_edge_cases(ctx);
+    configuration_mapper_plan(ctx);
 }

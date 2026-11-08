@@ -7,24 +7,44 @@
 -->
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="..\platform\module\binding\platform_binding.cpp" />
-    <ClInclude Include="..\platform\module\types\erased_owner_payloads.def" />
-    <ClCompile Include="..\platform\module\types\local_type_ids.cpp" />
-    <ClInclude Include="..\platform\module\types\local_type_ids.def" />
-    <ClInclude Include="..\platform\module\types\local_type_ids.hpp" />
-    <ClInclude Include="..\platform\module\types\local_types.hpp" />
-    <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
-    <ClInclude Include="..\platform\native\window.hpp" />
-    <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
-    <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
-    <ClCompile Include="..\platform\runtime\input_connection.cpp" />
-    <ClCompile Include="..\platform\runtime\input_configuration.cpp" />
-    <ClCompile Include="..\platform\runtime\platform_input.cpp" />
-    <ClCompile Include="..\platform\runtime\platform_configuration.cpp" />
-    <ClInclude Include="..\platform\runtime\input_connection.hpp" />
-    <ClInclude Include="..\platform\runtime\input_configuration.hpp" />
-    <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
-    <ClCompile Include="..\platform\runtime\window_record.cpp" />
-    <ClInclude Include="..\platform\runtime\window_record.hpp" />
+    <Filter Include="Platform"><UniqueIdentifier>{ef6b1b36-ff6a-4d21-873c-06b5dc619051}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\include"><UniqueIdentifier>{4e26b382-9545-47d9-a634-a2112531230a}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\include\module"><UniqueIdentifier>{5b61ffa3-9b57-4eea-96f3-b54e5cd5f041}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\include\module\types"><UniqueIdentifier>{1c6954f8-c60c-4c93-a86f-aab8d58557f7}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\include\native"><UniqueIdentifier>{deab587d-7518-4d9f-8d86-60d5c616d84f}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\include\runtime"><UniqueIdentifier>{6ca93f09-6653-4b22-952c-0cbc47a9ca0e}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src"><UniqueIdentifier>{dd04b6f7-06f6-44b6-a1fc-b2dbf9a6c760}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\module"><UniqueIdentifier>{5361b680-e139-43b6-a847-4d683a921c9b}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\module\binding"><UniqueIdentifier>{23d2821d-b2bb-49b2-b6a3-d378edc6e84b}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\module\types"><UniqueIdentifier>{330f17f2-3ff3-4d48-b5e6-c6d1ddb2d3f7}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\native"><UniqueIdentifier>{bf05085a-73e6-44ab-876e-ce5fa2080dab}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\native\unsupported"><UniqueIdentifier>{a8d4f3f4-f542-4754-a23f-8777cb43dcf1}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\native\windows"><UniqueIdentifier>{1dfb2c7e-1320-4ac1-be33-3971c93d7a6c}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\src\runtime"><UniqueIdentifier>{a970baac-7e85-46fa-a68a-3fe1d5047037}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\platform\module\binding\platform_binding.cpp"><Filter>Platform\src\module\binding</Filter></ClCompile>
+    <ClInclude Include="..\platform\module\types\erased_owner_payloads.def"><Filter>Platform\include\module\types</Filter></ClInclude>
+    <ClCompile Include="..\platform\module\types\local_type_ids.cpp"><Filter>Platform\src\module\types</Filter></ClCompile>
+    <ClInclude Include="..\platform\module\types\local_type_ids.def"><Filter>Platform\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\platform\module\types\local_type_ids.hpp"><Filter>Platform\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\platform\module\types\local_types.hpp"><Filter>Platform\include\module\types</Filter></ClInclude>
+    <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>
+    <ClInclude Include="..\platform\native\window.hpp"><Filter>Platform\include\native</Filter></ClInclude>
+    <ClCompile Include="..\platform\native\windows\window_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\platform_runtime.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\input_connection.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\input_mapper.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\input_configuration.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\platform_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\platform_configuration.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClInclude Include="..\platform\runtime\input_connection.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\input_mapper.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\input_plan.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\input_storage.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\input_configuration.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\platform_runtime.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClCompile Include="..\platform\runtime\window_record.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClInclude Include="..\platform\runtime\window_record.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
   </ItemGroup>
 </Project>

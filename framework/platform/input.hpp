@@ -19,7 +19,7 @@
 namespace platform::input
 {
 
-inline constexpr services::SServiceContract k_input_contract{ 2u, 1u };
+inline constexpr services::SServiceContract k_input_contract{ 2u, 2u };
 inline constexpr std::uint32_t k_action_capacity = 256u, k_text_capacity = 64u;
 enum class EConnection : std::uint32_t { desktop = 1u, controller = 2u };
 enum class EClock : std::uint32_t { awake_nanoseconds = 1u };
@@ -85,9 +85,20 @@ struct STextTarget
 
 enum class EActionKind : std::uint16_t
 {
-    digital, scalar, vector, delta, pulse, pointer, button, wheel, modifiers, boundary
+    digital = 0u, scalar = 1u, vector = 2u, delta = 3u, pulse = 4u,
+    pointer = 5u, button = 6u, wheel = 7u, modifiers = 8u, boundary = 9u
 };
 enum class ETextKind : std::uint16_t { scalar, boundary };
+//  Contract 2 uses these payloads with the unchanged V1 record framing. Unused
+//  payload bytes are zero. Cancellation is an inactive/zero state, never a pulse.
+inline constexpr std::uint16_t k_action_cancelled = 1u;
+struct SDigitalAction { std::uint32_t active{}; };
+struct SScalarAction { float value{}; };
+struct SVectorAction { float x{}, y{}; };
+struct SDeltaAction { float x{}, y{}; };
+struct SPulseAction { std::uint32_t binding{}; };
+static_assert((sizeof(SDigitalAction) == 4u) && (sizeof(SScalarAction) == 4u) &&
+    (sizeof(SVectorAction) == 8u) && (sizeof(SDeltaAction) == 8u) && (sizeof(SPulseAction) == 4u));
 struct SActionBoundary
 {
     std::uint64_t generation{ 0u }, transition{ 0u };
@@ -111,10 +122,10 @@ struct alignas(8) STextInputV1
     unsigned char payload[16]{};
 };
 
-struct SInputEndpointV1
+struct SInputEndpointV2
 {
     [[nodiscard]] bool is_valid() const noexcept;
-    std::uint32_t size{ sizeof(SInputEndpointV1) }, version{ 1u };
+    std::uint32_t size{ sizeof(SInputEndpointV2) }, version{ 2u };
     EConnection kind{ EConnection::desktop };
     EClock clock{ EClock::awake_nanoseconds };
     SConnectionToken connection;
@@ -127,9 +138,9 @@ struct SInputEndpointV1
     platform::threading::SWakeEndpoint capacity_wake;
 };
 
-inline bool SInputEndpointV1::is_valid() const noexcept
+inline bool SInputEndpointV2::is_valid() const noexcept
 {
-    return (size == sizeof(SInputEndpointV1)) && (version == 1u) &&
+    return (size == sizeof(SInputEndpointV2)) && (version == 2u) &&
         ((kind == EConnection::desktop) || (kind == EConnection::controller)) &&
         (clock == EClock::awake_nanoseconds) && connection.value && provider.value && consumer.value &&
         (action_capacity == k_action_capacity) && actions && actions->is_ready() && state && capacity_wake.is_valid() &&
@@ -140,7 +151,7 @@ inline bool SInputEndpointV1::is_valid() const noexcept
 static_assert((sizeof(SActionInputV1) == 48u) && (alignof(SActionInputV1) == 8u));
 static_assert((sizeof(STextInputV1) == 40u) && (alignof(STextInputV1) == 8u));
 static_assert(std::is_trivially_copyable_v<SActionInputV1> && std::is_trivially_copyable_v<STextInputV1>);
-static_assert(std::is_standard_layout_v<SInputEndpointV1> && std::is_trivially_copyable_v<SInputEndpointV1>);
+static_assert(std::is_standard_layout_v<SInputEndpointV2> && std::is_trivially_copyable_v<SInputEndpointV2>);
 static_assert((sizeof(SAcquireDesktop) == 24u) && (sizeof(SAcquireController) == 24u));
 static_assert((sizeof(SInputReady) == 24u) && (sizeof(SBoundaryReady) == 24u) && (sizeof(STextTarget) == 24u));
 

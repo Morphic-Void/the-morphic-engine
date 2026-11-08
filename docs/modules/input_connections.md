@@ -6,6 +6,11 @@ mechanics in `platform_contracts_v1.md`. Native acquisition remains a later
 increment; [configuration installation](input_configuration_installation.md)
 now supplies production records.
 
+The [portable mapper](input_mapping.md), implemented 8 November 2026, owns
+per-binding rearming and selective action cancellation. Input service number 2,
+its borrowed descriptor and `SInputEndpointV2` now use version 2; configuration
+source format remains version 1. The action/text record framing is unchanged.
+
 ## Ownership and admission
 
 Platform owns one exclusive desktop connection and one independent controller
@@ -29,11 +34,11 @@ Consumers cannot reset, resize or destroy the rings.
 Configuration, profile and context references require an installed matching
 record. Production records come from the incremental configuration installer;
 some transport-only synthetic tests still inject private fixture records. There
-is no zero-token or unconfigured-input bypass. Native mapping remains deferred.
+is no zero-token or unconfigured-input bypass. Native acquisition remains deferred.
 
 ## Readiness and authority
 
-Reserve -> prepare borrow -> install readers -> register notification ->
+Reserve -> prepare mapper storage -> prepare borrow -> install readers -> register notification ->
 InputReady -> initial markers -> BoundaryReady -> Active/acquisition completion.
 
 InputReady correlates connection, notification registration and acquisition.
@@ -88,12 +93,13 @@ still creates a fresh boundary, allowing recovery after a rejected request witho
 silently restoring cancelled state. The initial transition is the acquisition
 request ID; each context selection uses its request ID as the new transition.
 
-The producer's `observe_subject` baseline must remain current during recovery.
-Neutral observations can arm the next generation, but a subsequent held observation
-removes that permission during a barrier. Publication does not infer physical
-neutrality from record payloads. Native mapping must keep observing physical state
-while publication is gated. This layer never reconstructs a pulse
-or generates an ordinary release to represent cancellation.
+The mapper keeps per-binding physical baselines current during recovery. A neutral
+primary can rearm that binding, but a subsequent held observation removes that
+permission while gated. Another independently eligible binding may still sustain
+the same action. The connection enforces compiled subject identity, generation,
+readiness and closure; it has no subject-level physical-neutrality gate. No layer
+infers physical neutrality from an inactive action payload or reconstructs a pulse.
+Selective cancellation uses the explicit payload/flag rules in the mapper contract.
 
 Control publications use bounded sequence-validated reads of atomic 32-bit
 words, including split 64-bit values, with sequentially consistent operations.
@@ -161,6 +167,9 @@ Native/callback scopes never reclaim input storage. Failed joins, deadline expir
 and a missing acknowledgement do not authorise unsafe reclamation.
 
 ## Validation
+
+The 8 November mapper/connection integration and coordinated version-2 rebuild
+evidence is recorded in [portable mapper validation](input_mapping.md#synthetic-acceptance).
 
 Synthetic coverage exercises readiness before terminal success, disabled-text
 markers, shared ordering, bounded reader retries, generation changes around reads,

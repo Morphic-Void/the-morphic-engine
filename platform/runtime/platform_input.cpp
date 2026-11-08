@@ -150,7 +150,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 CInputConnection& connection = *owned;
                 connection.acquisition = dispatched;
                 connection.completion = completion;
-                SInputEndpointV1 identity;
+                SInputEndpointV2 identity;
                 identity.kind = kind;
                 identity.connection.value = m_next_input;
                 m_next_input = (m_next_input == UINT64_MAX) ? 0u : (m_next_input + 1u);
@@ -164,6 +164,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 }
                 else
                 {
+                    connection.mapper().eligible(m_input_focus && !m_modal_depth[0] && !m_modal_depth[1]);
                     const modules::EBudgetStatus budget = connection.budget.start(m_context.execution->restriction, 5000000000u);
                     if ((budget != modules::EBudgetStatus::running) && (budget != modules::EBudgetStatus::restricted))
                     {
@@ -315,10 +316,10 @@ void CPlatformRuntime::progress_inputs() noexcept
             {
                 close_input(connection, ((budget == modules::EBudgetStatus::expired) ? EServiceStatus::timed_out : EServiceStatus::native_failure));
             }
-            else if (!connection.borrow.value && (budget != modules::EBudgetStatus::retry))
+            else if (!connection.borrow.value && connection.mapper().prepared() && (budget != modules::EBudgetStatus::retry))
             {
                 const services::SServiceBorrowOffer offer{ connection.acquisition.command.route, connection.acquisition.command.request,
-                    { &connection.view, sizeof(connection.view), 1u } };
+                    { &connection.view, sizeof(connection.view), 2u } };
                 const EServiceStatus status = m_context.services->prepare_borrow(m_context.service_context, &offer, &connection.borrow);
                 if ((status != EServiceStatus::success) && (status != EServiceStatus::busy))
                 {
@@ -361,6 +362,7 @@ void CPlatformRuntime::progress_inputs() noexcept
         if (cleanup && (connection.completion < 0) && !m_native_depth && !m_callback_depth && !m_modal_depth[0] && !m_modal_depth[1])
         {
             connection.notification = {};
+            if (!connection.mapper().clear_step()) continue;
             if (!connection.borrow.value || (m_context.services->finish_borrow_retirement(m_context.service_context,
                 connection.borrow) == EServiceStatus::success))
             {
@@ -368,6 +370,102 @@ void CPlatformRuntime::progress_inputs() noexcept
             }
         }
     }
+}
+
+void CPlatformRuntime::progress_mappers(const std::uint64_t budget_ns) noexcept
+{
+    if (!budget_ns || m_stopping)
+    {
+        return;
+    }
+    std::uint64_t start = 0u;
+    if (m_clock.read(start).code != platform::threading::EWaitError::none)
+    {
+        native_failure(UINT32_MAX);
+        return;
+    }
+    const std::uint64_t limit = std::min(budget_ns, UINT64_C(500000));
+    SMapperBudget budget;
+    std::uint32_t idle = 0u;
+    while (budget.work && (idle < 2u))
+    {
+        std::uint64_t now = 0u;
+        if ((m_clock.read(now).code != platform::threading::EWaitError::none) || (now < start))
+        {
+            native_failure(UINT32_MAX);
+            return;
+        }
+        if ((now - start) >= limit) break;
+        TInstance<CInputConnection>& owned = m_inputs[m_mapper_turn];
+        m_mapper_turn ^= 1u;
+        bool advanced = false;
+        if (owned && (owned->snapshot().phase != EPhase::closing) &&
+            ((owned->view.kind != EConnection::desktop) || (m_window.snapshot.phase != windows::EWindowPhase::closing)))
+        {
+            CInputMapper& mapper = owned->mapper();
+            if (!mapper.prepared())
+            {
+                const std::uint32_t cost = mapper.prepare_cost();
+                if (budget.work >= cost)
+                {
+                    budget.work -= cost;
+                    advanced = true;
+                    if (!mapper.prepare_step()) close_input(*owned, EServiceStatus::allocation_failed);
+                }
+            }
+            else advanced = mapper.advance(budget);
+        }
+        idle = advanced ? 0u : (idle + 1u);
+    }
+}
+
+void CPlatformRuntime::input_eligibility() noexcept
+{
+    const bool eligible = m_input_focus && !m_modal_depth[0] && !m_modal_depth[1];
+    for (TInstance<CInputConnection>& owned : m_inputs)
+    {
+        if (owned) owned->mapper().eligible(eligible);
+    }
+}
+
+void CPlatformRuntime::input_focus(const bool focused) noexcept
+{
+    m_input_focus = focused;
+    input_eligibility();
+}
+
+EInputAdmission CPlatformRuntime::input_observation(const EConnection kind, const SInputObservation& observation) noexcept
+{
+    if ((kind != EConnection::desktop) && (kind != EConnection::controller))
+    {
+        return EInputAdmission::invalid;
+    }
+    if (m_stopping || ((kind == EConnection::desktop) && (m_window.snapshot.phase == windows::EWindowPhase::closing)))
+    {
+        return EInputAdmission::closed;
+    }
+    TInstance<CInputConnection>& owned = m_inputs[(kind == EConnection::desktop) ? 0u : 1u];
+    return owned ? owned->mapper().submit(observation) : EInputAdmission::closed;
+}
+
+void CPlatformRuntime::input_device(const EConnection kind, const std::uint64_t instance) noexcept
+{
+    if ((kind != EConnection::desktop) && (kind != EConnection::controller))
+    {
+        return;
+    }
+    TInstance<CInputConnection>& owned = m_inputs[(kind == EConnection::desktop) ? 0u : 1u];
+    if (owned) owned->mapper().device(instance);
+}
+
+void CPlatformRuntime::input_discontinuity(const EConnection kind) noexcept
+{
+    if ((kind != EConnection::desktop) && (kind != EConnection::controller))
+    {
+        return;
+    }
+    TInstance<CInputConnection>& owned = m_inputs[(kind == EConnection::desktop) ? 0u : 1u];
+    if (owned) owned->mapper().discontinuity();
 }
 
 }   //  namespace platform::runtime

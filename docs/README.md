@@ -42,8 +42,11 @@ or that work has been authorised.
   on-demand module, explicit window uses, durable state, close policy and native
   acceptance evidence. Native Linux remains later work.
 - [Portable input connections](modules/input_connections.md): typed streams,
-  readiness, ordered recovery, reader helpers and synthetic validation. Native
-  acquisition and production configuration installation remain later work.
+  readiness, ordered recovery, reader helpers and synthetic validation.
+- [Input configuration installation](modules/input_configuration_installation.md):
+  Host schema conditioning, incremental validation, owned installations and retirement.
+- [Portable input mapper](modules/input_mapping.md): implemented evaluation, rearming,
+  cancellation, bounded work and connection integration; native acquisition remains later work.
 - [Audio implementation and validation](modules/audio_module_validation.md):
   on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of

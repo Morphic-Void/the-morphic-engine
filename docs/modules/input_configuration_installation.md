@@ -3,11 +3,13 @@
 Approved 6 November 2026. The portable implementation combines the nominated
 [Host schema conditioner](../schema/prepared-schema.md) with incremental Platform
 validation and installation. It does not execute Platform jobs on a Host worker.
-Native acquisition/mapping remains a subsequent increment.
+The [portable mapper](input_mapping.md), implemented 8 November 2026, adds resolved
+evaluation tables and tighter threshold-source validation to installation. Native
+acquisition remains subsequent work.
 
 ## Commands and ownership
 
-Input service contract 2/version 1 adds opcode 1 (`SInstallConfiguration`) and
+Input service contract 2/version 2 retains opcode 1 (`SInstallConfiguration`) and
 opcode 2 (`SRetireConfiguration`). Installation carries a retained raw asset ID,
 format version 1 and reserved zero. Its terminal payload is `SInstallationResult`
 (24 bytes): installation token or copied error/category/definition/field detail.
@@ -49,7 +51,9 @@ completion before creating candidate state. Capacity pressure returns `busy`.
    activation/action combinations, connection kinds, reserved values, modifier
    rules, finite analog parameters and hysteresis, and native-repeat eligibility.
 7. Build binding order by profile/context/action/ID and reject ambiguous absolute
-   scalar/vector contributors. Prepare per-profile context and subject tables.
+   scalar/vector contributors. Incrementally resolve modifier control indices,
+   binding instructions and default/explicit parameters into owned immutable
+   evaluation pages. Prepare per-profile ranges, contexts and subject tables.
 8. Detach all intermediate views, release the Host acquisition, and wait for the
    release reply. Then commit the resource and publish its token.
 
@@ -66,7 +70,8 @@ bulk records; unknown record categories and wrong instance/bulk roles are reject
 Regular and chord activations produce digital held state from digital sources;
 chords require an all-of modifier set. Start/release activations produce pulses
 from digital sources and may require modifiers. Threshold activation produces
-digital state from a trigger or projected analog direction. Direct activation
+digital state from a trigger or projected stick direction; pointer and wheel
+thresholds are rejected. Direct activation
 produces scalar/vector state or relative wheel deltas with a compatible source.
 Explicit analog values are finite, `0 <= dead_zone < 1`,
 `0 <= neutral_enter < neutral_leave <= 1`, and `0 <= release < press <= 1`;
@@ -118,3 +123,5 @@ incremental sorting and independent profiles; real one/two-worker Host result
 release and failure cleanup; cancellation across preparation/release/commit;
 reply pressure; deadline expiry; and busy/stale installation retirement. These
 tests exercise the portable contracts without requiring a native device backend.
+The 8 November resolved-plan, default-parameter, modifier-index and threshold-source
+tests are included in [portable mapper validation](input_mapping.md#synthetic-acceptance).
