@@ -248,6 +248,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\TBuddyAllocatorChain.hpp">
       <Filter>Core\include\allocators</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\CTrackedAllocator.hpp">
+      <Filter>Core\include\allocators</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\BumpBuffer.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>

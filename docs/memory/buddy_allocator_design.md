@@ -743,19 +743,19 @@ buddy owner.
 
 ### 4. Exceptional allocations and reflection integration
 
-Retain the agreed large-allocation path: `TOrderedCollection<CByteBuffer, Key>`,
-keyed by the exact exposed allocation address, with logarithmic lookup. Its
-threshold is chosen from stage 3 and can be below a manager's theoretical or
-configured maximum. The reflection owner composes this collection with the
-chain. If a separate reusable wrapper proves useful, keep vendor policy out of
-its Core interface.
+The generic [CTrackedAllocator](../allocators/CTrackedAllocator.md) now provides
+address-indexed ownership using `TOrderedSlots<memory::CMemoryToken, Key>`.
+This supersedes the earlier proposed `TOrderedCollection<CByteBuffer, Key>`
+mechanism for the planned large-allocation path. The threshold is chosen from
+stage 3 and can be below a manager's theoretical or configured maximum.
+Composition with the buddy chain remains a later reflection integration step.
 
-Allocate a temporary buffer, obtain its address, and move it into the collection
-only once allocation succeeds. Expose the pointer only after insertion succeeds.
-Erasure destroys its buffer. Never resize an indexed buffer without replacing
-its address key transactionally. Collection attribution is shallow: aggregate
-contained-buffer storage explicitly. Provision these allocations through the
-owner's explicit context. Supplier-specific `realloc` support is not required
+The generic owner exposes a candidate pointer only after token insertion
+succeeds, releases the token on erasure, aggregates deep attribution and uses
+an explicit context for index and payload storage. Unmatched frees use one
+`invalid_allocation` result; it does not classify interior versus foreign
+addresses. Tokens are not exposed for mutation, and resizing an indexed
+allocation is not supported. Supplier-specific `realloc` support is not required
 by the current reflection adapter and is not an initial deliverable.
 
 Replace the private bump callbacks with validated allocation/free routing while

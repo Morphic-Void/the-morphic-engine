@@ -64,6 +64,8 @@ or that work has been authorised.
 - [Buddy allocator chaining](allocators/TBuddyAllocatorChain.md):
   `TVector` ownership, transactional growth, pointer routing and retained-manager
   reuse with deep memory accounting.
+- [Tracked allocator](allocators/CTrackedAllocator.md): independent memory tokens
+  indexed by address in `TOrderedSlots`, exact-key frees and collective cleanup.
 
 ## Direction and future design
 
