@@ -71,8 +71,10 @@ cleanup callback is invoked. Enumerate outstanding blocks before reset or
 teardown if a leak audit is required.
 
 The standalone alignment, raw-storage and validation limitations apply to every
-block. In particular, minimum-slot alignment is guaranteed, exact requested
-sizes are not recorded, and reused addresses do not identify stale pointers.
+block. Every manager has a payload base aligned to at least 128 bytes, so
+128-byte blocks are 128-byte aligned even with smaller slots. Minimum-slot
+alignment remains guaranteed for the smallest blocks. Exact requested sizes
+are not recorded, and reused addresses do not identify stale pointers.
 
 ## Observers and accounting
 

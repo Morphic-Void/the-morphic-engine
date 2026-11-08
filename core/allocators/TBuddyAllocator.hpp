@@ -50,6 +50,7 @@ public:
     static constexpr std::uint32_t k_max_order = TIndex::k_max_order;
     static constexpr std::uint32_t k_max_slots = TIndex::k_slot_count;
     static constexpr std::size_t k_management_size = sizeof(SManagement);
+    static constexpr std::size_t k_minimum_backing_alignment = 128u;
 
     TBuddyAllocator() noexcept = default;
     TBuddyAllocator(const TBuddyAllocator&) = delete;
@@ -115,14 +116,15 @@ bool TBuddyAllocator<TWord>::initialise(const SBuddyConfig& config, memory::CMem
     {
         return false;
     }
+    const std::size_t payload_alignment = std::max(slot, k_minimum_backing_alignment);
     //  Both operands are below the substrate ceiling, so addition is safe even
     //  on 32-bit hosts. Validate conditioning too, before calling the allocator.
-    const std::size_t offset = (sizeof(SManagement) + slot - 1u) & ~(slot - 1u);
+    const std::size_t offset = (sizeof(SManagement) + payload_alignment - 1u) & ~(payload_alignment - 1u);
     if (offset > (memory::k_byte_size_ceiling - backing))
     {
         return false;
     }
-    const std::size_t alignment = std::max(slot, alignof(SManagement));
+    const std::size_t alignment = std::max(payload_alignment, alignof(SManagement));
     const std::size_t total = offset + backing;
     const std::size_t conditioned_alignment = context.condition_alignment(alignment);
     if ((conditioned_alignment < alignment) || (context.condition_bytes(conditioned_alignment, total) == 0u))

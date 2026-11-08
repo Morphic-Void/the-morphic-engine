@@ -41,9 +41,13 @@ represent or condition. The maximum slot count is 16,384 for 32-bit words and
 131,072 for 64-bit words. A reduced payload uses a smaller active tree within the
 same full-size management layout; it does not reduce management storage.
 
-The unconditioned footprint is `align_up(k_management_size, S) + P`, with a
-requested allocation alignment of `max(S, alignof(SManagement))`. Context
-conditioning may increase the physical cost. `k_management_size` includes
+Let `A = max(S, k_minimum_backing_alignment)`, where
+`k_minimum_backing_alignment` is 128 bytes. The unconditioned footprint is
+`align_up(k_management_size, A) + P`, with a requested allocation alignment of
+`max(A, alignof(SManagement))`. Both the containing allocation and the payload
+start satisfy `A`; aligning only the containing allocation would be insufficient.
+Context conditioning may increase the physical cost, including tail padding
+when the payload is smaller than `A`. `k_management_size` includes
 platform-dependent structure padding; use the constant rather than a hard-coded
 management byte count.
 
@@ -65,10 +69,13 @@ address at that order, splitting if necessary. This can prefer an existing small
 block over a lower-address large block. Fragmentation can prevent a request
 despite sufficient aggregate free bytes.
 
-Every returned address is aligned to `S`. Larger block offsets are aligned to
-their extents relative to the payload base, but absolute alignment greater than
-`S` is not guaranteed. There is no per-request alignment argument: choose `S`
-large enough for the required alignment. There is no object construction,
+For a reserved block extent `B`, its returned address is aligned to
+`min(B, max(S, 128))`. In particular, 128-byte blocks are 128-byte aligned even
+with smaller slots; an 8-byte block is still only guaranteed 8-byte alignment.
+Larger block offsets are aligned to their extents relative to the payload base,
+but absolute alignment beyond `max(S, 128)` is not guaranteed. There is no
+per-request alignment argument: choose `S` large enough when every allocation,
+including the smallest, must meet a given alignment. There is no object construction,
 zero-filling, reallocation or original-request-size history.
 
 ## Free validation and size queries

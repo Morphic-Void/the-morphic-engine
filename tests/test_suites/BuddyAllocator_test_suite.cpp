@@ -613,7 +613,7 @@ template<typename TWord>
 void test_owner_configurations(TTestContext& ctx, memory::CMemoryContext& context)
 {
     using TAllocator = TBuddyAllocator<TWord>;
-    const std::size_t requested_slots[]{ 1u, 2u, 3u, 15u, 16u, 17u, 31u, 32u, 33u, 4095u, 4096u, 4097u };
+    const std::size_t requested_slots[]{ 1u, 2u, 3u, 15u, 16u, 17u, 31u, 32u, 33u, 127u, 128u, 129u, 4095u, 4096u, 4097u };
     for (const std::size_t requested_slot : requested_slots)
     {
         const std::size_t normalized = bit_ops::round_up_to_pow2(requested_slot);
@@ -626,6 +626,7 @@ void test_owner_configurations(TTestContext& ctx, memory::CMemoryContext& contex
             void* const pointer = owner.allocate(requested_slot);
             TEST_EXPECT(ctx, (pointer != nullptr));
             TEST_EXPECT(ctx, ((reinterpret_cast<std::uintptr_t>(pointer) % normalized) == 0u));
+            TEST_EXPECT(ctx, ((reinterpret_cast<std::uintptr_t>(pointer) % 128u) == 0u));
             TEST_EXPECT(ctx, (owner.allocation_size(pointer) == normalized));
         }
     }
@@ -643,6 +644,37 @@ void test_owner_configurations(TTestContext& ctx, memory::CMemoryContext& contex
         TEST_EXPECT(ctx, (owner.allocate(1u) == base));
         TEST_EXPECT(ctx, (owner.free(base) == EFreeResult::released));
         TEST_EXPECT(ctx, (owner.largest_available_block() == backing));
+    }
+}
+
+template<typename TWord>
+void test_owner_alignment(TTestContext& ctx, memory::CMemoryContext& context)
+{
+    //  Occupy the first small slot so larger blocks must come from nonzero
+    //  offsets. Check every remaining block, including rounded byte requests.
+    for (const std::size_t slot : { 1u, 8u, 16u, 64u, 128u, 256u })
+    {
+        TBuddyAllocator<TWord> owner;
+        TEST_EXPECT(ctx, owner.initialise({ slot, 4096u }, context));
+        for (std::size_t extent = slot; extent <= 1024u; extent *= 2u)
+        {
+            owner.reset();
+            void* const first = owner.allocate(1u);
+            TEST_EXPECT(ctx, (first != nullptr));
+            if (first == nullptr) return;
+            TEST_EXPECT(ctx, ((reinterpret_cast<std::uintptr_t>(first) % 128u) == 0u));
+            const std::size_t alignment = std::min(extent, std::max(slot, std::size_t{ 128u }));
+            const std::size_t requested = (extent == slot) ? 1u : ((extent / 2u) + 1u);
+            std::size_t count = 0u;
+            while (void* const pointer = owner.allocate(requested))
+            {
+                TEST_EXPECT(ctx, (pointer != first));
+                TEST_EXPECT(ctx, (owner.allocation_size(pointer) == extent));
+                TEST_EXPECT(ctx, ((reinterpret_cast<std::uintptr_t>(pointer) % alignment) == 0u));
+                ++count;
+            }
+            TEST_EXPECT(ctx, (count == ((4096u / extent) - 1u)));
+        }
     }
 }
 
@@ -730,6 +762,8 @@ void run_word_tests(TTestContext& ctx, memory::CMemoryContext& context, tests::T
     TEST_EXPECT(ctx, context.is_attribution_empty());
     test_cross_context_move<TWord>(ctx);
     test_owner_configurations<TWord>(ctx, context);
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    test_owner_alignment<TWord>(ctx, context);
     TEST_EXPECT(ctx, context.is_attribution_empty());
     test_owner_mixed<TWord>(ctx, context);
     TEST_EXPECT(ctx, context.is_attribution_empty());

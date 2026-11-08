@@ -305,16 +305,19 @@ fixed management cost when evaluating small backings; neither 256 KiB nor 2 MiB
 is a required initial payload allocation. Size the initial metadata for the chosen
 scheme; compacting away inactive management words is a separate optimization.
 
-Align the payload base to the normalized smallest slot size. Every returned
-pointer guarantees that alignment; the initial per-request API accepts only a
-byte count, with no separate alignment argument. Reflection must configure a
-slot size of at least `alignof(std::max_align_t)`. Do not promise stronger
-alignment merely because an allocation occupies a larger buddy block.
+Align the payload base to `max(S, 128)` for normalized smallest slot size `S`.
+This refinement, adopted on 08 November 2026, makes
+128-byte blocks 128-byte aligned even when the slots are smaller. For rounded
+block extent `B`, absolute alignment is guaranteed to `min(B, max(S, 128))`.
+The per-request API accepts only a byte count, with no separate alignment
+argument. Reflection must still configure a slot size of at least
+`alignof(std::max_align_t)` so even its smallest requests satisfy that contract.
 
-The combined allocation must satisfy both slot alignment and the management
-types' alignment. Its layout is management header, reservation words, routing
-arrays, padding to slot alignment, then payload backing. Compute offsets using
-checked arithmetic and validate the complete conditioned allocation footprint.
+The combined allocation must satisfy both payload-base alignment and the
+management types' alignment. Its layout is management header, reservation words,
+routing arrays, padding to `max(S, 128)` alignment, then payload backing.
+Compute offsets using checked arithmetic and validate the complete conditioned
+allocation footprint.
 
 Capture an explicit, non-owning `CMemoryContext` that outlives all storage.
 Allocation/free operations must not rediscover the calling thread's ambient

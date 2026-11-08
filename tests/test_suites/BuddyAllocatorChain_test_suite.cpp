@@ -331,6 +331,23 @@ void test_no_ambient(TTestContext& ctx, memory::CMemoryContext& context)
 }
 
 template<typename TWord>
+void test_alignment_across_managers(TTestContext& ctx, memory::CMemoryContext& context)
+{
+    TBuddyAllocatorChain<TWord> chain;
+    TEST_EXPECT(ctx, chain.initialise({ 8u, 256u }, context));
+    TEST_EXPECT(ctx, (chain.allocate(1u) != nullptr));
+    for (std::size_t index = 0u; index < 9u; ++index)
+    {
+        void* const pointer = chain.allocate(((index % 2u) == 0u) ? 128u : 65u);
+        TEST_EXPECT(ctx, (pointer != nullptr));
+        TEST_EXPECT(ctx, (chain.allocation_size(pointer) == 128u));
+        TEST_EXPECT(ctx, ((reinterpret_cast<std::uintptr_t>(pointer) % 128u) == 0u));
+    }
+    TEST_EXPECT(ctx, (chain.manager_count() == 5u));
+    expect_attribution(ctx, chain, context);
+}
+
+template<typename TWord>
 void run_word_tests(TTestContext& ctx, memory::CMemoryContext& context, tests::TAllocationFailureFixture& fixture)
 {
     test_initialisation<TWord>(ctx, context, fixture);
@@ -341,6 +358,8 @@ void run_word_tests(TTestContext& ctx, memory::CMemoryContext& context, tests::T
     TEST_EXPECT(ctx, context.is_attribution_empty());
     test_moves<TWord>(ctx);
     test_no_ambient<TWord>(ctx, context);
+    test_alignment_across_managers<TWord>(ctx, context);
+    TEST_EXPECT(ctx, context.is_attribution_empty());
 }
 
 }   //  namespace
