@@ -36,7 +36,8 @@ const SInputBinding& CInputMapper::binding(const std::uint32_t index) const noex
 bool CInputMapper::allowed() const noexcept
 {
     const input::SInputSnapshot& state = m_connection.snapshot();
-    return m_eligible && (state.phase == input::EPhase::active) && !(state.pending & input::k_actions);
+    return m_eligible && (state.phase == input::EPhase::active) &&
+        !((state.pending | state.ingress_pending) & input::k_actions);
 }
 
 EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexcept
@@ -53,9 +54,10 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
         ((observation.kind != EObservationKind::snapshot) && (observation.kind != EObservationKind::transition) &&
             (observation.kind != EObservationKind::text)) ||
         (observation.baseline && (observation.kind != EObservationKind::snapshot)) ||
-        ((observation.kind == EObservationKind::transition) && (observation.count != 1u)) ||
+        ((observation.kind == EObservationKind::transition) && !observation.count) ||
+        (observation.raw_count > 2u) || (observation.raw_count && !m_connection.view.text) ||
         ((observation.kind == EObservationKind::text) &&
-            (observation.count || !m_connection.view.text || !m_connection.valid_text(observation.text))))
+            (observation.count || observation.raw_count || !m_connection.view.text || !m_connection.valid_text(observation.text))))
     {
         return EInputAdmission::invalid;
     }
@@ -64,7 +66,7 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
     {
         return EInputAdmission::stale;
     }
-    if (m_need_baseline && !observation.baseline)
+    if (m_need_baseline && !observation.baseline && (observation.kind != EObservationKind::text))
     {
         return EInputAdmission::baseline_required;
     }
@@ -86,6 +88,15 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
         }
         previous = code;
     }
+    for (std::uint32_t index = 0u; index < observation.raw_count; ++index)
+    {
+        const input::SActionInputV1& record = observation.raw[index];
+        if ((record.kind < input::EActionKind::pointer) || (record.kind > input::EActionKind::modifiers) ||
+            record.sequence || record.flags)
+        {
+            return EInputAdmission::invalid;
+        }
+    }
     m_observation = observation;
     m_device = observation.device;
     m_ordinal = observation.ordinal;
@@ -93,16 +104,21 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
     m_generation = m_connection.snapshot().action_generation;
     m_text_generation = m_connection.snapshot().text_generation;
     m_text_admitted = m_eligible && (m_connection.snapshot().phase == input::EPhase::active) &&
-        m_connection.snapshot().text_enabled && !(m_connection.snapshot().pending & input::k_text);
-    m_admitted = allowed();
+        m_connection.snapshot().text_enabled && !observation.suppressed &&
+        !((m_connection.snapshot().pending | m_connection.snapshot().ingress_pending) & input::k_text);
+    m_admitted = allowed() && !observation.suppressed;
     m_selective = false;
     m_cursor = 0u;
     m_stage = (observation.kind == EObservationKind::text) ? EStage::finish : EStage::copy;
     return EInputAdmission::accepted;
 }
 
-void CInputMapper::invalidate() noexcept
+void CInputMapper::invalidate(const bool preserve_text) noexcept
 {
+    if (preserve_text && (m_stage == EStage::finish) && (m_observation.kind == EObservationKind::text))
+    {
+        return;
+    }
     //  An interrupted apply has no coherent physical result to retain.
     if ((m_stage == EStage::apply) || (m_stage == EStage::copy)) m_need_baseline = true;
     m_stage = EStage::idle;
@@ -214,7 +230,8 @@ void CInputMapper::evaluate() noexcept
     x *= parameters.scale;
     y *= parameters.scale;
     const bool finite = std::isfinite(x) && std::isfinite(y);
-    const bool enabled = !keyboard || instruction.allow_text || !m_connection.snapshot().text_enabled;
+    const bool enabled = !keyboard || instruction.allow_text ||
+        (!m_connection.snapshot().text_enabled && !(m_connection.snapshot().ingress_pending & input::k_text));
     const bool cancel = !after.valid || !m_modifier_valid || !finite || !m_admitted || !allowed() || !enabled || m_observation.baseline;
     m_pulse = false;
     if (cancel)
@@ -358,12 +375,12 @@ bool CInputMapper::advance(SMapperBudget& budget) noexcept
         return false;
     }
     if ((m_connection.snapshot().phase == input::EPhase::closing) ||
-        (m_generation != m_connection.snapshot().action_generation))
+        ((m_generation != m_connection.snapshot().action_generation) && (m_observation.kind != EObservationKind::text)))
     {
         invalidate();
         return false;
     }
-    if ((m_stage == EStage::output) && !budget.outputs)
+    if (((m_stage == EStage::output) || (m_stage == EStage::raw)) && !budget.outputs)
     {
         return false;
     }
@@ -387,7 +404,8 @@ bool CInputMapper::advance(SMapperBudget& budget) noexcept
             if (m_cursor == m_observation.count)
             {
                 m_need_baseline = false;
-                begin_evaluation();
+                m_cursor = 0u;
+                m_stage = EStage::raw;
                 break;
             }
             const SInputControl& value = m_observation.controls[m_cursor++];
@@ -395,6 +413,19 @@ bool CInputMapper::advance(SMapperBudget& budget) noexcept
             const bool valid = std::isfinite(value.x) && std::isfinite(value.y) &&
                 (!digital || (((value.x == 0.0f) || (value.x == 1.0f)) && (value.y == 0.0f)));
             m_physical[value.control] = { value.x, value.y, valid, true, value.repeat };
+            break;
+        }
+        case EStage::raw:
+        {
+            if ((m_cursor == m_observation.raw_count) || !m_admitted || !allowed() || m_observation.baseline)
+            {
+                begin_evaluation();
+                break;
+            }
+            --budget.outputs;
+            input::SActionInputV1 record = m_observation.raw[m_cursor++];
+            record.time_ns = m_observation.time_ns;
+            if (m_connection.post_mapped(record, m_generation) != EInputPost::published) invalidate();
             break;
         }
         case EStage::binding:

@@ -26,7 +26,7 @@ bool SInputInstallation::contains(const std::uint32_t context) const noexcept
     return false;
 }
 
-bool CInputConnection::initialise(const SInputEndpointV2& identity,
+bool CInputConnection::initialise(const SInputEndpointV3& identity,
     const SInputInstallation& installation, const std::uint32_t context, const std::uint64_t transition) noexcept
 {
     if (!installation.token.value || !installation.profile || !transition || !installation.contains(context) ||
@@ -98,7 +98,8 @@ bool CInputConnection::boundary(const std::uint32_t mask, const EReason reason) 
     }
     if (mask & k_actions)
     {
-        m_mapper.invalidate();
+        if (m_state.capture_grant) capture(0u, ECaptureReason::invalidated);
+        m_mapper.invalidate(!(mask & k_text));
         ++m_state.action_generation;
         m_state.action_reasons = static_cast<std::uint32_t>(reason);
     }
@@ -239,13 +240,65 @@ EServiceStatus CInputConnection::text_target(const STextTarget& target) noexcept
 
 void CInputConnection::close(const std::uint32_t failure) noexcept
 {
-    if (m_state.phase == EPhase::closing) return;
+    if (m_state.phase == EPhase::closing)
+    {
+        if (m_state.capture_grant) capture(0u, ECaptureReason::closing);
+        return;
+    }
+    if (m_state.capture_grant) capture(0u, ECaptureReason::closing);
     m_mapper.invalidate();
     m_state.phase = EPhase::closing;
     m_state.pending = 0u;
     m_state.text_enabled = 0u;
     m_state.failure = failure;
     (void)publish();
+}
+
+void CInputConnection::ingress(const std::uint32_t mask) noexcept
+{
+    if (m_state.ingress_pending == mask) return;
+    m_state.ingress_pending = mask;
+    (void)publish();
+}
+
+void CInputConnection::history_loss() noexcept
+{
+    if (m_state.ingress_loss == UINT64_MAX)
+    {
+        close(UINT32_MAX);
+        return;
+    }
+    ++m_state.ingress_loss;
+    const std::uint32_t newly_lost = k_desktop & ~m_state.ingress_pending;
+    if (newly_lost)
+    {
+        (void)boundary(newly_lost, EReason::native_history);
+    }
+    else (void)publish();
+}
+
+void CInputConnection::capture(const std::uint64_t grant, const ECaptureReason reason) noexcept
+{
+    if ((m_state.capture_revision == UINT64_MAX) ||
+        (m_state.capture_grant && !grant && (m_state.capture_revocations == UINT64_MAX)))
+    {
+        m_state.capture_grant = 0u;
+        close(UINT32_MAX);
+        return;
+    }
+    ++m_state.capture_revision;
+    if (m_state.capture_grant && !grant) ++m_state.capture_revocations;
+    m_state.capture_grant = grant;
+    //  A later grant must not erase the last revocation's reason.
+    if (reason != ECaptureReason::none) m_state.capture_reason = reason;
+    (void)publish();
+}
+
+void CInputConnection::capture_lost() noexcept
+{
+    if (!m_state.capture_grant) return;
+    capture(0u, ECaptureReason::lost);
+    (void)boundary(k_actions, EReason::capture_lost);
 }
 
 EInputPost CInputConnection::lose(const std::uint32_t stream, const bool overflow) noexcept

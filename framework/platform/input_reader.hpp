@@ -34,7 +34,7 @@ public:
     CInputReader() noexcept = default;
     CInputReader(const CInputReader&) = delete;
     CInputReader& operator=(const CInputReader&) = delete;
-    [[nodiscard]] bool install(const SInputEndpointV2& view, const modules::SModuleInstance consumer) noexcept;
+    [[nodiscard]] bool install(const SInputEndpointV3& view, const modules::SModuleInstance consumer) noexcept;
     [[nodiscard]] EInputRead next(SInputEvent& event, const std::uint32_t budget = 64u) noexcept;
     [[nodiscard]] EInputValidation validate(const SInputEvent& event) noexcept;
     //  Cancel logical state before submitting a context/target change. A false
@@ -57,7 +57,7 @@ private:
     friend struct SInputReaderTestAccess;
     [[nodiscard]] EStateRead refresh() noexcept;
     [[nodiscard]] bool allowed(const std::uint32_t stream) const noexcept;
-    const SInputEndpointV2* m_view{ nullptr };
+    const SInputEndpointV3* m_view{ nullptr };
     SInputSnapshot m_state;
     SActionInputV1 m_action;
     STextInputV1 m_text;
@@ -69,7 +69,7 @@ private:
     bool m_has_action{ false }, m_has_text{ false }, m_closed{ false }, m_failed{ false };
 };
 
-inline bool CInputReader::install(const SInputEndpointV2& view, const modules::SModuleInstance consumer) noexcept
+inline bool CInputReader::install(const SInputEndpointV3& view, const modules::SModuleInstance consumer) noexcept
 {
     if (m_view || m_closed || !view.is_valid() || (view.consumer.value != consumer.value))
     {
@@ -120,7 +120,7 @@ inline std::uint32_t CInputReader::take_cancellation() noexcept
 
 inline bool CInputReader::allowed(const std::uint32_t stream) const noexcept
 {
-    return (m_state.phase == EPhase::active) && !(m_state.pending & stream) &&
+    return (m_state.phase == EPhase::active) && !((m_state.pending | m_state.ingress_pending) & stream) &&
         !(m_cancellation & stream) && !(m_local_cancel & stream) &&
         ((stream == k_actions) ? ((m_action_seen == m_state.action_generation) &&
             (m_action_ack == m_state.action_generation)) :

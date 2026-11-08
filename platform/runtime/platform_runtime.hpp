@@ -14,6 +14,7 @@
 #include "runtime/window_record.hpp"
 #include "runtime/input_connection.hpp"
 #include "runtime/input_configuration.hpp"
+#include "runtime/desktop_input.hpp"
 #include "assets/schema_messages.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -43,6 +44,12 @@ public:
     [[nodiscard]] EInputAdmission input_observation(const input::EConnection kind, const SInputObservation& observation) noexcept;
     void input_device(const input::EConnection kind, const std::uint64_t instance) noexcept;
     void input_discontinuity(const input::EConnection kind) noexcept;
+    void desktop_observation(const SDesktopTransaction& transaction) noexcept;
+    void desktop_quiet(const SInputObservation& baseline, const std::uint64_t epoch) noexcept;
+    [[nodiscard]] std::uint64_t desktop_epoch() noexcept { m_desktop.synchronise(); return m_desktop.epoch(); }
+    [[nodiscard]] std::uint64_t desktop_text_epoch() const noexcept { return m_desktop.text_epoch(); }
+    [[nodiscard]] bool desktop_text_pending() const noexcept { return m_desktop.text_pending(); }
+    void desktop_capture_lost() noexcept;
     void native_stop() noexcept { m_host_stop = true; }
     void native_failure(const std::uint32_t error) noexcept;
     void enter_callback() noexcept;
@@ -78,6 +85,7 @@ private:
     void progress_inputs() noexcept;
     void progress_mappers(const std::uint64_t budget_ns) noexcept;
     void input_eligibility() noexcept;
+    void release_native_capture() noexcept;
     [[nodiscard]] bool configuration_command(const services::SDispatchedCommand& command, const std::int32_t completion) noexcept;
     void configuration_message(const ::threading::CErasedPodMsg& message) noexcept;
     void progress_configurations(const std::uint64_t budget_ns) noexcept;
@@ -97,6 +105,9 @@ private:
     SWindowRecord m_window;
     TUnorderedCollection<SWindowUse> m_uses;
     TInstance<CInputConnection> m_inputs[2];
+    CDesktopInput m_desktop;
+    bool m_native_capture{}, m_releasing_capture{}, m_desktop_eligible{ true };
+    std::uint64_t m_capture_epoch{};
     TUnorderedCollection<SInputInstallation> m_input_installations;
     struct SConfiguration
     {

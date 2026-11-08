@@ -38,10 +38,12 @@ struct SInputObservation
 {
     std::uint64_t device{}, ordinal{}, time_ns{};
     EObservationKind kind{ EObservationKind::transition };
-    bool baseline{};
+    bool baseline{}, suppressed{};
     std::uint32_t count{};
     SInputControl controls[k_input_controls]{};
     input::STextInputV1 text;
+    std::uint32_t raw_count{};
+    input::SActionInputV1 raw[2]{};
 };
 
 struct SMapperBudget
@@ -62,14 +64,15 @@ public:
     //  One elementary continuation step. False means blocked or out of credits.
     [[nodiscard]] bool advance(SMapperBudget& budget) noexcept;
     [[nodiscard]] bool pending() const noexcept { return m_stage != EStage::idle; }
-    void invalidate() noexcept;
+    void invalidate(const bool preserve_text = false) noexcept;
     void text_changed() noexcept;
     void eligible(const bool value) noexcept;
     void device(const std::uint64_t instance) noexcept;
     void discontinuity() noexcept;
+    void require_baseline(const bool preserve_text = false) noexcept { invalidate(preserve_text); m_need_baseline = true; }
 
 private:
-    enum class EStage { idle, copy, apply, binding, modifiers, evaluate, output, finish };
+    enum class EStage { idle, copy, apply, raw, binding, modifiers, evaluate, output, finish };
     struct SPhysical
     {
         float x{}, y{};

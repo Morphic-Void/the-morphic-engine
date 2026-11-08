@@ -4,6 +4,7 @@
     <Filter Include="Platform"><UniqueIdentifier>{a90013b4-2648-4ca0-a99e-161b17fd1c5e}</UniqueIdentifier></Filter>
     <Filter Include="Platform\include"><UniqueIdentifier>{ec36125a-16e6-491d-82b5-a4fe0f862d7a}</UniqueIdentifier></Filter>
     <Filter Include="Platform\include\native"><UniqueIdentifier>{c59229a8-60c8-4a3d-8e5f-f48a76957cb2}</UniqueIdentifier></Filter>
+    <Filter Include="Platform\include\native\windows"><UniqueIdentifier>{FB676388-41C1-42E5-9CA3-4C59E8421A6E}</UniqueIdentifier></Filter>
     <Filter Include="Platform\include\runtime"><UniqueIdentifier>{28453d1b-9b72-4d1c-8f43-19c2d273c7f2}</UniqueIdentifier></Filter>
     <Filter Include="Platform\src"><UniqueIdentifier>{65c02b7e-ae23-46a5-8404-5f795034e92f}</UniqueIdentifier></Filter>
     <Filter Include="Platform\src\native"><UniqueIdentifier>{bba7e073-d35e-4be3-97ef-955fc5c22526}</UniqueIdentifier></Filter>
@@ -274,15 +275,20 @@
   <ItemGroup>
     <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>
     <ClInclude Include="..\platform\native\window.hpp"><Filter>Platform\include\native</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\windows\input_windows.hpp"><Filter>Platform\include\native\windows</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\desktop.hpp"><Filter>Platform\include\native</Filter></ClInclude>
     <ClCompile Include="..\platform\native\windows\window_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
+    <ClCompile Include="..\platform\native\windows\input_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\input_connection.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\input_mapper.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\desktop_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\input_configuration.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\platform_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\platform_configuration.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClInclude Include="..\platform\runtime\input_connection.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\platform\runtime\input_mapper.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\desktop_input.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\platform\runtime\input_plan.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\platform\runtime\input_storage.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\platform\runtime\input_configuration.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>

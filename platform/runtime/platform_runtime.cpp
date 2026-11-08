@@ -684,6 +684,7 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
     progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
         !m_window.destruction_failed) ? 1u : 0u;
     if (m_configuration_runnable) progress.work_pending = 1u;
+    if (m_desktop.runnable()) progress.work_pending = 1u;
     for (const TInstance<CInputConnection>& connection : m_inputs)
     {
         if (connection && (connection->snapshot().phase != input::EPhase::closing) &&
@@ -748,7 +749,8 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         {
             return;
         }
-        const auto budget = remaining();
+        const std::uint64_t available = remaining();
+        const std::uint64_t budget = std::min(available >> 1u, UINT64_C(500000));
         if (!budget) return;
         const auto scope = enter_native(1u);
         if (!scope.value) return;
@@ -759,6 +761,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         leave_native(scope);
     };
     m_native_first = !m_native_first;
+    if (!m_native_first) progress_mappers(std::min(remaining(), UINT64_C(250000)));
     if (m_native_first) dispatch();
     for (; (result.consumed_commands < input.command_count) && (result.consumed_commands < 64u) && remaining(); ++result.consumed_commands)
     {
@@ -771,7 +774,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_inputs();
     flush_completions();
     if (!m_native_first) dispatch();
-    progress_mappers(remaining());
+    if (m_native_first) progress_mappers(remaining());
     progress_uses();
     progress_inputs();
     progress_window();

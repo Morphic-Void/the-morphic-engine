@@ -2,13 +2,13 @@
 
 Implementation authorised 6 November 2026 after review of the readiness,
 ordering and recovery contract. This reference supersedes prospective input
-mechanics in `platform_contracts_v1.md`. Native acquisition remains a later
-increment; [configuration installation](input_configuration_installation.md)
+mechanics in `platform_contracts_v1.md`. [Desktop acquisition](desktop_input.md)
+extends it with native ingestion and capture; [configuration installation](input_configuration_installation.md)
 now supplies production records.
 
 The [portable mapper](input_mapping.md), implemented 8 November 2026, owns
 per-binding rearming and selective action cancellation. Input service number 2,
-its borrowed descriptor and `SInputEndpointV2` now use version 2; configuration
+its borrowed descriptor and `SInputEndpointV3` now use version 3; configuration
 source format remains version 1. The action/text record framing is unchanged.
 
 ## Ownership and admission
@@ -34,7 +34,8 @@ Consumers cannot reset, resize or destroy the rings.
 Configuration, profile and context references require an installed matching
 record. Production records come from the incremental configuration installer;
 some transport-only synthetic tests still inject private fixture records. There
-is no zero-token or unconfigured-input bypass. Native acquisition remains deferred.
+is no zero-token or unconfigured-input bypass. Windows desktop acquisition uses
+the same readiness handshake with a separate native cutover gate.
 
 ## Readiness and authority
 

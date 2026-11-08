@@ -46,7 +46,9 @@ or that work has been authorised.
 - [Input configuration installation](modules/input_configuration_installation.md):
   Host schema conditioning, incremental validation, owned installations and retirement.
 - [Portable input mapper](modules/input_mapping.md): implemented evaluation, rearming,
-  cancellation, bounded work and connection integration; native acquisition remains later work.
+  cancellation, bounded work and connection integration.
+- [Desktop input acquisition](modules/desktop_input.md): bounded ingestion, Windows
+  keyboard/text/mouse acquisition, native cutover, pointer packets and capture.
 - [Audio implementation and validation](modules/audio_module_validation.md):
   on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of

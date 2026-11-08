@@ -1,12 +1,17 @@
 # Portable Platform input mapper
 
+The [desktop acquisition increment](desktop_input.md) extends this evaluator with
+grouped transitions, bounded raw packets before semantic output, native ingress
+gates and input service/endpoint version 3. Record framing and configuration
+format remain unchanged.
+
 Contract accepted and portable implementation added 8 November 2026. This
 document refines the mapping behaviour in the broader
 [Platform design](platform_host_pumped_design.md), using the implemented
 [configuration installer](input_configuration_installation.md) and
 [input connection protocol](input_connections.md). It records approved behaviour,
-with a coordinated input service revision. Native input acquisition remains a
-later increment.
+with a coordinated input service revision. Native Windows acquisition is described
+in the desktop increment above.
 
 ## Ownership and preparation
 
@@ -148,8 +153,9 @@ be passed off as evidence of physical neutrality.
 
 ## Output and eligibility integration
 
-Input service number 2 is now version 2. The generic borrowed descriptor and
-`SInputEndpointV2` also use version 2. All participants require a coordinated
+The mapper increment introduced input service number 2/version 2. Desktop
+acquisition advances the service, generic borrowed descriptor and
+`SInputEndpointV3` to version 3. All participants require a coordinated
 rebuild; configuration source format remains version 1. `SActionInputV1` and
 `STextInputV1` retain their 48/40-byte framing and sequence/barrier machinery.
 

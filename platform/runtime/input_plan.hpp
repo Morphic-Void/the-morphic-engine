@@ -28,6 +28,10 @@ namespace input_control
 inline constexpr std::uint32_t k_first_key = 1u, k_last_key = 110u;
 inline constexpr std::uint32_t k_last_letter = 26u, k_last_digit = 36u, k_first_named_key = 37u;
 inline constexpr std::uint32_t k_backspace = 39u, k_home = 70u, k_up = 78u;
+inline constexpr std::uint32_t k_enter = 37u, k_print_screen = 66u, k_pause = 68u, k_keypad_enter = 84u;
+inline constexpr std::uint32_t k_left_ctrl = 97u, k_left_shift = 98u, k_left_alt = 99u, k_left_super = 100u;
+inline constexpr std::uint32_t k_right_ctrl = 101u, k_right_shift = 102u, k_right_alt = 103u, k_right_super = 104u;
+inline constexpr std::uint32_t k_either_shift = 106u, k_either_ctrl = 107u, k_either_alt = 108u, k_either_super = 109u, k_alt_graph = 110u;
 inline constexpr std::uint32_t k_first_mouse_button = 128u, k_last_mouse_button = 132u;
 inline constexpr std::uint32_t k_mouse_position = 133u, k_mouse_wheel = 134u;
 inline constexpr std::uint32_t k_first_pad_button = 256u, k_last_pad_button = 269u;

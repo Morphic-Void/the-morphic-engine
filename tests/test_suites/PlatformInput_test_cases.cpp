@@ -11,6 +11,7 @@
 
 #include <cstring>
 #include <cstdio>
+#include <cwchar>
 #include <thread>
 #include <chrono>
 #include "platform/runtime/platform_runtime.hpp"
@@ -21,6 +22,10 @@
 #include "threading/messages/message_helpers.hpp"
 #include "services/service_borrow_client.hpp"
 #include "tests/support/input_schema.hpp"
+#if MV_PLATFORM_WINDOWS
+#include "platform/windows_include.hpp"
+#include "platform/native/windows/input_windows.hpp"
+#endif
 
 namespace platform::runtime
 {
@@ -74,6 +79,7 @@ struct SPlatformInputTestAccess
         return connection.m_publication;
     }
     static void late_dispatch(CPlatformRuntime& runtime) noexcept { runtime.m_native_first = true; }
+    static std::uintptr_t handle(const CPlatformRuntime& runtime) noexcept { return runtime.m_window.native.handle; }
 };
 }
 
@@ -119,7 +125,9 @@ struct SClock
 struct SNative
 {
     unsigned destroyed{ 0u };
+    std::uint64_t committed_at_failure{};
     bool fail_dispatch{ false };
+    bool captured{}, revoke_during_capture{}, fail_release{};
     static inline SNative* current{ nullptr };
     static EServiceStatus create(platform::native::SWindow& window) noexcept
     {
@@ -130,7 +138,12 @@ struct SNative
     }
     static bool dispatch(platform::native::SWindow& window, const std::uint64_t) noexcept
     {
-        if (current->fail_dispatch) window.runtime->native_failure(7u);
+        if (current->fail_dispatch)
+        {
+            const CInputConnection* const connection = SPlatformInputTestAccess::connection(*window.runtime, EConnection::desktop);
+            current->committed_at_failure = connection ? connection->snapshot().committed : 0u;
+            window.runtime->native_failure(7u);
+        }
         return true;
     }
     static bool destroy(platform::native::SWindow& window) noexcept
@@ -142,6 +155,27 @@ struct SNative
     static const platform::native::SWindowAdapter& adapter() noexcept
     {
         static const platform::native::SWindowAdapter adapter{ &create, &dispatch, &destroy };
+        return adapter;
+    }
+    static bool capture(platform::native::SWindow& window, const bool acquire) noexcept
+    {
+        if (!acquire && current->fail_release)
+        {
+            return false;
+        }
+        current->captured = acquire;
+        if (acquire && current->revoke_during_capture) window.runtime->input_focus(false);
+        return true;
+    }
+    static bool desktop_dispatch(platform::native::SWindow& window, const std::uint64_t budget) noexcept
+    {
+        platform::runtime::SInputObservation baseline;
+        window.runtime->desktop_quiet(baseline, window.runtime->desktop_epoch());
+        return dispatch(window, budget);
+    }
+    static const platform::native::SWindowAdapter& desktop_adapter() noexcept
+    {
+        static const platform::native::SWindowAdapter adapter{ &create, &desktop_dispatch, &destroy, &capture };
         return adapter;
     }
 };
@@ -283,7 +317,8 @@ struct SFixture
         result.status = modules::EMaintenanceStatus::success;
         return result;
     }
-    explicit SFixture(TTestContext& tests, const bool seed = true) noexcept : tests{ tests }
+    explicit SFixture(TTestContext& tests, const bool seed = true,
+        const platform::native::SWindowAdapter& adapter = SNative::adapter()) noexcept : tests{ tests }
     {
         SNative::current = &native;
         TEST_EXPECT(tests, (wake.initialise().code == platform::threading::EWaitError::none));
@@ -306,7 +341,7 @@ struct SFixture
         context.service_context = this;
         context.execution = &execution;
         context.owner_wake = wake.endpoint();
-        TEST_EXPECT(tests, (runtime.emplace(context, SNative::adapter(), clock.source()) && runtime->initialise()));
+        TEST_EXPECT(tests, (runtime.emplace(context, adapter, clock.source()) && runtime->initialise()));
         if (seed)
         {
             TEST_EXPECT(tests, SPlatformInputTestAccess::install(*runtime, EConnection::desktop));
@@ -481,7 +516,7 @@ struct SUse
     CInputReader reader;
     SPreparedServiceBorrow borrow;
     ServiceNotificationRegistered registered;
-    const SInputEndpointV2* view{ nullptr };
+    const SInputEndpointV3* view{ nullptr };
     std::uint64_t acquisition{ 0u };
     bool second{ false };
     unsigned boundaries{ 0u }, records{ 0u };
@@ -503,7 +538,7 @@ struct SUse
         borrow = fixture.prepared(acquisition);
         TEST_EXPECT(fixture.tests, (borrow.view.descriptor != nullptr));
         if (!borrow.view.descriptor) return false;
-        view = static_cast<const SInputEndpointV2*>(borrow.view.descriptor);
+        view = static_cast<const SInputEndpointV3*>(borrow.view.descriptor);
         TEST_EXPECT(fixture.tests, reader.install(*view, (second ? fixture.other.instance : fixture.client.instance)));
         return true;
     }
@@ -829,10 +864,19 @@ void copied_marker_and_bounded_snapshot(TTestContext& ctx)
     SInputSnapshot state;
     state.action_generation = UINT64_MAX - 7u;
     state.text_loss = 0x123456789abcdef0u;
+    state.capture_grant = 0x1234567812345678u;
+    state.capture_revision = 0x8765432187654321u;
+    state.capture_revocations = 0xabcdef1234567890u;
+    state.capture_reason = ECaptureReason::lost;
+    state.ingress_loss = 0x1020304050607080u;
+    state.ingress_pending = k_text;
     TEST_EXPECT(ctx, publication.publish(state));
     SInputSnapshot observed;
     TEST_EXPECT(ctx, ((publication.read(observed) == EStateRead::success) &&
-        (observed.action_generation == state.action_generation) && (observed.text_loss == state.text_loss)));
+        (observed.action_generation == state.action_generation) && (observed.text_loss == state.text_loss) &&
+        (observed.capture_grant == state.capture_grant) && (observed.capture_revision == state.capture_revision) &&
+        (observed.capture_revocations == state.capture_revocations) && (observed.capture_reason == ECaptureReason::lost) &&
+        (observed.ingress_loss == state.ingress_loss) && (observed.ingress_pending == k_text)));
     SInputPublicationTestAccess::revision(publication, 3u);
     TEST_EXPECT(ctx, (publication.read(observed) == EStateRead::retry));
     SInputPublicationTestAccess::revision(publication, 0xfffffffcu);
@@ -976,7 +1020,7 @@ void notification_failure_and_closure(TTestContext& ctx)
     TEST_EXPECT(ctx, (SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::controller) == nullptr));
 }
 
-void concurrent_merge_and_recovery(TTestContext& ctx)
+void concurrent_merge_and_recovery(TTestContext& ctx, const bool defer_consumer)
 {
     SFixture fixture{ ctx };
     SUse use;
@@ -988,22 +1032,31 @@ void concurrent_merge_and_recovery(TTestContext& ctx)
     use.drain(fixture);
     use.acknowledge(fixture);
     std::atomic<bool> done{ false }, finished{ false }, failed{ false }, ack_pending{ false };
+    std::atomic<bool> consumer_released{ !defer_consumer };
     SBoundaryReady acknowledgement;
+    constexpr std::uint32_t k_stress_records = 20000u;
     std::uint32_t applied = 0u;
+    std::uint64_t last_applied = 0u;
     const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     std::thread consumer{ [&]() noexcept
     {
-        std::uint64_t last = 0u;
+        //  The delayed case forces both streams to overflow before any read.
+        //  Recovery may then discard the entire burst, regardless of scheduler.
+        while (!consumer_released.load(std::memory_order_acquire) && (std::chrono::steady_clock::now() < end))
+        {
+            std::this_thread::yield();
+        }
         while (std::chrono::steady_clock::now() < end)
         {
+            const bool producer_done = done.load(std::memory_order_acquire);
             SInputEvent event;
             const EInputRead result = use.reader.next(event, 4u);
             if (result == EInputRead::cancelled) (void)use.reader.take_cancellation();
             else if (result == EInputRead::record)
             {
                 const std::uint64_t sequence = (event.stream == k_actions) ? event.action.sequence : event.text.sequence;
-                if (sequence <= last) failed.store(true);
-                last = sequence;
+                if (sequence <= last_applied) failed.store(true);
+                last_applied = sequence;
                 ++applied;
             }
             else if ((result == EInputRead::failed) || (result == EInputRead::closing))
@@ -1021,7 +1074,7 @@ void concurrent_merge_and_recovery(TTestContext& ctx)
                     ack_pending.store(true, std::memory_order_release);
                 }
             }
-            if (done.load() && (result == EInputRead::empty) && !use.reader.snapshot().pending && !ack_pending.load())
+            if (producer_done && (result == EInputRead::empty) && !use.reader.snapshot().pending && !ack_pending.load())
             {
                 finished.store(true);
                 return;
@@ -1032,6 +1085,8 @@ void concurrent_merge_and_recovery(TTestContext& ctx)
         finished.store(true);
     } };
     std::uint32_t produced = 0u;
+    bool sentinel_committed = false;
+    std::uint64_t sentinel_sequence = 0u;
     while (!finished.load() && (std::chrono::steady_clock::now() < end))
     {
         if (ack_pending.load(std::memory_order_acquire))
@@ -1040,18 +1095,52 @@ void concurrent_merge_and_recovery(TTestContext& ctx)
             if ((status != EServiceStatus::success) && (status != EServiceStatus::stale)) failed.store(true);
             ack_pending.store(false, std::memory_order_release);
         }
-        if (produced < 20000u)
+        if (produced < k_stress_records)
         {
             const EInputPost result = (produced & 1u) ? SPlatformInputTestAccess::post_text(connection, text()) : post_action(connection, action());
             if ((result == EInputPost::invalid) || (result == EInputPost::closed) || (result == EInputPost::failed)) failed.store(true);
             ++produced;
+            if (produced == k_stress_records) consumer_released.store(true, std::memory_order_release);
         }
-        else done.store(true);
+        else if (!sentinel_committed && !connection.snapshot().pending)
+        {
+            //  Yield does not guarantee consumer progress: recovery may legally
+            //  discard all earlier records. Require one fresh, readable record
+            //  after the last overflow before asking the consumer to finish.
+            const EInputPost result = post_action(connection, action());
+            sentinel_committed = result == EInputPost::published;
+            if (sentinel_committed)
+            {
+                sentinel_sequence = connection.snapshot().committed;
+                done.store(true);
+            }
+            else if ((result == EInputPost::invalid) || (result == EInputPost::closed) || (result == EInputPost::failed))
+            {
+                failed.store(true);
+                done.store(true);
+                break;
+            }
+        }
         connection.progress(100u);
         std::this_thread::yield();
     }
     consumer.join();
-    TEST_EXPECT(ctx, (!failed.load() && finished.load() && (produced == 20000u) && (applied > 0u)));
+    if (failed.load() || !finished.load() || !sentinel_committed || !applied || (last_applied != sentinel_sequence))
+    {
+        std::printf("Concurrent input: deferred=%u produced=%u applied=%u sentinel=%u failed=%u finished=%u pending=%u ack=%u last=%llu expected=%llu\n",
+            static_cast<unsigned>(defer_consumer), produced, applied, static_cast<unsigned>(sentinel_committed),
+            static_cast<unsigned>(failed.load()), static_cast<unsigned>(finished.load()), connection.snapshot().pending,
+            static_cast<unsigned>(ack_pending.load()), static_cast<unsigned long long>(last_applied),
+            static_cast<unsigned long long>(sentinel_sequence));
+    }
+    TEST_EXPECT(ctx, (!failed.load() && finished.load() && sentinel_committed &&
+        (produced == k_stress_records) && (applied > 0u) && (last_applied == sentinel_sequence)));
+    if (defer_consumer)
+    {
+        //  Without the sentinel this valid execution has applied == 0, which
+        //  violated the original test's scheduler-dependent assertion.
+        TEST_EXPECT(ctx, ((applied == 1u) && connection.snapshot().action_loss && connection.snapshot().text_loss));
+    }
 }
 
 void local_cancellation_survives_overflow(TTestContext& ctx)
@@ -1140,10 +1229,11 @@ void mapper_runtime_integration(TTestContext& ctx)
     TEST_EXPECT(ctx, (fixture.terminal(busy) == EServiceStatus::busy));
     SUse desktop, controller;
     desktop.acquisition = acquisition;
+    for (unsigned step = 0u; !fixture.prepared(acquisition).borrow.value && (step < 16u); ++step) fixture.step();
     desktop.borrow = fixture.prepared(acquisition);
     TEST_EXPECT(ctx, desktop.borrow.view.descriptor);
     if (!desktop.borrow.view.descriptor) return;
-    desktop.view = static_cast<const SInputEndpointV2*>(desktop.borrow.view.descriptor);
+    desktop.view = static_cast<const SInputEndpointV3*>(desktop.borrow.view.descriptor);
     TEST_EXPECT(ctx, desktop.reader.install(*desktop.view, fixture.client.instance));
     desktop.activate(fixture);
     if (!controller.acquire(fixture, EConnection::controller, false, token, 8u, 4u)) return;
@@ -1231,7 +1321,9 @@ void mapper_runtime_integration(TTestContext& ctx)
     SPlatformInputTestAccess::late_dispatch(*fixture.runtime);
     fixture.step();
     fixture.native.fail_dispatch = false;
-    TEST_EXPECT(ctx, ((connection->snapshot().phase == EPhase::closing) && (connection->snapshot().committed == committed)));
+    TEST_EXPECT(ctx, ((connection->snapshot().phase == EPhase::closing) &&
+        (fixture.native.committed_at_failure >= committed) &&
+        (connection->snapshot().committed == fixture.native.committed_at_failure)));
     TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::closed));
 }
 
@@ -1363,6 +1455,412 @@ void installation_cancellation(TTestContext& ctx)
     TEST_EXPECT(ctx, ((fixture.terminal(request) == EServiceStatus::timed_out) && !fixture.schema_requests));
 }
 
+void capture_authority(TTestContext& ctx)
+{
+    SFixture fixture{ ctx, true, SNative::desktop_adapter() };
+    SUse desktop;
+    TEST_EXPECT(ctx, desktop.acquire(fixture, EConnection::desktop));
+    desktop.activate(fixture);
+    for (std::uint32_t step = 0u; step < 12u; ++step) fixture.step();
+    CInputConnection& connection = *SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::desktop);
+    TEST_EXPECT(ctx, !connection.snapshot().ingress_pending);
+    const SSetCapture acquire{ desktop.view->connection, connection.snapshot().transition, connection.snapshot().action_generation };
+    const std::uint64_t grant = fixture.submit(ECommand::set_capture, acquire);
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(grant) == EServiceStatus::success) && fixture.native.captured &&
+        (connection.snapshot().capture_grant == grant)));
+    const std::uint64_t stale = fixture.submit(ECommand::release_capture,
+        SReleaseCapture{ desktop.view->connection, acquire.transition, grant + 1u });
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(stale) == EServiceStatus::stale) && fixture.native.captured));
+    const std::uint64_t text_generation = connection.snapshot().text_generation;
+    fixture.native.captured = false;
+    fixture.runtime->desktop_capture_lost();
+    TEST_EXPECT(ctx, (!connection.snapshot().capture_grant && (connection.snapshot().capture_revocations == 1u) &&
+        (connection.snapshot().capture_reason == ECaptureReason::lost) &&
+        (connection.snapshot().text_generation == text_generation) &&
+        (connection.snapshot().pending == k_actions)));
+    desktop.drain(fixture);
+    fixture.step();
+    desktop.drain(fixture);
+    desktop.acknowledge(fixture);
+    for (std::uint32_t step = 0u; step < 12u; ++step) fixture.step();
+    const std::uint64_t old = fixture.submit(ECommand::set_capture, acquire);
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(old) == EServiceStatus::stale));
+    fixture.native.revoke_during_capture = true;
+    const std::uint64_t reentrant = fixture.submit(ECommand::set_capture,
+        SSetCapture{ desktop.view->connection, connection.snapshot().transition, connection.snapshot().action_generation });
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(reentrant) == EServiceStatus::stale) &&
+        !connection.snapshot().capture_grant && !fixture.native.captured));
+}
+
+void capture_failure_cleanup(TTestContext& ctx)
+{
+    for (const bool release_failure : { false, true })
+    {
+        SFixture fixture{ ctx, true, SNative::desktop_adapter() };
+        SUse desktop;
+        TEST_EXPECT(ctx, desktop.acquire(fixture, EConnection::desktop));
+        desktop.activate(fixture);
+        for (std::uint32_t step = 0u; step < 12u; ++step) fixture.step();
+        CInputConnection& connection = *SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::desktop);
+        if (!release_failure) SInputPublicationTestAccess::revision(SPlatformInputTestAccess::publication(connection), 0xfffffffeu);
+        const std::uint64_t grant = fixture.submit(ECommand::set_capture,
+            SSetCapture{ desktop.view->connection, connection.snapshot().transition, connection.snapshot().action_generation });
+        fixture.step();
+        if (!release_failure)
+        {
+            TEST_EXPECT(ctx, ((fixture.terminal(grant) == EServiceStatus::delivery_failed) &&
+                !fixture.native.captured && !connection.snapshot().capture_grant));
+        }
+        else
+        {
+            TEST_EXPECT(ctx, (fixture.terminal(grant) == EServiceStatus::success));
+            fixture.native.fail_release = true;
+            desktop.reader.close();
+            fixture.release(desktop.borrow);
+            fixture.step();
+            TEST_EXPECT(ctx, (fixture.native.captured && SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::desktop)));
+            fixture.native.fail_release = false;
+            for (std::uint32_t step = 0u; step < 12u; ++step) fixture.step();
+            TEST_EXPECT(ctx, (!fixture.native.captured && !SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::desktop)));
+        }
+    }
+}
+
+#if MV_PLATFORM_WINDOWS
+void desktop_native_bookkeeping(TTestContext& ctx, platform::runtime::CPlatformRuntime& runtime)
+{
+    using namespace platform::native;
+    using namespace platform::runtime::input_control;
+    SWindow probe;
+    probe.runtime = &runtime;
+    probe.handle = SPlatformInputTestAccess::handle(runtime);
+    const HWND handle = reinterpret_cast<HWND>(probe.handle);
+    struct SKeyboardRestore
+    {
+        BYTE saved[256]{};
+        bool valid{};
+        ~SKeyboardRestore() { if (valid) (void)SetKeyboardState(saved); }
+    } restore;
+    restore.valid = GetKeyboardState(restore.saved) != FALSE;
+    TEST_EXPECT(ctx, restore.valid);
+    if (!restore.valid) return;
+    BYTE keyboard[256]{};
+    keyboard[VK_RETURN] = 0x80u;
+    TEST_EXPECT(ctx, SetKeyboardState(keyboard));
+    desktop_baseline(probe);
+    TEST_EXPECT(ctx, (!probe.desktop.known[k_enter] && !probe.desktop.known[k_keypad_enter]));
+    keyboard[VK_RETURN] = 0u;
+    TEST_EXPECT(ctx, SetKeyboardState(keyboard));
+    desktop_baseline(probe);
+    TEST_EXPECT(ctx, (probe.desktop.known[k_enter] && probe.desktop.known[k_keypad_enter] &&
+        !probe.desktop.keys[k_enter] && !probe.desktop.keys[k_keypad_enter]));
+    keyboard[VK_LCONTROL] = keyboard[VK_CONTROL] = keyboard[VK_RMENU] = keyboard[VK_MENU] = 0x80u;
+    TEST_EXPECT(ctx, SetKeyboardState(keyboard));
+    desktop_baseline(probe);
+    TEST_EXPECT(ctx, (probe.desktop.altgr && !probe.desktop.known[k_left_ctrl] && !probe.desktop.known[k_either_ctrl]));
+    probe.desktop.genuine_ctrl = true;
+    desktop_baseline(probe);
+    TEST_EXPECT(ctx, (probe.desktop.keys[k_left_ctrl] && probe.desktop.known[k_left_ctrl] &&
+        probe.desktop.keys[k_either_ctrl] && probe.desktop.known[k_either_ctrl]));
+    std::memset(keyboard, 0, sizeof(keyboard));
+    TEST_EXPECT(ctx, SetKeyboardState(keyboard));
+    const auto deliver = [&](const UINT kind, const WPARAM key, const LPARAM flags, const bool paired)
+    {
+        //  Keep timer/paint traffic outside the deliberately adjacent synthetic
+        //  key sequence. Lifecycle callbacks still run and can invalidate it.
+        MSG unrelated{};
+        for (std::uint32_t step = 0u; (step < 64u) && PeekMessageW(&unrelated, nullptr, 0u, 0u, PM_REMOVE); ++step)
+        {
+            (void)TranslateMessage(&unrelated);
+            (void)DispatchMessageW(&unrelated);
+        }
+        TEST_EXPECT(ctx, PostMessageW(handle, kind, key, flags));
+        MSG preview{};
+        TEST_EXPECT(ctx, PeekMessageW(&preview, handle, kind, kind, PM_NOREMOVE));
+        //  PostMessage timestamps depend on scheduler granularity. Explicitly
+        //  give this synthetic pair the same stamp as its retained prefix.
+        if (paired && probe.desktop.ctrl_pending) probe.desktop.ctrl_time = preview.time;
+        if (paired && probe.desktop.ctrl_release_pending) probe.desktop.ctrl_release_time = preview.time;
+        MSG message{};
+        const bool retrieved = desktop_next(probe, message);
+        TEST_EXPECT(ctx, (retrieved && (message.hwnd == handle) && (message.message == kind) && (message.wParam == key)));
+        if (retrieved) (void)desktop_message(probe, message.message, message.wParam, message.lParam);
+    };
+    constexpr LPARAM k_ctrl_down = (0x1du << 16u) | 1u;
+    constexpr LPARAM k_alt_down = (0x38u << 16u) | (1u << 24u) | 1u;
+    constexpr LPARAM k_released = static_cast<LPARAM>((1u << 30u) | (1u << 31u));
+    probe.desktop.genuine_ctrl = false;
+    probe.desktop.known[k_left_ctrl] = false;
+    probe.desktop.keys[k_left_ctrl] = false;
+    deliver(WM_KEYDOWN, VK_CONTROL, k_ctrl_down, false);
+    deliver(WM_SYSKEYDOWN, VK_MENU, k_alt_down, true);
+    TEST_EXPECT(ctx, (probe.desktop.altgr && !probe.desktop.known[k_left_ctrl] && !probe.desktop.known[k_either_ctrl]));
+    for (const UINT family : { WM_KEYDOWN, WM_SYSKEYDOWN })
+    {
+        for (const bool ctrl_first : { false, true })
+        {
+            probe.desktop = {};
+            desktop_baseline(probe);
+            deliver(WM_KEYDOWN, VK_CONTROL, k_ctrl_down, false);
+            deliver(WM_KEYUP, VK_F12, ((0x58u << 16u) | k_released | 1u), false);
+            TEST_EXPECT(ctx, probe.desktop.genuine_ctrl);
+            deliver(WM_KEYDOWN, VK_CONTROL, k_ctrl_down, false);
+            deliver(family, VK_MENU, k_alt_down, true);
+            TEST_EXPECT(ctx, (probe.desktop.altgr && probe.desktop.keys[k_left_ctrl] && probe.desktop.keys[k_either_ctrl]));
+            if (ctrl_first)
+            {
+                deliver(WM_KEYUP, VK_CONTROL, (k_ctrl_down | k_released), false);
+                TEST_EXPECT(ctx, (probe.desktop.altgr && !probe.desktop.keys[k_left_ctrl] && !probe.desktop.keys[k_either_ctrl]));
+            }
+            deliver((family == WM_KEYDOWN) ? WM_KEYUP : WM_SYSKEYUP, VK_MENU, (k_alt_down | k_released), false);
+            deliver(WM_KEYUP, VK_CONTROL, (k_ctrl_down | k_released), true);
+            TEST_EXPECT(ctx, (!probe.desktop.altgr && (probe.desktop.keys[k_left_ctrl] == !ctrl_first) &&
+                (probe.desktop.keys[k_either_ctrl] == !ctrl_first)));
+            if (!ctrl_first) deliver(WM_KEYUP, VK_CONTROL, (k_ctrl_down | k_released), false);
+            TEST_EXPECT(ctx, (!probe.desktop.genuine_ctrl && !probe.desktop.keys[k_left_ctrl] && !probe.desktop.keys[k_either_ctrl]));
+        }
+    }
+    probe.desktop.dead = probe.desktop.translation = true;
+    probe.desktop.turn_char = false;
+    TEST_EXPECT(ctx, desktop_message(probe, WM_UNICHAR, 0x1f600u, 1));
+    TEST_EXPECT(ctx, (probe.desktop.dead && probe.desktop.translation && !probe.desktop.turn_char));
+}
+
+void desktop_interactive(SFixture& fixture, SUse& desktop, const CInputConnection& connection, const HWND handle)
+{
+    std::printf("Desktop input: 30 seconds. The window title shows text, pointer/wheel values, modifier/button masks and capture.\n"
+        "Type with your layouts/dead keys/AltGr; Backspace edits the title. Hold the left button to capture, drag outside, release.\n"
+        "Change focus or monitor to inspect cancellation/DPI. Text is transient and is not logged; review physical expectations manually.\n");
+    std::fflush(stdout);
+    wchar_t text[128]{};
+    std::size_t length = 0u;
+    SPointerInput pointer;
+    SWheelInput wheel;
+    std::uint32_t records = 0u;
+    bool want_capture = false;
+    std::uint64_t capture_request = 0u;
+    ULONGLONG display_at = 0u;
+    const ULONGLONG until = GetTickCount64() + 30000u;
+    while ((GetTickCount64() < until) && !fixture.runtime->failed() && (connection.snapshot().phase != EPhase::closing))
+    {
+        fixture.step();
+        for (std::uint32_t step = 0u; step < 128u; ++step)
+        {
+            SInputEvent event;
+            const EInputRead result = desktop.reader.next(event);
+            if (result == EInputRead::empty) break;
+            if (result == EInputRead::cancelled)
+            {
+                const std::uint32_t cancelled = desktop.reader.take_cancellation();
+                if (cancelled & k_text) { length = 0u; text[0] = 0; }
+                if (cancelled & k_actions) want_capture = false;
+            }
+            if ((result != EInputRead::record) || (desktop.reader.validate(event) != EInputValidation::current))
+            {
+                continue;
+            }
+            ++records;
+            if (event.stream == k_text)
+            {
+                wchar_t scalar[2]{};
+                const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                    reinterpret_cast<const char*>(event.text.payload), event.text.byte_count, scalar, 2);
+                if ((count > 0) && ((length + static_cast<std::size_t>(count)) < 128u))
+                {
+                    for (int index = 0; index < count; ++index) text[length++] = scalar[index];
+                    text[length] = 0;
+                }
+            }
+            else if ((event.action.kind == EActionKind::pulse) && (event.action.subject == 10u) && length)
+            {
+                const wchar_t last = text[--length];
+                if ((last >= 0xdc00u) && (last <= 0xdfffu) && length) --length;
+                text[length] = 0;
+            }
+            else if ((event.action.kind == EActionKind::pointer) || (event.action.kind == EActionKind::button))
+            {
+                std::memcpy(&pointer, event.action.payload, sizeof(pointer));
+                if ((event.action.kind == EActionKind::button) &&
+                    (event.action.subject == platform::runtime::input_control::k_first_mouse_button))
+                {
+                    want_capture = (pointer.state.buttons & 1u) != 0u;
+                }
+            }
+            else if (event.action.kind == EActionKind::wheel) std::memcpy(&wheel, event.action.payload, sizeof(wheel));
+            else if (event.action.kind == EActionKind::modifiers) std::memcpy(&pointer.state, event.action.payload, sizeof(pointer.state));
+        }
+        SBoundaryReady ready;
+        if (desktop.reader.boundary_ready(ready)) desktop.acknowledge(fixture);
+        if (capture_request && (fixture.terminal(capture_request) != EServiceStatus::unavailable))
+        {
+            if (fixture.terminal(capture_request) != EServiceStatus::success) want_capture = false;
+            capture_request = 0u;
+        }
+        const SInputSnapshot& snapshot = connection.snapshot();
+        if (!capture_request && want_capture && !snapshot.capture_grant && !snapshot.pending && !snapshot.ingress_pending)
+        {
+            capture_request = fixture.submit(ECommand::set_capture,
+                SSetCapture{ desktop.view->connection, snapshot.transition, snapshot.action_generation });
+        }
+        else if (!capture_request && !want_capture && snapshot.capture_grant)
+        {
+            capture_request = fixture.submit(ECommand::release_capture,
+                SReleaseCapture{ desktop.view->connection, snapshot.transition, snapshot.capture_grant });
+        }
+        if (GetTickCount64() >= display_at)
+        {
+            wchar_t title[512]{};
+            (void)std::swprintf(title, 512u, L"Input [%ls] | xy %.1f,%.1f wheel %.2f,%.2f mods %03x/%03x buttons %02x/%02x capture %llu records %u",
+                text, pointer.x, pointer.y, wheel.horizontal, wheel.vertical,
+                static_cast<unsigned>(pointer.state.modifiers), static_cast<unsigned>(pointer.state.modifiers_known),
+                static_cast<unsigned>(pointer.state.buttons), static_cast<unsigned>(pointer.state.buttons_known),
+                static_cast<unsigned long long>(snapshot.capture_grant), records);
+            (void)SetWindowTextW(handle, title);
+            display_at = GetTickCount64() + 100u;
+        }
+        Sleep(1u);
+    }
+    (void)SetWindowTextW(handle, L"Desktop input acceptance complete");
+    std::printf("Observed %u records. Physical layout, editing and capture results require operator review.\n", records);
+}
+
+void desktop_native_acceptance(TTestContext& ctx, const bool interactive)
+{
+    SFixture fixture{ ctx, false, platform::native::window_adapter() };
+    const CAssetId source = fixture.schema_source();
+    const auto replace = [&](const std::string& from, const std::string& to)
+    {
+        const std::size_t at = fixture.source.find(from);
+        TEST_EXPECT(ctx, (at != std::string::npos));
+        if (at != std::string::npos) fixture.source.replace(at, from.size(), to);
+    };
+    replace(R"("ActionDefinition":{"held")", R"("ActionDefinition":{"editing":{"declaration":{"id":10,"kind":"pulse"}},"held")");
+    replace(R"("InputSourceDefinition":{"key")", R"("InputSourceDefinition":{"editing_key":{"declaration":{"id":12,"kind":"physical_key","control":"backspace","direction":"whole"}},"key")");
+    replace(R"("BindingDefinition":{"key_binding")", R"("BindingDefinition":{"editing_binding":{"declaration":{"id":13,"profile":3,"context":4,"action":10,"source":12,"parameters":0,"activation":"start_press","allow_during_text":true,"native_repeat":true,"reserved":0}},"key_binding")");
+    replace(R"("data":[{"context":4,"action":7})", R"("data":[{"context":4,"action":10},{"context":4,"action":7})");
+    const std::uint64_t install = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    for (std::uint32_t step = 0u; !installation_token(fixture, install).value && (step < 20000u); ++step) fixture.step();
+    const SInstallationToken token = installation_token(fixture, install);
+    TEST_EXPECT(ctx, token.value);
+    SUse desktop;
+    if (!desktop.acquire(fixture, EConnection::desktop, false, token, 3u, 4u))
+    {
+        return;
+    }
+    desktop.activate(fixture);
+    const HWND handle = reinterpret_cast<HWND>(SPlatformInputTestAccess::handle(*fixture.runtime));
+    (void)SetForegroundWindow(handle);
+    (void)SetFocus(handle);
+    CInputConnection& connection = *SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::desktop);
+    const auto pump = [&]()
+    {
+        for (std::uint32_t step = 0u; step < 32u; ++step) fixture.step();
+    };
+    pump();
+    desktop.drain(fixture);
+    if (connection.snapshot().pending) desktop.acknowledge(fixture);
+    pump();
+    TEST_EXPECT(ctx, !connection.snapshot().ingress_pending);
+    const std::uint64_t enabled = fixture.submit(ECommand::enable_text,
+        STextTarget{ desktop.view->connection, connection.snapshot().transition, 7u });
+    pump();
+    TEST_EXPECT(ctx, (fixture.terminal(enabled) == EServiceStatus::success));
+    desktop.drain(fixture);
+    desktop.acknowledge(fixture);
+    pump();
+    TEST_EXPECT(ctx, !connection.snapshot().ingress_pending);
+    if (interactive)
+    {
+        desktop_interactive(fixture, desktop, connection, handle);
+        return;
+    }
+    //  Inject into this owned native window, then consume through the public
+    //  reader. This is native-message evidence, not physical-device acceptance.
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_CHAR, L'a', 1));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_KEYDOWN, VK_BACK, (0x0eu << 16u) | 1u));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_KEYUP, VK_BACK, (0x0eu << 16u) | (1u << 30u) | (1u << 31u) | 1u));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_CHAR, L'b', 1));
+    pump();
+    char ordering[16]{};
+    std::uint32_t used = 0u;
+    for (std::uint32_t iteration = 0u; iteration < 128u; ++iteration)
+    {
+        SInputEvent event;
+        const EInputRead result = desktop.reader.next(event);
+        if (result == EInputRead::empty) break;
+        if (result != EInputRead::record) continue;
+        TEST_EXPECT(ctx, (desktop.reader.validate(event) == EInputValidation::current));
+        if ((event.stream == k_text) && (used < 15u)) ordering[used++] = static_cast<char>(event.text.payload[0]);
+        else if ((event.action.kind == EActionKind::pulse) && (used < 15u)) ordering[used++] = '#';
+    }
+    TEST_EXPECT(ctx, (std::strcmp(ordering, "a#b") == 0));
+    TEST_EXPECT(ctx, (SendMessageW(handle, WM_UNICHAR, UNICODE_NOCHAR, 0) == TRUE));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_UNICHAR, 0x1f600u, 1));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_UNICHAR, 0xd800u, 1));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_UNICHAR, 0x110000u, 1));
+    pump();
+    std::uint32_t unicode_records = 0u;
+    for (std::uint32_t iteration = 0u; iteration < 128u; ++iteration)
+    {
+        SInputEvent event;
+        const EInputRead result = desktop.reader.next(event);
+        if (result == EInputRead::empty) break;
+        if ((result == EInputRead::record) && (event.stream == k_text))
+        {
+            ++unicode_records;
+            constexpr unsigned char expected[]{ 0xf0u, 0x9fu, 0x98u, 0x80u };
+            TEST_EXPECT(ctx, ((event.text.byte_count == sizeof(expected)) && !std::memcmp(event.text.payload, expected, sizeof(expected))));
+        }
+    }
+    TEST_EXPECT(ctx, (unicode_records == 1u));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_MOUSEMOVE, 0u, MAKELPARAM(-12, 24)));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(12, 24)));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_LBUTTONUP, 0u, MAKELPARAM(12, 24)));
+    TEST_EXPECT(ctx, PostMessageW(handle, WM_MOUSEWHEEL, MAKEWPARAM(0u, (WHEEL_DELTA >> 1u)), MAKELPARAM(12, 24)));
+    pump();
+    bool pointer = false, wheel = false;
+    unsigned buttons = 0u;
+    for (std::uint32_t iteration = 0u; iteration < 128u; ++iteration)
+    {
+        SInputEvent event;
+        const EInputRead result = desktop.reader.next(event);
+        if (result == EInputRead::empty) break;
+        if ((result != EInputRead::record) || (event.stream != k_actions))
+        {
+            continue;
+        }
+        if (event.action.kind == EActionKind::pointer)
+        {
+            SPointerInput value;
+            std::memcpy(&value, event.action.payload, sizeof(value));
+            pointer = value.x < 0.0f;
+        }
+        if (event.action.kind == EActionKind::button) ++buttons;
+        if (event.action.kind == EActionKind::wheel)
+        {
+            SWheelInput value;
+            std::memcpy(&value, event.action.payload, sizeof(value));
+            wheel = value.vertical == 0.5f;
+        }
+    }
+    TEST_EXPECT(ctx, (pointer && wheel && (buttons == 2u)));
+    const std::uint64_t grant = fixture.submit(ECommand::set_capture,
+        SSetCapture{ desktop.view->connection, connection.snapshot().transition, connection.snapshot().action_generation });
+    pump();
+    TEST_EXPECT(ctx, ((fixture.terminal(grant) == EServiceStatus::success) && (GetCapture() == handle)));
+    const std::uint64_t text_generation = connection.snapshot().text_generation;
+    TEST_EXPECT(ctx, ReleaseCapture());
+    TEST_EXPECT(ctx, (!connection.snapshot().capture_grant && (connection.snapshot().capture_reason == ECaptureReason::lost) &&
+        (connection.snapshot().text_generation == text_generation)));
+    pump();
+    desktop_native_bookkeeping(ctx, *fixture.runtime);
+}
+#endif
+
 }   //  namespace
 
 void run_input_mapper_tests(tests::TTestContext& ctx);
@@ -1382,9 +1880,12 @@ void run_platform_input_tests(tests::TTestContext& ctx)
     copied_marker_and_bounded_snapshot(ctx);
     transition_serialisation(ctx);
     eligible_pause_cancel_and_replacement(ctx);
-    concurrent_merge_and_recovery(ctx);
+    concurrent_merge_and_recovery(ctx, false);
+    concurrent_merge_and_recovery(ctx, true);
     notification_failure_and_closure(ctx);
     local_cancellation_survives_overflow(ctx);
+    capture_authority(ctx);
+    capture_failure_cleanup(ctx);
 }
 
 int run_platform_input_focused()
@@ -1392,4 +1893,16 @@ int run_platform_input_focused()
     tests::TTestContext ctx;
     run_platform_input_tests(ctx);
     return ctx.report("PlatformInput");
+}
+
+int run_platform_input_native(const bool interactive)
+{
+#if MV_PLATFORM_WINDOWS
+    tests::TTestContext ctx;
+    desktop_native_acceptance(ctx, interactive);
+    return ctx.report(interactive ? "DesktopInputInteractive" : "DesktopInputNativeMessages");
+#else
+    (void)interactive;
+    return 2;
+#endif
 }

@@ -25,7 +25,8 @@ implemented. Portable configuration installation is described in
 [input configuration installation](input_configuration_installation.md).
 The [portable mapper](input_mapping.md) and connection integration were implemented
 8 November 2026, using input service number 2/version 2 and unchanged record
-framing. Native input acquisition remains outstanding.
+framing. [Desktop acquisition](desktop_input.md) subsequently adds Windows input,
+portable ingestion and capture using input service/endpoint version 3.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.
@@ -349,8 +350,9 @@ sequence; consumers do not infer identity from notification order alone.
 
 The original design proposed event codes 0x8001 through 0x8005 for window changes,
 close intent, closing, capture loss and device changes. None is implemented. Window
-state now uses the durable publication above; capture/device notification details
-remain for input review. No future notification may silently discard a resource
+state now uses the durable publication above; capture uses the durable input
+publication described in [desktop acquisition](desktop_input.md). Device notification
+details remain for input review. No future notification may silently discard a resource
 withdrawal obligation under delivery pressure.
 
 Native views are tagged, versioned borrowed descriptors containing window ID,
@@ -361,7 +363,7 @@ all graphics objects before asserting `ServiceBorrowQuiescent`. A descriptor is 
 transfer and cannot outlive its use. Future Linux fields require a new supported
 descriptor variant, not reinterpretation of a Windows pointer.
 
-Input prepared results return a connection token and borrowed `SInputEndpointV2`
+Input prepared results return a connection token and borrowed `SInputEndpointV3`
 pointer plus size/version; check it fits the envelope on x86/x64. The descriptor
 contains only endpoint/snapshot pointers, capacities, clock-domain information and
 tokens. Platform retains it until retirement. Consumer code constructs/uses Core

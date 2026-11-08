@@ -12,6 +12,7 @@
 #pragma once
 
 #include "services/service_protocol.hpp"
+#include "native/desktop.hpp"
 
 namespace platform::runtime { class CPlatformRuntime; }
 
@@ -27,6 +28,7 @@ struct SWindow
     std::uint32_t class_atom{ 0u }, error{ 0u };
     bool timer{ false }, cancelling{ false }, destroying{ false }, established{ false };
     bool native_events{ false }, work_pending{ false };
+    SDesktop desktop;
     [[nodiscard]] bool live() const noexcept { return handle || class_atom; }
 };
 
@@ -35,6 +37,8 @@ struct SWindowAdapter
     services::EServiceStatus(*create)(SWindow& window) noexcept{ nullptr };
     bool(*dispatch)(SWindow& window, const std::uint64_t budget_ns) noexcept{ nullptr };
     bool(*destroy)(SWindow& window) noexcept{ nullptr };
+    //  Optional desktop backend. A false result never authorises capture.
+    bool(*capture)(SWindow& window, const bool acquire) noexcept{ nullptr };
 };
 
 [[nodiscard]] const SWindowAdapter& window_adapter() noexcept;

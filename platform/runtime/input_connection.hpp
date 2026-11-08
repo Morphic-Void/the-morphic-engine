@@ -34,7 +34,7 @@ class CInputConnection final
 {
 public:
     explicit CInputConnection(const platform::threading::SAwakeClock clock) noexcept : budget{ clock } {}
-    [[nodiscard]] bool initialise(const input::SInputEndpointV2& identity,
+    [[nodiscard]] bool initialise(const input::SInputEndpointV3& identity,
         const SInputInstallation& installation, const std::uint32_t context, const std::uint64_t transition) noexcept;
     [[nodiscard]] bool start(const ::threading::SNotificationEndpoint endpoint) noexcept;
     [[nodiscard]] services::EServiceStatus acknowledge(const input::SBoundaryReady& ready) noexcept;
@@ -42,11 +42,15 @@ public:
     [[nodiscard]] services::EServiceStatus text_target(const input::STextTarget& target) noexcept;
     void progress(const std::uint64_t time_ns) noexcept;
     void close(const std::uint32_t failure = 0u) noexcept;
+    void ingress(const std::uint32_t mask) noexcept;
+    void history_loss() noexcept;
+    void capture(const std::uint64_t grant, const input::ECaptureReason reason) noexcept;
+    void capture_lost() noexcept;
     [[nodiscard]] const input::SInputSnapshot& snapshot() const noexcept { return m_state; }
     [[nodiscard]] CInputMapper& mapper() noexcept { return m_mapper; }
     [[nodiscard]] const CInputMapper& mapper() const noexcept { return m_mapper; }
 
-    input::SInputEndpointV2 view;
+    input::SInputEndpointV3 view;
     input::SInstallationToken installation;
     services::SDispatchedCommand acquisition;
     services::SServiceBorrow borrow;
@@ -60,6 +64,7 @@ public:
 
 private:
     friend class CInputMapper;
+    friend class CDesktopInput;
     friend struct SPlatformInputTestAccess;
     [[nodiscard]] EInputPost post_action(const input::SActionInputV1 record) noexcept;
     [[nodiscard]] EInputPost post_text(input::STextInputV1 record) noexcept;

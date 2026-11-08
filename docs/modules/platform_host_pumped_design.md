@@ -11,6 +11,11 @@ Review: 04 Nov 2026
 
 ## Status and scope
 
+The [desktop acquisition contract](desktop_input.md), accepted 8 November, defines
+Windows keyboard/text/mouse integration, bounded portable ingestion, native cutover,
+raw pointer records and capture. Input service/endpoint version 3 supersedes the
+earlier version-2 mapper interface; hardware evidence is reported separately.
+
 8 November update: the [portable mapper](input_mapping.md) implements binding
 rearming, selective cancellation, analog projection and bounded evaluation, with
 connection integration and focused synthetic coverage. Native input acquisition

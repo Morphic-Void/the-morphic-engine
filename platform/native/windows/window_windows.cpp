@@ -13,6 +13,7 @@
 #if MV_PLATFORM_WINDOWS
 #include "platform/windows_include.hpp"
 #include "runtime/platform_runtime.hpp"
+#include "native/windows/input_windows.hpp"
 
 namespace platform::native
 {
@@ -75,6 +76,11 @@ static LRESULT CALLBACK window_proc(const HWND handle, const UINT message, const
     const bool modal_boundary = (message == WM_ENTERSIZEMOVE) || (message == WM_EXITSIZEMOVE) ||
         (message == WM_ENTERMENULOOP) || (message == WM_EXITMENULOOP);
     if (!modal_boundary && !window->cancelling && !window->destroying && runtime.maintain_native()) cancel(*window);
+    if (desktop_message(*window, message, wparam, lparam))
+    {
+        return (((message == WM_UNICHAR) && (wparam == UNICODE_NOCHAR)) ||
+            (message == WM_XBUTTONDOWN) || (message == WM_XBUTTONUP)) ? TRUE : 0;
+    }
     switch (message)
     {
     case WM_CLOSE:
@@ -145,6 +151,7 @@ static LRESULT CALLBACK window_proc(const HWND handle, const UINT message, const
 
 static services::EServiceStatus create(SWindow& window) noexcept
 {
+    window.desktop = {};
     if (!AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
         return services::EServiceStatus::unsupported;
     if (window.runtime->maintain_native()) return services::EServiceStatus::closing;
@@ -203,6 +210,7 @@ static services::EServiceStatus create(SWindow& window) noexcept
     (void)ShowWindow(handle, SW_SHOWNORMAL);
     extent(window, handle, false);
     window.established = true;
+    window.runtime->input_focus(GetFocus() == handle);
     return services::EServiceStatus::success;
 }
 
@@ -218,9 +226,10 @@ static bool dispatch(SWindow& window, const std::uint64_t budget_ns) noexcept
         //  This exact Platform instance owns the Host thread's native queue.
         //  Retrieval can dispatch sent messages, so the caller's native scope
         //  covers both retrieval and explicit dispatch, including helper windows.
-        if (!PeekMessageW(&message, nullptr, 0u, 0u, PM_REMOVE))
+        if (!desktop_next(window, message))
         {
             window.work_pending = false;
+            desktop_baseline(window);
             break;
         }
         if (message.message == WM_QUIT)
@@ -231,7 +240,7 @@ static bool dispatch(SWindow& window, const std::uint64_t budget_ns) noexcept
         //  Consume them; never repeatedly wake on an undispatchable record.
         else if (message.hwnd)
         {
-            (void)TranslateMessage(&message);
+            desktop_translate(window, message);
             (void)DispatchMessageW(&message);
         }
         std::uint64_t now = 0u;
@@ -264,7 +273,7 @@ static bool destroy(SWindow& window) noexcept
 
 const SWindowAdapter& window_adapter() noexcept
 {
-    static const SWindowAdapter adapter{ &create, &dispatch, &destroy };
+    static const SWindowAdapter adapter{ &create, &dispatch, &destroy, &desktop_capture };
     return adapter;
 }
 

@@ -13,6 +13,7 @@
 #include <cstring>
 #include <limits>
 #include "platform/runtime/input_connection.hpp"
+#include "platform/runtime/desktop_input.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -84,7 +85,7 @@ struct SFixture
         installation.binding_count = plan.bindings.size();
         TEST_EXPECT(tests, installation.contexts.push_back(1u));
         TEST_EXPECT(tests, installation.contexts.push_back(2u));
-        SInputEndpointV2 identity;
+        SInputEndpointV3 identity;
         identity.kind = kind;
         identity.connection.value = identity.provider.value = identity.consumer.value = 1u;
         identity.window.value = (kind == EConnection::desktop) ? 1u : 0u;
@@ -115,6 +116,8 @@ struct SFixture
     void recover() noexcept
     {
         connection.progress(100u);
+        drain();
+        connection.progress(100u); // A full stream needs returned space before its marker.
         drain();
         const SInputSnapshot& state = connection.snapshot();
         TEST_EXPECT(tests, (connection.acknowledge({ connection.view.connection, state.action_generation,
@@ -603,6 +606,233 @@ void delta_cancellation(TTestContext& ctx)
     TEST_EXPECT(ctx, (fixture.count == 4u));
 }
 
+void grouped_raw_observations(TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    fixture.add(1u, 1u, 1u, EInputActivation::chord, input_control::k_either_shift);
+    fixture.add(2u, 2u, input_control::k_mouse_wheel, EInputActivation::direct);
+    fixture.start();
+    fixture.set(1u, 0.0f);
+    fixture.set(input_control::k_either_shift, 0.0f);
+    fixture.set(input_control::k_mouse_wheel, 0.0f);
+    fixture.send(true);
+    fixture.observation.kind = EObservationKind::transition;
+    fixture.observation.count = 0u;
+    fixture.set(1u, 1.0f);
+    fixture.set(input_control::k_either_shift, 1.0f);
+    fixture.observation.raw_count = 1u;
+    fixture.observation.raw[0].kind = EActionKind::modifiers;
+    fixture.credits = fixture.attempts = 1u;
+    fixture.send();
+    TEST_EXPECT(ctx, ((fixture.count == 2u) && (fixture.records[0].kind == EActionKind::modifiers) &&
+        (fixture.records[1].kind == EActionKind::digital) && (fixture.digital(1u) == 1u)));
+    fixture.observation.raw_count = 0u;
+    fixture.observation.count = 0u;
+    fixture.set(input_control::k_mouse_wheel, 0.25f, -0.5f);
+    fixture.send();
+    TEST_EXPECT(ctx, ((fixture.count == 3u) && (fixture.records[2].kind == EActionKind::delta)));
+    fixture.observation.count = 0u;
+    fixture.set(2u, 1.0f); // Omitted chord state survives; wheel does not replay.
+    fixture.send();
+    TEST_EXPECT(ctx, (fixture.count == 3u));
+    fixture.observation.count = 0u;
+    fixture.set(1u, 0.0f);
+    fixture.send();
+    TEST_EXPECT(ctx, ((fixture.count == 4u) && (fixture.digital(3u) == 0u)));
+}
+
+void raw_prefix_pressure(TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    for (std::uint32_t id = 1u; id <= k_action_capacity; ++id)
+    {
+        fixture.add(id, id, 1u, EInputActivation::start);
+    }
+    fixture.start();
+    fixture.set(1u, 0.0f);
+    fixture.send(true);
+    fixture.set(1u, 1.0f);
+    fixture.observation.raw_count = 2u;
+    fixture.observation.raw[0].kind = EActionKind::modifiers;
+    fixture.observation.raw[1].kind = EActionKind::pointer;
+    fixture.observation.raw[1].subject = input_control::k_mouse_position;
+    fixture.send(false, false);
+    TEST_EXPECT(ctx, ((fixture.connection.snapshot().action_loss == 1u) &&
+        (fixture.connection.snapshot().pending & k_actions)));
+    fixture.recover();
+    TEST_EXPECT(ctx, ((fixture.count == k_action_capacity) && (fixture.records[0].kind == EActionKind::modifiers) &&
+        (fixture.records[1].kind == EActionKind::pointer) && (fixture.records[2].kind == EActionKind::pulse)));
+    const std::uint64_t committed = fixture.connection.snapshot().committed;
+    fixture.finish();
+    TEST_EXPECT(ctx, ((fixture.count == k_action_capacity) && (fixture.connection.snapshot().committed == committed)));
+}
+
+void desktop_ingestion(TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    fixture.add(1u, 1u, 1u);
+    fixture.start();
+    CDesktopInput ingress;
+    ingress.attach(fixture.connection, 51u);
+    SInputObservation baseline;
+    baseline.count = 1u;
+    baseline.controls[0] = { 1u, 0.0f, 0.0f, false };
+    baseline.time_ns = 200u;
+    STextInputV1 text[16]{};
+    std::uint32_t texts = 0u;
+    const auto drive = [&]()
+    {
+        for (std::uint32_t turn = 0u; turn < 10000u; ++turn)
+        {
+            SMapperBudget budget{ 31u, 1u };
+            while (budget.work)
+            {
+                bool advanced = false;
+                if (!fixture.connection.mapper().pending()) advanced = ingress.advance(budget);
+                if (!advanced) advanced = fixture.connection.mapper().advance(budget);
+                if (!advanced) break;
+            }
+            STextInputV1 record;
+            while (fixture.connection.view.text->read(record))
+            {
+                if (record.kind == ETextKind::scalar)
+                {
+                    TEST_EXPECT(ctx, (texts < 16u));
+                    if (texts < 16u) text[texts++] = record;
+                }
+            }
+            fixture.drain();
+            if (!ingress.runnable() && !fixture.connection.mapper().pending()) break;
+        }
+    };
+    TEST_EXPECT(ctx, (fixture.connection.snapshot().ingress_pending == k_desktop));
+    ingress.quiet(baseline, ingress.epoch() - 1u);
+    drive();
+    TEST_EXPECT(ctx, (fixture.connection.snapshot().ingress_pending == k_desktop));
+    ingress.quiet(baseline, ingress.epoch());
+    drive();
+    TEST_EXPECT(ctx, !fixture.connection.snapshot().ingress_pending);
+    SDesktopTransaction press;
+    press.count = 1u;
+    press.controls[0] = { 1u, 1.0f, 0.0f, false };
+    TEST_EXPECT(ctx, ingress.observe(press));
+    drive();
+    TEST_EXPECT(ctx, ((fixture.count == 1u) && (fixture.digital(0u) == 1u)));
+    TEST_EXPECT(ctx, (fixture.connection.text_target({ fixture.connection.view.connection, 1u, 7u }) == services::EServiceStatus::success));
+    ingress.cutover(k_text);
+    fixture.finish();
+    fixture.recover();
+    ingress.quiet(baseline, ingress.epoch());
+    drive();
+    SDesktopTransaction unit;
+    unit.text = true;
+    unit.code_unit = 0xd83du;
+    unit.repeats = 3u;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    drive(); // A pump boundary does not invalidate a high surrogate.
+    TEST_EXPECT(ctx, !texts);
+    unit.code_unit = 0xde00u;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    drive();
+    TEST_EXPECT(ctx, ((texts == 3u) && (text[0].byte_count == 4u) && !ingress.malformed()));
+    for (std::uint32_t index = 0u; index < texts; ++index)
+    {
+        const unsigned char expected[]{ 0xf0u, 0x9fu, 0x98u, 0x80u };
+        TEST_EXPECT(ctx, (std::memcmp(text[index].payload, expected, sizeof(expected)) == 0));
+    }
+    unit.repeats = 1u;
+    unit.code_unit = 0xdc00u;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    unit.code_unit = 'a';
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    drive();
+    TEST_EXPECT(ctx, ((texts == 4u) && (text[3].payload[0] == 'a') && (ingress.malformed() == 1u)));
+    TEST_EXPECT(ctx, (fixture.connection.text_target({ fixture.connection.view.connection, 1u, 8u }) == services::EServiceStatus::success));
+    ingress.cutover(k_text);
+    fixture.finish();
+    ingress.quiet(baseline, ingress.epoch());
+    drive(); // Native gate clears while the reader's text boundary is unacked.
+    unit.code_unit = 0xd83du;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    drive();
+    fixture.recover();
+    unit.code_unit = 0xde00u;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    drive();
+    TEST_EXPECT(ctx, ((texts == 4u) && (ingress.malformed() == 2u)));
+    unit.utf32 = true;
+    unit.code_unit = 0xd800u;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    drive();
+    TEST_EXPECT(ctx, ((texts == 4u) && (ingress.malformed() == 3u)));
+    unit.utf32 = false;
+    unit.code_unit = 'z';
+    unit.repeats = k_text_capacity + 1u;
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    const std::uint64_t old_text = fixture.connection.snapshot().text_generation;
+    const std::uint64_t old_action = fixture.connection.snapshot().action_generation;
+    for (std::uint32_t turn = 0u; turn < 1000u; ++turn)
+    {
+        SMapperBudget budget;
+        if (!fixture.connection.mapper().pending()) (void)ingress.advance(budget);
+        while (fixture.connection.mapper().advance(budget)) {}
+    }
+    TEST_EXPECT(ctx, ((fixture.connection.snapshot().text_generation == (old_text + 1u)) &&
+        (fixture.connection.snapshot().action_generation == old_action) &&
+        (fixture.connection.snapshot().ingress_pending == k_text)));
+    fixture.recover();
+    ingress.quiet(baseline, ingress.epoch());
+    drive();
+    TEST_EXPECT(ctx, (texts == 4u)); // Lost repeat suffix is not replayed.
+    unit.repeats = 1u;
+    unit.code_unit = 'c';
+    TEST_EXPECT(ctx, ingress.observe(unit));
+    SMapperBudget one_ingress{ 1u, 0u };
+    TEST_EXPECT(ctx, ingress.advance(one_ingress));
+    TEST_EXPECT(ctx, fixture.connection.mapper().pending());
+    fixture.connection.capture(17u, ECaptureReason::none);
+    fixture.connection.capture_lost();
+    ingress.cutover(k_actions);
+    drive();
+    TEST_EXPECT(ctx, ((texts == 5u) && (text[4].payload[0] == 'c')));
+    const std::uint64_t text_before_loss = fixture.connection.snapshot().text_generation;
+    for (std::uint32_t index = 0u; index < k_desktop_capacity; ++index) TEST_EXPECT(ctx, ingress.observe(unit));
+    TEST_EXPECT(ctx, !ingress.observe(unit));
+    TEST_EXPECT(ctx, ((fixture.connection.snapshot().text_generation == (text_before_loss + 1u)) &&
+        (fixture.connection.snapshot().pending == k_desktop)));
+    fixture.recover();
+    ingress.quiet(baseline, ingress.epoch());
+    drive();
+    ingress.cutover(k_desktop);
+    ingress.quiet(baseline, ingress.epoch());
+    SMapperBudget baseline_budget;
+    TEST_EXPECT(ctx, ingress.advance(baseline_budget));
+    fixture.finish();
+    ingress.cutover(k_text); // Supersede a completed-but-not-released baseline.
+    drive();
+    TEST_EXPECT(ctx, (fixture.connection.snapshot().ingress_pending == k_desktop));
+    ingress.quiet(baseline, ingress.epoch());
+    drive();
+    TEST_EXPECT(ctx, !fixture.connection.snapshot().ingress_pending);
+    const std::uint64_t generation = fixture.connection.snapshot().action_generation;
+    for (std::uint32_t index = 0u; index < k_desktop_capacity; ++index) TEST_EXPECT(ctx, ingress.observe(press));
+    TEST_EXPECT(ctx, !ingress.observe(press));
+    TEST_EXPECT(ctx, ((fixture.connection.snapshot().action_generation == (generation + 1u)) &&
+        (fixture.connection.snapshot().ingress_loss == 2u)));
+    fixture.recover(); // Early acknowledgement cannot reopen native ingress.
+    drive();
+    TEST_EXPECT(ctx, (fixture.connection.snapshot().ingress_pending == k_desktop));
+    baseline.controls[0].x = 1.0f;
+    ingress.quiet(baseline, ingress.epoch());
+    drive();
+    const std::uint32_t before = fixture.count;
+    TEST_EXPECT(ctx, ingress.observe(press));
+    drive();
+    TEST_EXPECT(ctx, (fixture.count == before));
+    ingress.detach();
+    TEST_EXPECT(ctx, !ingress.observe(press));
+}
+
 }   // namespace
 
 void run_input_mapper_tests(tests::TTestContext& ctx)
@@ -616,4 +846,7 @@ void run_input_mapper_tests(tests::TTestContext& ctx)
     analog_rearm_and_transition_order(ctx);
     preparation_failure(ctx);
     delta_cancellation(ctx);
+    grouped_raw_observations(ctx);
+    raw_prefix_pressure(ctx);
+    desktop_ingestion(ctx);
 }

@@ -163,6 +163,8 @@ void print_usage()
         "  --platform-window  Run focused portable window/Host tests\n"
         "  --platform-input   Run synthetic portable input/Host tests\n"
         "  --platform-native  Explicit Windows visible-window/modal acceptance\n"
+        "  --platform-input-native  Windows desktop native-message acceptance\n"
+        "  --platform-input-interactive  30-second physical desktop observation\n"
         "  --log-tag=<value>\n"
         "               Add a 1-48 character disambiguation tag to test logs\n"
         "  --output-directory=<path>\n"

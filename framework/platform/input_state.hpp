@@ -21,8 +21,10 @@ enum class EPhase : std::uint32_t { reserved, active, closing };
 enum class EStateRead : std::uint32_t { success, retry, failed };
 enum class EReason : std::uint32_t
 {
-    initial = 1u, context = 2u, overflow = 4u, text_target = 8u, suppressed = 16u
+    initial = 1u, context = 2u, overflow = 4u, text_target = 8u, suppressed = 16u,
+    capture_lost = 32u, native_history = 64u
 };
+enum class ECaptureReason : std::uint32_t { none, released, lost, invalidated, closing };
 
 struct SInputSnapshot
 {
@@ -32,6 +34,9 @@ struct SInputSnapshot
     std::uint32_t action_reasons{ 0u }, text_reasons{ 0u }, failure{ 0u };
     std::uint64_t action_generation{ 0u }, text_generation{ 0u }, transition{ 0u };
     std::uint64_t committed{ 0u }, action_loss{ 0u }, text_loss{ 0u }, text_target{ 0u };
+    std::uint32_t ingress_pending{};
+    ECaptureReason capture_reason{ ECaptureReason::none };
+    std::uint64_t capture_grant{}, capture_revision{}, capture_revocations{}, ingress_loss{};
 };
 
 class CInputPublication final
@@ -52,7 +57,7 @@ private:
         return m_words[index].load() | (static_cast<std::uint64_t>(m_words[index + 1u].load()) << 32u);
     }
     std::atomic<std::uint32_t> m_revision{ 0u };
-    std::atomic<std::uint32_t> m_words[21]{};
+    std::atomic<std::uint32_t> m_words[31]{};
 };
 
 inline bool CInputPublication::publish(const SInputSnapshot& snapshot) noexcept
@@ -76,6 +81,12 @@ inline bool CInputPublication::publish(const SInputSnapshot& snapshot) noexcept
     store64(15u, snapshot.action_loss);
     store64(17u, snapshot.text_loss);
     store64(19u, snapshot.text_target);
+    m_words[21].store(snapshot.ingress_pending);
+    m_words[22].store(static_cast<std::uint32_t>(snapshot.capture_reason));
+    store64(23u, snapshot.capture_grant);
+    store64(25u, snapshot.capture_revision);
+    store64(27u, snapshot.capture_revocations);
+    store64(29u, snapshot.ingress_loss);
     m_revision.store(next);
     return !terminal;
 }
@@ -105,6 +116,12 @@ inline EStateRead CInputPublication::read(SInputSnapshot& snapshot) const noexce
         candidate.action_loss = load64(15u);
         candidate.text_loss = load64(17u);
         candidate.text_target = load64(19u);
+        candidate.ingress_pending = m_words[21].load();
+        candidate.capture_reason = static_cast<ECaptureReason>(m_words[22].load());
+        candidate.capture_grant = load64(23u);
+        candidate.capture_revision = load64(25u);
+        candidate.capture_revocations = load64(27u);
+        candidate.ingress_loss = load64(29u);
         if (revision != m_revision.load()) continue;
         snapshot = candidate;
         return candidate.failure ? EStateRead::failed : EStateRead::success;

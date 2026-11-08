@@ -150,7 +150,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 CInputConnection& connection = *owned;
                 connection.acquisition = dispatched;
                 connection.completion = completion;
-                SInputEndpointV2 identity;
+                SInputEndpointV3 identity;
                 identity.kind = kind;
                 identity.connection.value = m_next_input;
                 m_next_input = (m_next_input == UINT64_MAX) ? 0u : (m_next_input + 1u);
@@ -165,6 +165,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 else
                 {
                     connection.mapper().eligible(m_input_focus && !m_modal_depth[0] && !m_modal_depth[1]);
+                    if (desktop && m_adapter.capture) m_desktop.attach(connection, m_window.token.value);
                     const modules::EBudgetStatus budget = connection.budget.start(m_context.execution->restriction, 5000000000u);
                     if ((budget != modules::EBudgetStatus::running) && (budget != modules::EBudgetStatus::restricted))
                     {
@@ -237,6 +238,11 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                     SSelectContext select;
                     status = (input_payload(command, select) && !select.reserved) ?
                         connection->select_context(select.context, command.request.value) : EServiceStatus::invalid_request;
+                    if ((status == EServiceStatus::success) && (connection->view.kind == EConnection::desktop))
+                    {
+                        m_desktop.cutover(k_desktop);
+                        release_native_capture();
+                    }
                     break;
                 }
                 case ECommand::enable_text:
@@ -245,6 +251,55 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                     STextTarget target;
                     status = (input_payload(command, target) && ((opcode == ECommand::enable_text) == (target.target != 0u))) ?
                         connection->text_target(target) : EServiceStatus::invalid_request;
+                    if (status == EServiceStatus::success) m_desktop.cutover(k_text);
+                    break;
+                }
+                case ECommand::set_capture:
+                {
+                    SSetCapture request;
+                    if (!input_payload(command, request)) status = EServiceStatus::invalid_request;
+                    else if ((connection->view.kind != EConnection::desktop) || !m_adapter.capture) status = EServiceStatus::unsupported;
+                    else if ((request.transition != connection->snapshot().transition) ||
+                        (request.action_generation != connection->snapshot().action_generation)) status = EServiceStatus::stale;
+                    else if ((connection->snapshot().phase != EPhase::active) || connection->snapshot().pending ||
+                        connection->snapshot().ingress_pending || !m_desktop_eligible || connection->snapshot().capture_grant) status = EServiceStatus::busy;
+                    else
+                    {
+                        const std::uint64_t epoch = m_capture_epoch;
+                        const modules::SRestrictionScope scope = enter_native(1u);
+                        if (!scope.value) status = EServiceStatus::native_failure;
+                        else
+                        {
+                            m_native_capture = m_adapter.capture(m_window.native, true);
+                            leave_native(scope);
+                            if (!m_native_capture) status = EServiceStatus::native_failure;
+                            else if ((epoch != m_capture_epoch) || m_stopping || !m_desktop_eligible ||
+                                (connection->snapshot().phase != EPhase::active) ||
+                                (request.transition != connection->snapshot().transition) ||
+                                (request.action_generation != connection->snapshot().action_generation)) status = EServiceStatus::stale;
+                            else
+                            {
+                                connection->capture(command.request.value, ECaptureReason::none);
+                                if (connection->snapshot().phase == EPhase::closing) status = EServiceStatus::delivery_failed;
+                            }
+                            if ((status != EServiceStatus::success) || !connection->snapshot().capture_grant) release_native_capture();
+                        }
+                    }
+                    break;
+                }
+                case ECommand::release_capture:
+                {
+                    SReleaseCapture request;
+                    if (!input_payload(command, request) || !request.grant) status = EServiceStatus::invalid_request;
+                    else if ((connection->view.kind != EConnection::desktop) || !m_adapter.capture) status = EServiceStatus::unsupported;
+                    else if ((request.transition != connection->snapshot().transition) ||
+                        (request.grant != connection->snapshot().capture_grant)) status = EServiceStatus::stale;
+                    else
+                    {
+                        connection->capture(0u, ECaptureReason::released);
+                        release_native_capture();
+                        if (m_native_capture) status = EServiceStatus::native_failure;
+                    }
                     break;
                 }
                 default:
@@ -300,6 +355,8 @@ void CPlatformRuntime::input_message(const ::threading::CErasedPodMsg& message) 
 
 void CPlatformRuntime::progress_inputs() noexcept
 {
+    if (m_native_capture && (!m_inputs[0] || !m_inputs[0]->snapshot().capture_grant ||
+        (m_inputs[0]->snapshot().phase == EPhase::closing))) release_native_capture();
     for (TInstance<CInputConnection>& owned : m_inputs)
     {
         if (!owned) continue;
@@ -319,7 +376,7 @@ void CPlatformRuntime::progress_inputs() noexcept
             else if (!connection.borrow.value && connection.mapper().prepared() && (budget != modules::EBudgetStatus::retry))
             {
                 const services::SServiceBorrowOffer offer{ connection.acquisition.command.route, connection.acquisition.command.request,
-                    { &connection.view, sizeof(connection.view), 2u } };
+                    { &connection.view, sizeof(connection.view), 3u } };
                 const EServiceStatus status = m_context.services->prepare_borrow(m_context.service_context, &offer, &connection.borrow);
                 if ((status != EServiceStatus::success) && (status != EServiceStatus::busy))
                 {
@@ -362,10 +419,15 @@ void CPlatformRuntime::progress_inputs() noexcept
         if (cleanup && (connection.completion < 0) && !m_native_depth && !m_callback_depth && !m_modal_depth[0] && !m_modal_depth[1])
         {
             connection.notification = {};
+            if ((connection.view.kind == EConnection::desktop) && m_native_capture) continue;
             if (!connection.mapper().clear_step()) continue;
             if (!connection.borrow.value || (m_context.services->finish_borrow_retirement(m_context.service_context,
                 connection.borrow) == EServiceStatus::success))
             {
+                if (connection.view.kind == EConnection::desktop)
+                {
+                    m_desktop.detach();
+                }
                 owned.reset();
             }
         }
@@ -413,7 +475,11 @@ void CPlatformRuntime::progress_mappers(const std::uint64_t budget_ns) noexcept
                     if (!mapper.prepare_step()) close_input(*owned, EServiceStatus::allocation_failed);
                 }
             }
-            else advanced = mapper.advance(budget);
+            else
+            {
+                if ((owned->view.kind == EConnection::desktop) && !mapper.pending()) advanced = m_desktop.advance(budget);
+                if (!advanced) advanced = mapper.advance(budget);
+            }
         }
         idle = advanced ? 0u : (idle + 1u);
     }
@@ -426,6 +492,62 @@ void CPlatformRuntime::input_eligibility() noexcept
     {
         if (owned) owned->mapper().eligible(eligible);
     }
+    if (m_desktop_eligible != eligible)
+    {
+        m_desktop_eligible = eligible;
+        m_desktop.cutover(k_desktop);
+        if (!eligible) release_native_capture();
+    }
+}
+
+void CPlatformRuntime::release_native_capture() noexcept
+{
+    if (!m_native_capture || m_releasing_capture || !m_adapter.capture) return;
+    m_releasing_capture = true;
+    const modules::SRestrictionScope scope = enter_native(1u);
+    if (scope.value)
+    {
+        if (m_adapter.capture(m_window.native, false)) m_native_capture = false;
+        else native_failure(m_window.native.error);
+        leave_native(scope);
+    }
+    m_releasing_capture = false;
+}
+
+void CPlatformRuntime::desktop_capture_lost() noexcept
+{
+    if (m_capture_epoch == UINT64_MAX) native_failure(UINT32_MAX);
+    else ++m_capture_epoch;
+    m_native_capture = false;
+    if (!m_releasing_capture && m_inputs[0] && m_inputs[0]->snapshot().capture_grant)
+    {
+        m_inputs[0]->capture_lost();
+        m_desktop.cutover(k_actions);
+    }
+}
+
+void CPlatformRuntime::desktop_observation(const SDesktopTransaction& transaction) noexcept
+{
+    if (cancelling()) return;
+    SDesktopTransaction timed = transaction;
+    if (m_clock.read(timed.time_ns).code != platform::threading::EWaitError::none)
+    {
+        native_failure(UINT32_MAX);
+        return;
+    }
+    (void)m_desktop.observe(timed);
+}
+
+void CPlatformRuntime::desktop_quiet(const SInputObservation& baseline, const std::uint64_t epoch) noexcept
+{
+    if (cancelling() || !m_desktop_eligible) return;
+    SInputObservation timed = baseline;
+    if (m_clock.read(timed.time_ns).code != platform::threading::EWaitError::none)
+    {
+        native_failure(UINT32_MAX);
+        return;
+    }
+    m_desktop.quiet(timed, epoch);
 }
 
 void CPlatformRuntime::input_focus(const bool focused) noexcept
