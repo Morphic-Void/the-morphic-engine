@@ -28,6 +28,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\TBuddyAllocator.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\TBuddyAllocatorChain.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\CTrackedAllocator.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\allocators\THybridAllocator.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\BumpBuffer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\ByteBuffers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\containers.hpp" />

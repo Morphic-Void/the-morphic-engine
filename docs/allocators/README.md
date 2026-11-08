@@ -17,6 +17,7 @@ the implemented system.
 | `TBuddyAllocator.hpp` | [Standalone owner](TBuddyAllocator.md) | One combined management/payload allocation, byte requests, pointer validation and accounting |
 | `TBuddyAllocatorChain.hpp` | [Chaining owner](TBuddyAllocatorChain.md) | `TVector` ownership of managers, growth, pointer routing and collective lifecycle |
 | `CTrackedAllocator.hpp` | [Tracked owner](CTrackedAllocator.md) | Independent memory tokens indexed by their allocated addresses, exact-key frees and collective cleanup |
+| `THybridAllocator.hpp` | [Hybrid owner](THybridAllocator.md) | Lazy buddy/tracked composition with size/alignment routing and collective ownership |
 
 Use `CBuddyAllocator32` or `CBuddyAllocator64` when one fixed backing allocation
 is sufficient. Use `CBuddyAllocatorChain32` or `CBuddyAllocatorChain64` when the
@@ -41,6 +42,12 @@ alignment and exact requested-size queries. Its ordered index supports checked
 logarithmic lookup of allocation starts. Reset frees its payloads while retaining
 the index storage; teardown releases both. It also uses an explicit context and
 preserves payload addresses when moved or when its index grows.
+
+Use `CHybridAllocator32` or `CHybridAllocator64` to combine buddy chains with
+tracked allocations under one explicit context. Configuration chooses the buddy
+slot size, payload budget and maximum rounded buddy extent. Alignment can promote
+a buddy block or route the request to tracked storage. Both paths initialize
+lazily; reset and teardown cover their combined ownership.
 
 Related references:
 

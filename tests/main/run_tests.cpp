@@ -30,6 +30,7 @@
 #include "tests/test_suites/BuddyAllocator_test_suite.hpp"
 #include "tests/test_suites/BuddyAllocatorChain_test_suite.hpp"
 #include "tests/test_suites/TrackedAllocator_test_suite.hpp"
+#include "tests/test_suites/HybridAllocator_test_suite.hpp"
 #include "tests/test_suites/ContainerContexts_test_suite.hpp"
 #include "tests/test_suites/PermutationValidation_test_suite.hpp"
 #include "tests/test_suites/CMemoryToken_test_suite.hpp"
@@ -297,6 +298,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("BuddyAllocator", &run_buddy_allocator_tests);
     cumulative_result += run_isolated_suite("BuddyAllocatorChain", &run_buddy_allocator_chain_tests);
     cumulative_result += run_isolated_suite("TrackedAllocator", &run_tracked_allocator_tests);
+    cumulative_result += run_isolated_suite("HybridAllocator", &run_hybrid_allocator_tests);
     cumulative_result += run_isolated_suite("ContainerContexts", &run_container_context_tests);
     cumulative_result += run_isolated_suite("PermutationValidation", &run_permutation_validation_tests);
     cumulative_result += run_isolated_suite("ImageView", &run_image_view_tests);

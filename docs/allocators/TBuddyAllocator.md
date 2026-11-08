@@ -41,6 +41,11 @@ represent or condition. The maximum slot count is 16,384 for 32-bit words and
 131,072 for 64-bit words. A reduced payload uses a smaller active tree within the
 same full-size management layout; it does not reduce management storage.
 
+`resolve_config(config, context, normalized)` performs these checks without
+allocating, returning normalized slot/backing values on success and leaving the
+output unchanged on failure. It shares layout validation with `initialise()`;
+the hybrid wrapper uses it for allocation-free configuration before lazy setup.
+
 Let `A = max(S, k_minimum_backing_alignment)`, where
 `k_minimum_backing_alignment` is 128 bytes. The unconditioned footprint is
 `align_up(k_management_size, A) + P`, with a requested allocation alignment of

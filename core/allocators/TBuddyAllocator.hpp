@@ -46,6 +46,12 @@ private:
         TIndex index;
     };
 
+    struct SLayout
+    {
+        SBuddyConfig config;
+        std::size_t offset, alignment, total;
+    };
+
 public:
     static constexpr std::uint32_t k_max_order = TIndex::k_max_order;
     static constexpr std::uint32_t k_max_slots = TIndex::k_slot_count;
@@ -59,6 +65,9 @@ public:
     TBuddyAllocator& operator=(TBuddyAllocator&&) noexcept = default;
     ~TBuddyAllocator() noexcept = default;
 
+    //  Validate and normalize without allocation; output is unchanged on failure.
+    [[nodiscard]] static bool resolve_config(const SBuddyConfig& config, const memory::CMemoryContext& context,
+        SBuddyConfig& normalized) noexcept;
     [[nodiscard]] bool initialise(const SBuddyConfig& config, memory::CMemoryContext& context) noexcept;
     [[nodiscard]] void* allocate(const std::size_t bytes) noexcept;
     [[nodiscard]] EFreeResult free(void* const pointer) noexcept;
@@ -85,6 +94,8 @@ public:
     template<typename TVisitor> void visit_allocations(TVisitor&& visitor) const;
 
 private:
+    [[nodiscard]] static bool resolve_layout(const SBuddyConfig& config, const memory::CMemoryContext& context,
+        SLayout& layout) noexcept;
     [[nodiscard]] SManagement* management() noexcept { return static_cast<SManagement*>(m_token.data()); }
     [[nodiscard]] const SManagement* management() const noexcept { return static_cast<const SManagement*>(m_token.data()); }
     [[nodiscard]] std::uint8_t* payload() noexcept;
@@ -103,9 +114,10 @@ static_assert((sizeof(CBuddyAllocator32) == sizeof(memory::CMemoryToken)));
 static_assert((sizeof(CBuddyAllocator64) == sizeof(memory::CMemoryToken)));
 
 template<typename TWord>
-bool TBuddyAllocator<TWord>::initialise(const SBuddyConfig& config, memory::CMemoryContext& context) noexcept
+bool TBuddyAllocator<TWord>::resolve_layout(const SBuddyConfig& config, const memory::CMemoryContext& context,
+    SLayout& layout) noexcept
 {
-    if (is_ready() || !context.is_usable() || (config.minimum_slot_size == 0u) || (config.backing_size_limit == 0u))
+    if (!context.is_usable() || (config.minimum_slot_size == 0u) || (config.backing_size_limit == 0u))
     {
         return false;
     }
@@ -131,12 +143,38 @@ bool TBuddyAllocator<TWord>::initialise(const SBuddyConfig& config, memory::CMem
     {
         return false;
     }
-    memory::CMemoryToken candidate{ 1u, alignment, &context };
-    if (!candidate.allocate(total, false)) return false;
+    layout = { { slot, backing }, offset, alignment, total };
+    return true;
+}
+
+template<typename TWord>
+bool TBuddyAllocator<TWord>::resolve_config(const SBuddyConfig& config, const memory::CMemoryContext& context,
+    SBuddyConfig& normalized) noexcept
+{
+    SLayout layout;
+    if (!resolve_layout(config, context, layout))
+    {
+        return false;
+    }
+    normalized = layout.config;
+    return true;
+}
+
+template<typename TWord>
+bool TBuddyAllocator<TWord>::initialise(const SBuddyConfig& config, memory::CMemoryContext& context) noexcept
+{
+    SLayout layout;
+    if (is_ready() || !resolve_layout(config, context, layout))
+    {
+        return false;
+    }
+    memory::CMemoryToken candidate{ 1u, layout.alignment, &context };
+    if (!candidate.allocate(layout.total, false)) return false;
     SManagement* const state = ::new (candidate.data()) SManagement{};
-    state->payload_offset = offset;
-    state->slot_log2 = static_cast<std::uint32_t>(bit_ops::hi_bit_index(slot));
-    state->index.reset(static_cast<std::uint32_t>(bit_ops::hi_bit_index(backing / slot)));
+    state->payload_offset = layout.offset;
+    state->slot_log2 = static_cast<std::uint32_t>(bit_ops::hi_bit_index(layout.config.minimum_slot_size));
+    state->index.reset(static_cast<std::uint32_t>(bit_ops::hi_bit_index(
+        layout.config.backing_size_limit / layout.config.minimum_slot_size)));
     m_token = std::move(candidate);
     return true;
 }

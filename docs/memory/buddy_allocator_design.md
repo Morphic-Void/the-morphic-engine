@@ -753,6 +753,12 @@ mechanism for the planned large-allocation path. The threshold is chosen from
 stage 3 and can be below a manager's theoretical or configured maximum.
 Composition with the buddy chain remains a later reflection integration step.
 
+The generic [THybridAllocator](../allocators/THybridAllocator.md) now provides
+that composition independently of reflection, with lazy child ownership,
+alignment-aware routing and an explicit threshold on rounded buddy extents.
+Its standalone tests cover both word sizes. Connecting the vendor callbacks
+and selecting a reflection configuration remain separate work.
+
 The generic owner exposes a candidate pointer only after token insertion
 succeeds, releases the token on erasure, aggregates deep attribution and uses
 an explicit context for index and payload storage. Unmatched frees use one

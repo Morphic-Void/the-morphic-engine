@@ -58,6 +58,8 @@ or that work has been authorised.
   [MPMC](threading/transports/TMpmcTransport.md).
 - [Policy validator](project/policy_validator.md).
 - [Allocators](allocators/README.md), including the [packed buddy index](allocators/buddy_index.md).
+- [Hybrid allocator](allocators/THybridAllocator.md): lazy buddy/tracked ownership,
+  explicit size/alignment routing and collective cleanup.
 - [Standalone buddy allocator](allocators/TBuddyAllocator.md):
   32-bit and 64-bit packed managers, checked individual frees, bulk reset and
   explicit-context ownership.
