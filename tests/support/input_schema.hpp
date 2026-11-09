@@ -119,4 +119,52 @@ inline std::string input_schema(const unsigned extra_bindings = 0u)
     return result;
 }
 
+//  Native acceptance binds every standard control in two independently selectable
+//  contexts. Action IDs 100..117 follow the public portable gamepad control order.
+inline std::string controller_schema()
+{
+    std::string result = input_schema();
+    result.resize(result.find("\"instances\":"));
+    result += R"("instances":{"ConfigurationHeader":{"configuration":{"declaration":{"format_version":1}}},
+        "ContextDefinition":{"first":{"declaration":{"id":4}},"second":{"declaration":{"id":5}}},
+        "BindingProfile":{"pad":{"declaration":{"id":8,"connection_kind":"controller"}}},"ActionDefinition":{)";
+    constexpr const char* controls[]{ "pad_south", "pad_east", "pad_west", "pad_north", "pad_left_shoulder", "pad_right_shoulder",
+        "pad_left_click", "pad_right_click", "pad_up", "pad_down", "pad_left", "pad_right", "pad_menu", "pad_view",
+        "pad_left_stick", "pad_right_stick", "pad_left_trigger", "pad_right_trigger" };
+    constexpr unsigned count = sizeof(controls) / sizeof(controls[0]);
+    for (unsigned index = 0u; index < count; ++index)
+    {
+        if (index) result += ',';
+        const char* const kind = (index < 14u) ? "digital_state" : ((index < 16u) ? "vector_state" : "scalar_state");
+        result += '"' + std::to_string(index) + R"(":{"declaration":{"id":)" + std::to_string(100u + index) +
+            R"(,"kind":")" + kind + "\"}}";
+    }
+    result += R"(},"InputSourceDefinition":{)";
+    for (unsigned index = 0u; index < count; ++index)
+    {
+        if (index) result += ',';
+        const char* const kind = (index < 14u) ? "gamepad_button" : ((index < 16u) ? "gamepad_stick" : "gamepad_trigger");
+        result += '"' + std::to_string(index) + R"(":{"declaration":{"id":)" + std::to_string(100u + index) +
+            R"(,"kind":")" + kind + R"(","control":")" + controls[index] + R"(","direction":"whole"}})";
+    }
+    result += R"(},"BindingDefinition":{)";
+    for (unsigned index = 0u; index < (count << 1u); ++index)
+    {
+        if (index) result += ',';
+        const unsigned control = index % count;
+        result += '"' + std::to_string(index) + R"(":{"declaration":{"id":)" + std::to_string(200u + index) +
+            R"(,"profile":8,"context":)" + std::to_string(4u + (index / count)) + R"(,"action":)" + std::to_string(100u + control) +
+            R"(,"source":)" + std::to_string(100u + control) + R"(,"parameters":0,"activation":")" +
+            ((control < 14u) ? "regular" : "direct") + R"(","allow_during_text":false,"native_repeat":false,"reserved":0}})";
+    }
+    result += R"(}},"data":{"ContextAction":{"members":{"data":[)";
+    for (unsigned index = 0u; index < (count << 1u); ++index)
+    {
+        if (index) result += ',';
+        result += R"({"context":)" + std::to_string(4u + (index / count)) + R"(,"action":)" + std::to_string(100u + (index % count)) + '}';
+    }
+    result += "]}}}}";
+    return result;
+}
+
 }   // namespace tests

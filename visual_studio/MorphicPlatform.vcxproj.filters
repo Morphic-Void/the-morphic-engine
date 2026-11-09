@@ -52,5 +52,12 @@
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClCompile Include="..\platform\runtime\window_record.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClInclude Include="..\platform\runtime\window_record.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\controllers.hpp"><Filter>Platform\include\native</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\controller_types.hpp"><Filter>Platform\include\native</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\windows\gameinput_state.hpp"><Filter>Platform\include\native\windows</Filter></ClInclude>
+    <ClCompile Include="..\platform\native\windows\controllers_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
+    <ClCompile Include="..\platform\native\unsupported\controllers_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\controller_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\controller_catalogue.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
   </ItemGroup>
 </Project>

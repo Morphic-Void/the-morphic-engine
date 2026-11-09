@@ -15,6 +15,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\controllers.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_reader.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_connection.hpp"><Filter>Framework\communications</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp"><Filter>Framework\communications</Filter></ClInclude>

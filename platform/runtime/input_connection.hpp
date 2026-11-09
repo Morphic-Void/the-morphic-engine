@@ -34,7 +34,7 @@ class CInputConnection final
 {
 public:
     explicit CInputConnection(const platform::threading::SAwakeClock clock) noexcept : budget{ clock } {}
-    [[nodiscard]] bool initialise(const input::SInputEndpointV3& identity,
+    [[nodiscard]] bool initialise(const input::SInputEndpointV4& identity,
         const SInputInstallation& installation, const std::uint32_t context, const std::uint64_t transition) noexcept;
     [[nodiscard]] bool start(const ::threading::SNotificationEndpoint endpoint) noexcept;
     [[nodiscard]] services::EServiceStatus acknowledge(const input::SBoundaryReady& ready) noexcept;
@@ -46,11 +46,14 @@ public:
     void history_loss() noexcept;
     void capture(const std::uint64_t grant, const input::ECaptureReason reason) noexcept;
     void capture_lost() noexcept;
+    [[nodiscard]] bool assign(const std::uint64_t device, const std::uint64_t domain, const std::uint64_t epoch,
+        const input::EControllerState state, const input::EReason reason) noexcept;
+    void received(const std::uint64_t awake) noexcept { m_state.receipt_awake_ns = awake; (void)publish(); }
     [[nodiscard]] const input::SInputSnapshot& snapshot() const noexcept { return m_state; }
     [[nodiscard]] CInputMapper& mapper() noexcept { return m_mapper; }
     [[nodiscard]] const CInputMapper& mapper() const noexcept { return m_mapper; }
 
-    input::SInputEndpointV3 view;
+    input::SInputEndpointV4 view;
     input::SInstallationToken installation;
     services::SDispatchedCommand acquisition;
     services::SServiceBorrow borrow;
@@ -61,6 +64,8 @@ public:
     std::int32_t completion{ -1 };
     std::uint64_t closing_awake{ 0u };
     bool ready{ false }, retirement_started{ false }, diagnosed{ false }, clock_failed{ false }, closing_started{ false };
+    std::uint64_t source_generation{};
+    bool source_baseline_pending{}, source_baseline_inflight{};
 
 private:
     friend class CInputMapper;

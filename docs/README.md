@@ -49,6 +49,8 @@ or that work has been authorised.
   cancellation, bounded work and connection integration.
 - [Desktop input acquisition](modules/desktop_input.md): bounded ingestion, Windows
   keyboard/text/mouse acquisition, native cutover, pointer packets and capture.
+- [Controller acquisition](modules/controller_input.md): device catalogue, exclusive
+  assignment, four independent pipes, source clocks and Windows GameInput acceptance.
 - [Audio implementation and validation](modules/audio_module_validation.md):
   on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of

@@ -300,6 +300,14 @@
   <ItemGroup>
     <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
     <ClInclude Include="..\platform\native\window.hpp" />
+    <ClInclude Include="..\platform\native\controllers.hpp" />
+    <ClInclude Include="..\platform\native\controller_types.hpp" />
+    <ClInclude Include="..\platform\native\windows\gameinput_state.hpp" />
+    <ClCompile Include="..\tests\test_suites\GameInput_test_cases.cpp" />
+    <ClCompile Include="..\platform\native\windows\controllers_windows.cpp" />
+    <ClCompile Include="..\platform\native\unsupported\controllers_unsupported.cpp" />
+    <ClCompile Include="..\platform\runtime\controller_input.cpp" />
+    <ClCompile Include="..\platform\runtime\controller_catalogue.cpp" />
     <ClInclude Include="..\platform\native\windows\input_windows.hpp" />
     <ClInclude Include="..\platform\native\desktop.hpp" />
     <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
@@ -326,6 +334,7 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="MorphicPolicy.targets" />
+  <Import Project="MorphicGameInput.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>
     <ClCompile Include="..\rendering\runtime\texture_requests.cpp" />

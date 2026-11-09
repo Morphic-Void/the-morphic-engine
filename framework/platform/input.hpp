@@ -19,16 +19,17 @@
 namespace platform::input
 {
 
-inline constexpr services::SServiceContract k_input_contract{ 2u, 3u };
+inline constexpr services::SServiceContract k_input_contract{ 2u, 4u };
 inline constexpr std::uint32_t k_action_capacity = 256u, k_text_capacity = 64u;
 enum class EConnection : std::uint32_t { desktop = 1u, controller = 2u };
-enum class EClock : std::uint32_t { awake_nanoseconds = 1u };
+enum class EClock : std::uint32_t { awake_nanoseconds = 1u, source_nanoseconds = 2u };
 enum class ECommand : std::uint16_t
 {
     install_configuration = 1u, retire_configuration = 2u,
     acquire_desktop = 32u, acquire_controller = 33u, input_ready = 34u,
     boundary_ready = 35u, select_context = 38u, enable_text = 39u, disable_text = 40u,
-    set_capture = 41u, release_capture = 42u
+    set_capture = 41u, release_capture = 42u, acquire_catalogue = 46u, catalogue_ready = 47u,
+    enumerate_device = 48u, assign_device = 49u, device_metadata = 50u
 };
 struct SConnectionToken { std::uint64_t value{ 0u }; };
 struct SInstallationToken { std::uint64_t value{ 0u }; };
@@ -59,7 +60,7 @@ struct SAcquireDesktop
 struct SAcquireController
 {
     SInstallationToken installation;
-    std::uint64_t device{ 0u }; //  Zero selects the installation's default source.
+    std::uint64_t device{ 0u }; //  Zero selects the first eligible unclaimed device.
     std::uint32_t profile{ 0u }, context{ 0u };
 };
 struct SInputReady
@@ -101,9 +102,9 @@ enum class EActionKind : std::uint16_t
     pointer = 5u, button = 6u, wheel = 7u, modifiers = 8u, boundary = 9u
 };
 enum class ETextKind : std::uint16_t { scalar, boundary };
-//  Contract 3 uses these payloads with the unchanged V1 record framing. Unused
+//  Contract 4 uses these payloads with the unchanged V1 record framing. Unused
 //  payload bytes are zero. Cancellation is an inactive/zero state, never a pulse.
-inline constexpr std::uint16_t k_action_cancelled = 1u;
+inline constexpr std::uint16_t k_action_cancelled = 1u, k_no_source_time = 2u;
 struct SDigitalAction { std::uint32_t active{}; };
 struct SScalarAction { float value{}; };
 struct SVectorAction { float x{}, y{}; };
@@ -151,10 +152,10 @@ struct alignas(8) STextInputV1
     unsigned char payload[16]{};
 };
 
-struct SInputEndpointV3
+struct SInputEndpointV4
 {
     [[nodiscard]] bool is_valid() const noexcept;
-    std::uint32_t size{ sizeof(SInputEndpointV3) }, version{ 3u };
+    std::uint32_t size{ sizeof(SInputEndpointV4) }, version{ 4u };
     EConnection kind{ EConnection::desktop };
     EClock clock{ EClock::awake_nanoseconds };
     SConnectionToken connection;
@@ -167,11 +168,13 @@ struct SInputEndpointV3
     platform::threading::SWakeEndpoint capacity_wake;
 };
 
-inline bool SInputEndpointV3::is_valid() const noexcept
+inline bool SInputEndpointV4::is_valid() const noexcept
 {
-    return (size == sizeof(SInputEndpointV3)) && (version == 3u) &&
+    return (size == sizeof(SInputEndpointV4)) && (version == 4u) &&
         ((kind == EConnection::desktop) || (kind == EConnection::controller)) &&
-        (clock == EClock::awake_nanoseconds) && connection.value && provider.value && consumer.value &&
+        (((kind == EConnection::desktop) && (clock == EClock::awake_nanoseconds)) ||
+            ((kind == EConnection::controller) && (clock == EClock::source_nanoseconds))) &&
+        connection.value && provider.value && consumer.value &&
         (action_capacity == k_action_capacity) && actions && actions->is_ready() && state && capacity_wake.is_valid() &&
         ((kind == EConnection::desktop) ? (window.value && text && text->is_ready() && (text_capacity == k_text_capacity)) :
             (!window.value && !text && !text_capacity));
@@ -180,7 +183,7 @@ inline bool SInputEndpointV3::is_valid() const noexcept
 static_assert((sizeof(SActionInputV1) == 48u) && (alignof(SActionInputV1) == 8u));
 static_assert((sizeof(STextInputV1) == 40u) && (alignof(STextInputV1) == 8u));
 static_assert(std::is_trivially_copyable_v<SActionInputV1> && std::is_trivially_copyable_v<STextInputV1>);
-static_assert(std::is_standard_layout_v<SInputEndpointV3> && std::is_trivially_copyable_v<SInputEndpointV3>);
+static_assert(std::is_standard_layout_v<SInputEndpointV4> && std::is_trivially_copyable_v<SInputEndpointV4>);
 static_assert((sizeof(SAcquireDesktop) == 24u) && (sizeof(SAcquireController) == 24u));
 static_assert((sizeof(SInputReady) == 24u) && (sizeof(SBoundaryReady) == 24u) && (sizeof(STextTarget) == 24u));
 

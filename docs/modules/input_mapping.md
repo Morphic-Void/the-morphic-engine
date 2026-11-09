@@ -2,7 +2,8 @@
 
 The [desktop acquisition increment](desktop_input.md) extends this evaluator with
 grouped transitions, bounded raw packets before semantic output, native ingress
-gates and input service/endpoint version 3. Record framing and configuration
+gates; [controller acquisition](controller_input.md) adds input service/endpoint
+version 4. Record framing and configuration
 format remain unchanged.
 
 Contract accepted and portable implementation added 8 November 2026. This
@@ -155,7 +156,8 @@ be passed off as evidence of physical neutrality.
 
 The mapper increment introduced input service number 2/version 2. Desktop
 acquisition advances the service, generic borrowed descriptor and
-`SInputEndpointV3` to version 3. All participants require a coordinated
+`SInputEndpointV3` to version 3; controller acquisition advances these to
+version 4 and `SInputEndpointV4`. All participants require a coordinated
 rebuild; configuration source format remains version 1. `SActionInputV1` and
 `STextInputV1` retain their 48/40-byte framing and sequence/barrier machinery.
 
@@ -168,10 +170,11 @@ rebuild; configuration source format remains version 1. `SActionInputV1` and
 | Pulse | 4 | `SPulseAction`: `u32 binding`, identifying this occurrence's binding |
 | Boundary | 9 | Existing `SActionBoundary` |
 
-Unused payload bytes are zero. Values 5–8 remain reserved for later raw packet
-definitions and are not emitted by this mapper. Bit 0 (`k_action_cancelled`) marks
-an inactive/zero state caused by selective cancellation. Other flags are zero;
-pulses and boundaries never carry this flag. Consumers clear state without
+Unused payload bytes are zero. Values 5–8 identify raw desktop packets and are not
+emitted by semantic mapping. Bit 0 (`k_action_cancelled`) marks an inactive/zero
+state caused by selective cancellation; pulses and boundaries never carry that
+cancellation flag. Bit 1 (`k_no_source_time`) marks controller output without
+source time, including lifecycle markers. Consumers clear state without
 normal-release activation when processing cancellation-marked records.
 A cancellation-marked zero delta discards pending relative input; it does not
 reverse movement already applied. Ordinary zero deltas remain silent.

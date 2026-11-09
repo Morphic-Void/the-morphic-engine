@@ -22,9 +22,10 @@ enum class EStateRead : std::uint32_t { success, retry, failed };
 enum class EReason : std::uint32_t
 {
     initial = 1u, context = 2u, overflow = 4u, text_target = 8u, suppressed = 16u,
-    capture_lost = 32u, native_history = 64u
+    capture_lost = 32u, native_history = 64u, assignment = 128u, disconnected = 256u, source_clock = 512u
 };
 enum class ECaptureReason : std::uint32_t { none, released, lost, invalidated, closing };
+enum class EControllerState : std::uint32_t { unassigned, assigned, disconnected, unavailable, invalid_sample };
 
 struct SInputSnapshot
 {
@@ -37,6 +38,8 @@ struct SInputSnapshot
     std::uint32_t ingress_pending{};
     ECaptureReason capture_reason{ ECaptureReason::none };
     std::uint64_t capture_grant{}, capture_revision{}, capture_revocations{}, ingress_loss{};
+    std::uint64_t device{}, assignment_revision{}, clock_domain{}, clock_epoch{}, receipt_awake_ns{};
+    EControllerState controller_state{ EControllerState::unassigned };
 };
 
 class CInputPublication final
@@ -57,7 +60,7 @@ private:
         return m_words[index].load() | (static_cast<std::uint64_t>(m_words[index + 1u].load()) << 32u);
     }
     std::atomic<std::uint32_t> m_revision{ 0u };
-    std::atomic<std::uint32_t> m_words[31]{};
+    std::atomic<std::uint32_t> m_words[42]{};
 };
 
 inline bool CInputPublication::publish(const SInputSnapshot& snapshot) noexcept
@@ -87,6 +90,12 @@ inline bool CInputPublication::publish(const SInputSnapshot& snapshot) noexcept
     store64(25u, snapshot.capture_revision);
     store64(27u, snapshot.capture_revocations);
     store64(29u, snapshot.ingress_loss);
+    store64(31u, snapshot.device);
+    store64(33u, snapshot.assignment_revision);
+    store64(35u, snapshot.clock_domain);
+    store64(37u, snapshot.clock_epoch);
+    store64(39u, snapshot.receipt_awake_ns);
+    m_words[41].store(static_cast<std::uint32_t>(snapshot.controller_state));
     m_revision.store(next);
     return !terminal;
 }
@@ -122,6 +131,12 @@ inline EStateRead CInputPublication::read(SInputSnapshot& snapshot) const noexce
         candidate.capture_revision = load64(25u);
         candidate.capture_revocations = load64(27u);
         candidate.ingress_loss = load64(29u);
+        candidate.device = load64(31u);
+        candidate.assignment_revision = load64(33u);
+        candidate.clock_domain = load64(35u);
+        candidate.clock_epoch = load64(37u);
+        candidate.receipt_awake_ns = load64(39u);
+        candidate.controller_state = static_cast<EControllerState>(m_words[41].load());
         if (revision != m_revision.load()) continue;
         snapshot = candidate;
         return candidate.failure ? EStateRead::failed : EStateRead::success;

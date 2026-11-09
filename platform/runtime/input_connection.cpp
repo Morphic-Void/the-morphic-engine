@@ -26,7 +26,7 @@ bool SInputInstallation::contains(const std::uint32_t context) const noexcept
     return false;
 }
 
-bool CInputConnection::initialise(const SInputEndpointV3& identity,
+bool CInputConnection::initialise(const SInputEndpointV4& identity,
     const SInputInstallation& installation, const std::uint32_t context, const std::uint64_t transition) noexcept
 {
     if (!installation.token.value || !installation.profile || !transition || !installation.contains(context) ||
@@ -134,7 +134,8 @@ void CInputConnection::progress(const std::uint64_t time_ns) noexcept
     {
         SActionInputV1 record;
         if (!next_sequence(record.sequence)) return;
-        record.time_ns = time_ns;
+        record.time_ns = (view.clock == EClock::source_nanoseconds) ? 0u : time_ns;
+        record.flags = (view.clock == EClock::source_nanoseconds) ? k_no_source_time : 0u;
         record.kind = EActionKind::boundary;
         const SActionBoundary marker{ m_state.action_generation, m_state.transition, m_state.context, m_state.action_reasons };
         std::memcpy(record.payload, &marker, sizeof(marker));
@@ -269,7 +270,7 @@ void CInputConnection::history_loss() noexcept
         return;
     }
     ++m_state.ingress_loss;
-    const std::uint32_t newly_lost = k_desktop & ~m_state.ingress_pending;
+    const std::uint32_t newly_lost = (view.text ? k_desktop : k_actions) & ~m_state.ingress_pending;
     if (newly_lost)
     {
         (void)boundary(newly_lost, EReason::native_history);
@@ -299,6 +300,31 @@ void CInputConnection::capture_lost() noexcept
     if (!m_state.capture_grant) return;
     capture(0u, ECaptureReason::lost);
     (void)boundary(k_actions, EReason::capture_lost);
+}
+
+bool CInputConnection::assign(const std::uint64_t device, const std::uint64_t domain, const std::uint64_t epoch,
+    const EControllerState state, const EReason reason) noexcept
+{
+    if (m_state.phase == EPhase::closing) return false;
+    if (m_state.assignment_revision == UINT64_MAX)
+    {
+        close(UINT32_MAX);
+        return false;
+    }
+    ++m_state.assignment_revision;
+    m_state.device = device;
+    m_state.clock_domain = domain;
+    m_state.clock_epoch = epoch;
+    m_state.controller_state = state;
+    m_state.receipt_awake_ns = 0u;
+    m_state.ingress_pending = device ? k_actions : 0u;
+    source_baseline_pending = device != 0u;
+    source_baseline_inflight = false;
+    m_context_pending = true;
+    m_mapper.reset_source(device);
+    const bool result = boundary(k_actions, reason);
+    source_generation = m_state.action_generation;
+    return result;
 }
 
 EInputPost CInputConnection::lose(const std::uint32_t stream, const bool overflow) noexcept

@@ -32,14 +32,18 @@ static bool payload(const services::ServiceRequest& command, T& value) noexcept
 }
 
 CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
-    const native::SWindowAdapter& adapter, const platform::threading::SAwakeClock clock) noexcept
-    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }, m_preparation{ clock }
+    const native::SWindowAdapter& adapter, const platform::threading::SAwakeClock clock,
+    const native::SControllerAdapter& controllers) noexcept
+    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }, m_controller_adapter{ controllers }, m_preparation{ clock }
 {
     m_window.native.runtime = this;
+    m_controllers.runtime = this;
+    m_controllers.clock = clock;
 }
 
 bool CPlatformRuntime::initialise() noexcept
 {
+    catalogue_changed();
     return m_context.services && m_context.execution && m_context.execution->restriction.is_valid() &&
         m_adapter.create && m_adapter.dispatch && m_adapter.destroy && m_uses.initialise() && m_input_installations.initialise();
 }
@@ -103,6 +107,10 @@ void CPlatformRuntime::flush_completions() noexcept
             }
         }
         if (m_preparation.completion == index) m_preparation.completion = -1;
+        for (TInstance<SCatalogueUse>& use : m_catalogues)
+        {
+            if (use && (use->completion == index)) use->completion = -1;
+        }
         completion = {};
     }
 }
@@ -661,10 +669,18 @@ bool CPlatformRuntime::stopped() const noexcept
     {
         if (configuration.data) return false;
     }
-    if (!m_stopping || m_window.token.value || m_use_count || m_inputs[0] || m_inputs[1] || m_native_depth || m_callback_depth ||
+    if (!m_stopping || m_window.token.value || m_use_count || m_controllers.state || m_native_depth || m_callback_depth ||
         m_modal_depth[0] || m_modal_depth[1])
     {
         return false;
+    }
+    for (const TInstance<CInputConnection>& connection : m_inputs)
+    {
+        if (connection) return false;
+    }
+    for (const TInstance<SCatalogueUse>& use : m_catalogues)
+    {
+        if (use) return false;
     }
     for (const auto& completion : m_completions)
     {
@@ -685,6 +701,7 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
         !m_window.destruction_failed) ? 1u : 0u;
     if (m_configuration_runnable) progress.work_pending = 1u;
     if (m_desktop.runnable()) progress.work_pending = 1u;
+    if (m_controllers.work_pending) progress.work_pending = 1u;
     for (const TInstance<CInputConnection>& connection : m_inputs)
     {
         if (connection && (connection->snapshot().phase != input::EPhase::closing) &&
@@ -711,6 +728,8 @@ void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
     close_window();
     progress_uses();
     progress_inputs();
+    progress_catalogues();
+    progress_controllers(0u);
     flush_completions();
     progress_window();
     progress(result);
@@ -761,6 +780,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         leave_native(scope);
     };
     m_native_first = !m_native_first;
+    if (!m_native_first) progress_controllers(std::min((remaining() >> 1u), UINT64_C(500000)));
     if (!m_native_first) progress_mappers(std::min(remaining(), UINT64_C(250000)));
     if (m_native_first) dispatch();
     for (; (result.consumed_commands < input.command_count) && (result.consumed_commands < 64u) && remaining(); ++result.consumed_commands)
@@ -774,11 +794,13 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_inputs();
     flush_completions();
     if (!m_native_first) dispatch();
+    if (m_native_first) progress_controllers(std::min(remaining(), UINT64_C(500000)));
     if (m_native_first) progress_mappers(remaining());
     progress_uses();
     progress_inputs();
     progress_window();
     progress_configurations(remaining());
+    progress_catalogues();
     progress(result.progress);
 }
 

@@ -72,7 +72,7 @@ def collect_sources(project, repository):
                     visit(resolve_path(imported, path))
                 elif not (imported.startswith("$(VCTargetsPath)") or
                           imported.startswith("$(UserRootDir)") or
-                          imported == "MorphicPolicy.targets"):
+                          imported in {"MorphicPolicy.targets", "MorphicGameInput.targets"}):
                     raise ValueError(f"{path}: unrecognised import requires review: {imported}")
             else:
                 for child in element:

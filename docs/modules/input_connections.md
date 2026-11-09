@@ -4,24 +4,25 @@ Implementation authorised 6 November 2026 after review of the readiness,
 ordering and recovery contract. This reference supersedes prospective input
 mechanics in `platform_contracts_v1.md`. [Desktop acquisition](desktop_input.md)
 extends it with native ingestion and capture; [configuration installation](input_configuration_installation.md)
-now supplies production records.
+now supplies production records. [Controller acquisition](controller_input.md)
+adds device discovery, explicit assignment and four independent controller pipes.
 
 The [portable mapper](input_mapping.md), implemented 8 November 2026, owns
 per-binding rearming and selective action cancellation. Input service number 2,
-its borrowed descriptor and `SInputEndpointV3` now use version 3; configuration
+its borrowed descriptor and `SInputEndpointV4` now use version 4; configuration
 source format remains version 1. The action/text record framing is unchanged.
 
 ## Ownership and admission
 
-Platform owns one exclusive desktop connection and one independent controller
-connection. Desktop groups text and action/control streams on one designated
+Platform owns one exclusive desktop connection and up to four independent controller
+connections. Desktop groups text and action/control streams on one designated
 reader and protects its window through retirement. Controller ownership is
 independent of windows. Host authenticates exact client/module instances and
 protects generic borrows; it does not relay input records.
 
 The reader is the consumer's registered execution context (service thread or
 Host-pumped execution). The current notification API does not register arbitrary
-secondary threads. Both connections held by the same client use that execution.
+secondary threads. All connections held by the same client use that execution.
 There is no implicit queue, eviction, replacement inheritance or ownership transfer.
 
 Stable, versioned descriptors expose consumer-only Core endpoints, capacities,

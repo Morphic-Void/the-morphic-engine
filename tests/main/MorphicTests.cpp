@@ -19,6 +19,7 @@ int run_platform_window_focused();
 int run_platform_input_focused();
 int run_platform_native_tests();
 int run_platform_input_native(const bool interactive);
+int run_platform_controller_native(const bool interactive);
 
 int main(const int argc, char** const argv)
 {
@@ -64,6 +65,14 @@ int main(const int argc, char** const argv)
         if (std::strcmp(argv[i], "--platform-native") == 0) return run_platform_native_tests();
         if (std::strcmp(argv[i], "--platform-input-native") == 0) return run_platform_input_native(false);
         if (std::strcmp(argv[i], "--platform-input-interactive") == 0) return run_platform_input_native(true);
+        if (std::strcmp(argv[i], "--platform-controller-native") == 0)
+        {
+            return run_platform_controller_native(false);
+        }
+        if (std::strcmp(argv[i], "--platform-controller-interactive") == 0)
+        {
+            return run_platform_controller_native(true);
+        }
         constexpr char prefix[] = "--reflection-arena-fatal=";
         if (std::strncmp(argv[i], prefix, sizeof(prefix) - 1u) == 0)
         {

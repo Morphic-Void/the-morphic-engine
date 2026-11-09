@@ -15,6 +15,7 @@
 #include "runtime/input_connection.hpp"
 #include "runtime/input_configuration.hpp"
 #include "runtime/desktop_input.hpp"
+#include "native/controllers.hpp"
 #include "assets/schema_messages.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -29,7 +30,8 @@ class CPlatformRuntime
 public:
     CPlatformRuntime(const modules::SHostPumpContext& context,
         const native::SWindowAdapter& adapter = native::window_adapter(),
-        const platform::threading::SAwakeClock clock = {}) noexcept;
+        const platform::threading::SAwakeClock clock = {},
+        const native::SControllerAdapter& controllers = native::controller_adapter()) noexcept;
     [[nodiscard]] bool initialise() noexcept;
     void pump(const modules::SPumpInput& input, modules::SPumpResult& result) noexcept;
     void begin_stop(modules::SProgress& progress) noexcept;
@@ -41,9 +43,13 @@ public:
     void native_extent(const std::uint32_t width, const std::uint32_t height, const std::uint32_t dpi, const bool minimised) noexcept;
     void native_close() noexcept;
     void input_focus(const bool focused) noexcept;
-    [[nodiscard]] EInputAdmission input_observation(const input::EConnection kind, const SInputObservation& observation) noexcept;
-    void input_device(const input::EConnection kind, const std::uint64_t instance) noexcept;
-    void input_discontinuity(const input::EConnection kind) noexcept;
+    [[nodiscard]] EInputAdmission input_observation(const input::SConnectionToken token, const SInputObservation& observation) noexcept;
+    void input_device(const input::SConnectionToken token, const std::uint64_t instance) noexcept;
+    void input_discontinuity(const input::SConnectionToken token) noexcept;
+    void controller_arrived(const native::SControllerInfo& info) noexcept;
+    void controller_departed(const std::uint64_t native_device) noexcept;
+    void controller_backend(const input::EControllerBackend state, const std::uint32_t error = 0u) noexcept;
+    void controller_overflow() noexcept;
     void desktop_observation(const SDesktopTransaction& transaction) noexcept;
     void desktop_quiet(const SInputObservation& baseline, const std::uint64_t epoch) noexcept;
     [[nodiscard]] std::uint64_t desktop_epoch() noexcept { m_desktop.synchronise(); return m_desktop.epoch(); }
@@ -93,6 +99,14 @@ private:
     void cancel_configuration(const services::EServiceStatus status) noexcept;
     [[nodiscard]] bool configuration_used(const input::SInstallationToken token) const noexcept;
     [[nodiscard]] CInputConnection* find_input(const input::SConnectionToken token) noexcept;
+    void start_controllers() noexcept;
+    void progress_controllers(const std::uint64_t budget_ns) noexcept;
+    void progress_catalogues() noexcept;
+    void catalogue_changed() noexcept;
+    [[nodiscard]] bool catalogue_command(const services::SDispatchedCommand& dispatched, const std::int32_t completion) noexcept;
+    [[nodiscard]] services::EServiceStatus select_device(const std::uint64_t requested, std::uint64_t& device,
+        const CInputConnection* const owner = nullptr) const noexcept;
+    [[nodiscard]] services::EServiceStatus assign_device(CInputConnection& connection, const std::uint64_t device) noexcept;
     void publish() noexcept;
     void close_window(const std::uint32_t failure = 0u) noexcept;
     void progress_window() noexcept;
@@ -105,8 +119,36 @@ private:
     platform::threading::SAwakeClock m_clock;
     SWindowRecord m_window;
     TUnorderedCollection<SWindowUse> m_uses;
-    TInstance<CInputConnection> m_inputs[2];
+    static constexpr std::uint32_t k_input_slots = 1u + input::k_controller_capacity;
+    TInstance<CInputConnection> m_inputs[k_input_slots];
     CDesktopInput m_desktop;
+    const native::SControllerAdapter& m_controller_adapter;
+    native::SControllers m_controllers;
+    struct SDevice
+    {
+        native::SControllerInfo info;
+        std::uint64_t token{};
+    };
+    SDevice m_devices[input::k_device_capacity];
+    input::SCatalogueSnapshot m_catalogue;
+    input::CControllerPublication m_catalogue_publication;
+    struct SCatalogueUse
+    {
+        explicit SCatalogueUse(const platform::threading::SAwakeClock clock) noexcept : budget{ clock } {}
+        input::SControllerCatalogueV1 view;
+        services::SDispatchedCommand acquisition;
+        services::SServiceBorrow borrow;
+        services::SNotificationRegistration registration;
+        ::threading::SNotificationEndpoint notification;
+        modules::CHostEligibleBudget budget;
+        services::EServiceQuiescence quiescence{ services::EServiceQuiescence::none };
+        std::int32_t completion{ -1 };
+        bool ready{}, closing{}, retirement_started{};
+    };
+    TInstance<SCatalogueUse> m_catalogues[8];
+    std::uint64_t m_next_device{ 1u };
+    std::uint32_t m_controller_turn{};
+    bool m_controllers_started{}, m_controller_eligible{ true };
     bool m_native_capture{}, m_releasing_capture{}, m_desktop_eligible{ true };
     std::uint64_t m_capture_epoch{};
     TUnorderedCollection<SInputInstallation> m_input_installations;

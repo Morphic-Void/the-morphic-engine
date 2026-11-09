@@ -38,7 +38,7 @@ struct SInputObservation
 {
     std::uint64_t device{}, ordinal{}, time_ns{};
     EObservationKind kind{ EObservationKind::transition };
-    bool baseline{}, suppressed{};
+    bool baseline{}, suppressed{}, source_time_valid{ true };
     std::uint32_t count{};
     SInputControl controls[k_input_controls]{};
     input::STextInputV1 text;
@@ -68,6 +68,7 @@ public:
     void text_changed() noexcept;
     void eligible(const bool value) noexcept;
     void device(const std::uint64_t instance) noexcept;
+    void reset_source(const std::uint64_t instance) noexcept;
     void discontinuity() noexcept;
     void require_baseline(const bool preserve_text = false) noexcept { invalidate(preserve_text); m_need_baseline = true; }
 

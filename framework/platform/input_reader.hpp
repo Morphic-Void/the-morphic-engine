@@ -26,6 +26,7 @@ struct SInputEvent
     std::uint64_t generation{ 0u };
     SActionInputV1 action;
     STextInputV1 text;
+    std::uint64_t device{}, clock_domain{}, clock_epoch{}, assignment_revision{};
 };
 
 class CInputReader final
@@ -34,7 +35,7 @@ public:
     CInputReader() noexcept = default;
     CInputReader(const CInputReader&) = delete;
     CInputReader& operator=(const CInputReader&) = delete;
-    [[nodiscard]] bool install(const SInputEndpointV3& view, const modules::SModuleInstance consumer) noexcept;
+    [[nodiscard]] bool install(const SInputEndpointV4& view, const modules::SModuleInstance consumer) noexcept;
     [[nodiscard]] EInputRead next(SInputEvent& event, const std::uint32_t budget = 64u) noexcept;
     [[nodiscard]] EInputValidation validate(const SInputEvent& event) noexcept;
     //  Cancel logical state before submitting a context/target change. A false
@@ -57,7 +58,7 @@ private:
     friend struct SInputReaderTestAccess;
     [[nodiscard]] EStateRead refresh() noexcept;
     [[nodiscard]] bool allowed(const std::uint32_t stream) const noexcept;
-    const SInputEndpointV3* m_view{ nullptr };
+    const SInputEndpointV4* m_view{ nullptr };
     SInputSnapshot m_state;
     SActionInputV1 m_action;
     STextInputV1 m_text;
@@ -69,7 +70,7 @@ private:
     bool m_has_action{ false }, m_has_text{ false }, m_closed{ false }, m_failed{ false };
 };
 
-inline bool CInputReader::install(const SInputEndpointV3& view, const modules::SModuleInstance consumer) noexcept
+inline bool CInputReader::install(const SInputEndpointV4& view, const modules::SModuleInstance consumer) noexcept
 {
     if (m_view || m_closed || !view.is_valid() || (view.consumer.value != consumer.value))
     {
@@ -306,6 +307,10 @@ inline EInputRead CInputReader::next(SInputEvent& event, const std::uint32_t bud
             else if (allowed(k_actions))
             {
                 event = { m_view->connection, k_actions, m_state.action_generation, m_action, {} };
+                event.device = m_state.device;
+                event.clock_domain = m_state.clock_domain;
+                event.clock_epoch = m_state.clock_epoch;
+                event.assignment_revision = m_state.assignment_revision;
                 return EInputRead::record;
             }
         }

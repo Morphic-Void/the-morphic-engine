@@ -11,6 +11,11 @@ Review: 04 Nov 2026
 
 ## Status and scope
 
+The [controller acquisition contract](controller_input.md), accepted 9 November,
+adds portable discovery, explicit assignment, four independent pipes and Windows
+GameInput integration. Input service/endpoint version 4 supersedes the earlier
+interfaces. Physical controller acceptance remains separate.
+
 The [desktop acquisition contract](desktop_input.md), accepted 8 November, defines
 Windows keyboard/text/mouse integration, bounded portable ingestion, native cutover,
 raw pointer records and capture. Input service/endpoint version 3 supersedes the

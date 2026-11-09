@@ -39,6 +39,24 @@ must be deployed when running them. See the
 [shader design](../modules/shader_compilation_design.md) for request/result use,
 defaults and deferred reflection work.
 
+## Windows controller dependency
+
+Platform and test builds restore pinned `Microsoft.GameInput` 4.0.306 using
+`tools/acquire_gameinput.ps1`. The script verifies the package SHA-256 before
+extracting to ignored `build/dependencies/gameinput`; first restore needs network
+access. Both Debug/Release and x64/Win32 builds use matching vendor libraries.
+The shared build target stages `GameInputRedist.dll`, `GameInputRawInputProxy.exe`
+and `gameinput-licences` beside the binaries. Deploy all of these together.
+No system installer is run. Microsoft's linked loader may select a compatible
+installed runtime; the native smoke establishes runtime availability, not which
+deployment location supplied it. Linux builds use the explicit unavailable native
+adapter and continue exercising portable controller tests without this package.
+
+`MorphicTests --platform-controller-native` checks runtime startup, discovery and
+four public pipe lifecycles; ready with zero devices is valid.
+`--platform-controller-interactive` runs the 60-second physical harness described
+in the [controller contract](../modules/controller_input.md#running-the-harness).
+
 ## Test executable
 
 `MorphicTests` is the standalone Core test executable. It is built by default

@@ -85,8 +85,9 @@ struct SFixture
         installation.binding_count = plan.bindings.size();
         TEST_EXPECT(tests, installation.contexts.push_back(1u));
         TEST_EXPECT(tests, installation.contexts.push_back(2u));
-        SInputEndpointV3 identity;
+        SInputEndpointV4 identity;
         identity.kind = kind;
+        identity.clock = (kind == EConnection::controller) ? EClock::source_nanoseconds : EClock::awake_nanoseconds;
         identity.connection.value = identity.provider.value = identity.consumer.value = 1u;
         identity.window.value = (kind == EConnection::desktop) ? 1u : 0u;
         identity.capacity_wake = wake.endpoint();

@@ -111,7 +111,8 @@ layout-dependent printable-character bindings remain deferred.
 
 ## Pointer packets and capture
 
-Input service number 2 and its endpoint use version 3. Matching participants must
+Input service number 2 and its endpoint now use version 4 through
+[controller acquisition](controller_input.md). Matching participants must
 rebuild together. Configuration source format stays 1; action/text framing stays
 48/40 bytes. Raw subjects identify portable controls, not configured action IDs.
 
@@ -214,7 +215,8 @@ and idle-state/pointer consistency tests remain.
 This record does not establish dead-key text entry, AltGr-generated text or
 mixed-DPI acceptance. The operator does not normally use the first two, and no
 keyboard layout or display settings were changed for this session. Other native
-platforms and controller acquisition remain later work.
+platforms remain later work. Controller acquisition is now described in its
+[separate contract](controller_input.md); its physical acceptance remains pending.
 
 Native references: [TranslateMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-translatemessage),
 [WM_CHAR](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-char),

@@ -27,6 +27,8 @@ The [portable mapper](input_mapping.md) and connection integration were implemen
 8 November 2026, using input service number 2/version 2 and unchanged record
 framing. [Desktop acquisition](desktop_input.md) subsequently adds Windows input,
 portable ingestion and capture using input service/endpoint version 3.
+The [controller acquisition contract](controller_input.md), accepted 9 November,
+adds discovery and multiple controller pipes with service/endpoint version 4.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.
@@ -363,7 +365,7 @@ all graphics objects before asserting `ServiceBorrowQuiescent`. A descriptor is 
 transfer and cannot outlive its use. Future Linux fields require a new supported
 descriptor variant, not reinterpretation of a Windows pointer.
 
-Input prepared results return a connection token and borrowed `SInputEndpointV3`
+Input prepared results return a connection token and borrowed `SInputEndpointV4`
 pointer plus size/version; check it fits the envelope on x86/x64. The descriptor
 contains only endpoint/snapshot pointers, capacities, clock-domain information and
 tokens. Platform retains it until retirement. Consumer code constructs/uses Core

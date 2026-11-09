@@ -24,6 +24,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\controllers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_reader.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_connection.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp" />

@@ -51,7 +51,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
     const services::ServiceRequest& command = dispatched.command;
     const ECommand opcode = static_cast<ECommand>(command.opcode);
     const bool desktop = opcode == ECommand::acquire_desktop;
-    const bool acquisition = desktop || (opcode == ECommand::acquire_controller);
+    const bool acquisition = desktop || (opcode == ECommand::acquire_controller) || (opcode == ECommand::acquire_catalogue);
     //  Credit precedes every mutation, including ownership reservation.
     const std::int32_t completion = reserve(command, acquisition);
     if (completion < 0)
@@ -82,6 +82,11 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
         complete(completion, EServiceStatus::closing);
         return true;
     }
+    if ((opcode == ECommand::acquire_catalogue) || (opcode == ECommand::catalogue_ready) ||
+        (opcode == ECommand::enumerate_device) || (opcode == ECommand::device_metadata))
+    {
+        return catalogue_command(dispatched, completion);
+    }
     if ((opcode == ECommand::install_configuration) || (opcode == ECommand::retire_configuration))
     {
         return configuration_command(dispatched, completion);
@@ -100,7 +105,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
             request.installation = controller.installation;
             request.profile = controller.profile;
             request.context = controller.context;
-            if (controller.device) status = EServiceStatus::unsupported;
+            start_controllers();
         }
         const SInputInstallation* installation = nullptr;
         for (const SConfiguration& configuration : m_configurations)
@@ -122,7 +127,20 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 break;
             }
         }
-        TInstance<CInputConnection>& owned = m_inputs[desktop ? 0u : 1u];
+        std::uint32_t input_slot = 0u;
+        if (!desktop)
+        {
+            input_slot = 1u;
+            while ((input_slot < k_input_slots) && m_inputs[input_slot]) ++input_slot;
+            if (input_slot == k_input_slots)
+            {
+                complete(completion, EServiceStatus::busy);
+                return true;
+            }
+        }
+        std::uint64_t selected_device = 0u;
+        if (!desktop && (status == EServiceStatus::success)) status = select_device(controller.device, selected_device);
+        TInstance<CInputConnection>& owned = m_inputs[input_slot];
         if (!installation) status = EServiceStatus::invalid_request;
         else if (desktop && (!request.window.value || (request.window.value != m_window.token.value)))
         {
@@ -150,8 +168,9 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 CInputConnection& connection = *owned;
                 connection.acquisition = dispatched;
                 connection.completion = completion;
-                SInputEndpointV3 identity;
+                SInputEndpointV4 identity;
                 identity.kind = kind;
+                if (!desktop) identity.clock = EClock::source_nanoseconds;
                 identity.connection.value = m_next_input;
                 m_next_input = (m_next_input == UINT64_MAX) ? 0u : (m_next_input + 1u);
                 identity.provider = m_context.instance;
@@ -164,6 +183,11 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                 }
                 else
                 {
+                    if (!desktop && (assign_device(connection, (selected_device ? selected_device : k_unassigned_device)) != EServiceStatus::success))
+                    {
+                        close_input(connection, EServiceStatus::unavailable);
+                        return true;
+                    }
                     connection.mapper().eligible(m_input_focus && !m_modal_depth[0] && !m_modal_depth[1]);
                     if (desktop && m_adapter.capture) m_desktop.attach(connection, m_window.token.value);
                     const modules::EBudgetStatus budget = connection.budget.start(m_context.execution->restriction, 5000000000u);
@@ -287,6 +311,16 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                     }
                     break;
                 }
+                case ECommand::assign_device:
+                {
+                    SAssignDevice request;
+                    if (!input_payload(command, request)) status = EServiceStatus::invalid_request;
+                    else if (connection->view.kind != EConnection::controller) status = EServiceStatus::unsupported;
+                    else if (request.action_generation != connection->snapshot().action_generation) status = EServiceStatus::stale;
+                    else if (connection->snapshot().pending) status = EServiceStatus::busy;
+                    else status = assign_device(*connection, request.device);
+                    break;
+                }
                 case ECommand::release_capture:
                 {
                     SReleaseCapture request;
@@ -351,6 +385,23 @@ void CPlatformRuntime::input_message(const ::threading::CErasedPodMsg& message) 
             close_input(connection, EServiceStatus::cancelled);
         }
     }
+    for (TInstance<SCatalogueUse>& owned : m_catalogues)
+    {
+        if (!owned) continue;
+        SCatalogueUse& use = *owned;
+        if (borrow_control && (control.borrow.value == use.borrow.value) &&
+            (control.route.value == use.acquisition.command.route.value) && (control.request.value == use.acquisition.command.request.value))
+        {
+            use.closing = true;
+            if (control.control == services::EServiceBorrowControl::consumer_quiescent) use.quiescence = control.quiescence;
+        }
+        else if (cancellation && (cancelled.route.value == use.acquisition.command.route.value) &&
+            (cancelled.request.value == use.acquisition.command.request.value))
+        {
+            use.closing = true;
+            complete(use.completion, EServiceStatus::cancelled);
+        }
+    }
 }
 
 void CPlatformRuntime::progress_inputs() noexcept
@@ -376,7 +427,7 @@ void CPlatformRuntime::progress_inputs() noexcept
             else if (!connection.borrow.value && connection.mapper().prepared() && (budget != modules::EBudgetStatus::retry))
             {
                 const services::SServiceBorrowOffer offer{ connection.acquisition.command.route, connection.acquisition.command.request,
-                    { &connection.view, sizeof(connection.view), 3u } };
+                    { &connection.view, sizeof(connection.view), 4u } };
                 const EServiceStatus status = m_context.services->prepare_borrow(m_context.service_context, &offer, &connection.borrow);
                 if ((status != EServiceStatus::success) && (status != EServiceStatus::busy))
                 {
@@ -429,6 +480,7 @@ void CPlatformRuntime::progress_inputs() noexcept
                     m_desktop.detach();
                 }
                 owned.reset();
+                catalogue_changed();
             }
         }
     }
@@ -449,7 +501,7 @@ void CPlatformRuntime::progress_mappers(const std::uint64_t budget_ns) noexcept
     const std::uint64_t limit = std::min(budget_ns, UINT64_C(500000));
     SMapperBudget budget;
     std::uint32_t idle = 0u;
-    while (budget.work && (idle < 2u))
+    while (budget.work && (idle < k_input_slots))
     {
         std::uint64_t now = 0u;
         if ((m_clock.read(now).code != platform::threading::EWaitError::none) || (now < start))
@@ -459,7 +511,8 @@ void CPlatformRuntime::progress_mappers(const std::uint64_t budget_ns) noexcept
         }
         if ((now - start) >= limit) break;
         TInstance<CInputConnection>& owned = m_inputs[m_mapper_turn];
-        m_mapper_turn ^= 1u;
+        ++m_mapper_turn;
+        if (m_mapper_turn == k_input_slots) m_mapper_turn = 0u;
         bool advanced = false;
         if (owned && (owned->snapshot().phase != EPhase::closing) &&
             ((owned->view.kind != EConnection::desktop) || (m_window.snapshot.phase != windows::EWindowPhase::closing)))
@@ -556,38 +609,27 @@ void CPlatformRuntime::input_focus(const bool focused) noexcept
     input_eligibility();
 }
 
-EInputAdmission CPlatformRuntime::input_observation(const EConnection kind, const SInputObservation& observation) noexcept
+EInputAdmission CPlatformRuntime::input_observation(const SConnectionToken token, const SInputObservation& observation) noexcept
 {
-    if ((kind != EConnection::desktop) && (kind != EConnection::controller))
-    {
-        return EInputAdmission::invalid;
-    }
-    if (m_stopping || ((kind == EConnection::desktop) && (m_window.snapshot.phase == windows::EWindowPhase::closing)))
+    CInputConnection* const connection = find_input(token);
+    if (!connection || m_stopping || ((connection->view.kind == EConnection::desktop) &&
+        (m_window.snapshot.phase == windows::EWindowPhase::closing)))
     {
         return EInputAdmission::closed;
     }
-    TInstance<CInputConnection>& owned = m_inputs[(kind == EConnection::desktop) ? 0u : 1u];
-    return owned ? owned->mapper().submit(observation) : EInputAdmission::closed;
+    return connection->mapper().submit(observation);
 }
 
-void CPlatformRuntime::input_device(const EConnection kind, const std::uint64_t instance) noexcept
+void CPlatformRuntime::input_device(const SConnectionToken token, const std::uint64_t instance) noexcept
 {
-    if ((kind != EConnection::desktop) && (kind != EConnection::controller))
-    {
-        return;
-    }
-    TInstance<CInputConnection>& owned = m_inputs[(kind == EConnection::desktop) ? 0u : 1u];
-    if (owned) owned->mapper().device(instance);
+    CInputConnection* const connection = find_input(token);
+    if (connection) connection->mapper().device(instance);
 }
 
-void CPlatformRuntime::input_discontinuity(const EConnection kind) noexcept
+void CPlatformRuntime::input_discontinuity(const SConnectionToken token) noexcept
 {
-    if ((kind != EConnection::desktop) && (kind != EConnection::controller))
-    {
-        return;
-    }
-    TInstance<CInputConnection>& owned = m_inputs[(kind == EConnection::desktop) ? 0u : 1u];
-    if (owned) owned->mapper().discontinuity();
+    CInputConnection* const connection = find_input(token);
+    if (connection) connection->mapper().discontinuity();
 }
 
 }   //  namespace platform::runtime

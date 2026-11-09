@@ -62,7 +62,7 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
         return EInputAdmission::invalid;
     }
     if (m_disconnected || (m_device && (observation.device != m_device)) || (observation.ordinal <= m_ordinal) ||
-        (observation.time_ns < m_time))
+        (observation.source_time_valid && (observation.time_ns < m_time)))
     {
         return EInputAdmission::stale;
     }
@@ -100,7 +100,7 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
     m_observation = observation;
     m_device = observation.device;
     m_ordinal = observation.ordinal;
-    m_time = observation.time_ns;
+    if (observation.source_time_valid) m_time = observation.time_ns;
     m_generation = m_connection.snapshot().action_generation;
     m_text_generation = m_connection.snapshot().text_generation;
     m_text_admitted = m_eligible && (m_connection.snapshot().phase == input::EPhase::active) &&
@@ -141,6 +141,15 @@ void CInputMapper::device(const std::uint64_t instance) noexcept
     m_disconnected = !instance;
     m_ordinal = 0u;
     discontinuity();
+}
+
+void CInputMapper::reset_source(const std::uint64_t instance) noexcept
+{
+    invalidate();
+    m_device = instance;
+    m_disconnected = !instance;
+    m_ordinal = m_time = 0u;
+    m_need_baseline = true;
 }
 
 void CInputMapper::eligible(const bool value) noexcept
@@ -304,6 +313,7 @@ bool CInputMapper::output(SMapperBudget& budget) noexcept
     input::SActionInputV1 record;
     record.subject = instruction.action;
     record.time_ns = m_observation.time_ns;
+    if (!m_observation.source_time_valid) record.flags |= input::k_no_source_time;
     bool emit = false;
     switch (instruction.action_kind)
     {
@@ -343,7 +353,7 @@ bool CInputMapper::output(SMapperBudget& budget) noexcept
     }
     if (m_cancelled && !m_held && (m_x == 0.0f) && (m_y == 0.0f) && (instruction.action_kind != EInputAction::pulse))
     {
-        record.flags = input::k_action_cancelled;
+        record.flags |= input::k_action_cancelled;
     }
     if (emit && m_admitted && allowed() && !m_observation.baseline)
     {

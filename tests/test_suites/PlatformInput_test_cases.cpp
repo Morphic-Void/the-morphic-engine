@@ -81,6 +81,16 @@ struct SPlatformInputTestAccess
     static void late_dispatch(CPlatformRuntime& runtime) noexcept { runtime.m_native_first = true; }
     static std::uintptr_t handle(const CPlatformRuntime& runtime) noexcept { return runtime.m_window.native.handle; }
     static const native::SDesktop& desktop(const CPlatformRuntime& runtime) noexcept { return runtime.m_window.native.desktop; }
+    static CInputConnection* connection(CPlatformRuntime& runtime, const input::SConnectionToken token) noexcept { return runtime.find_input(token); }
+    static input::SCatalogueSnapshot catalogue(const CPlatformRuntime& runtime) noexcept { return runtime.m_catalogue; }
+    static std::uint64_t device(const CPlatformRuntime& runtime, const std::uint64_t native) noexcept
+    {
+        for (const CPlatformRuntime::SDevice& device : runtime.m_devices)
+        {
+            if (device.token && (device.info.device == native)) return device.token;
+        }
+        return 0u;
+    }
 };
 }
 
@@ -115,9 +125,15 @@ using platform::runtime::SPlatformInputTestAccess;
 struct SClock
 {
     std::uint64_t time{ 100u };
+    bool native_time{};
     static platform::threading::WaitError read(void* const context, std::uint64_t& time) noexcept
     {
-        time = static_cast<SClock*>(context)->time;
+        const SClock& clock = *static_cast<SClock*>(context);
+        if (clock.native_time)
+        {
+            return platform::threading::query_awake_nanoseconds(time);
+        }
+        time = clock.time;
         return {};
     }
     platform::threading::SAwakeClock source() noexcept { return { this, &read }; }
@@ -181,6 +197,85 @@ struct SNative
     }
 };
 
+struct SControllers
+{
+    struct SDevice
+    {
+        bool connected{}, history_lost{};
+        platform::native::SControllerInfo info;
+        platform::native::SControllerReading latest, queued[16]{};
+        std::uint32_t head{}, count{}, reads{};
+        std::uint64_t ordinal{};
+    } devices[k_device_capacity];
+    bool available{ true };
+    static inline SControllers* current{};
+    static bool initialise(platform::native::SControllers& source) noexcept
+    {
+        if (!current->available) return false;
+        source.state = current;
+        source.runtime->controller_backend(EControllerBackend::ready);
+        return true;
+    }
+    static void dispatch(platform::native::SControllers& source, const std::uint64_t) noexcept { source.work_pending = false; }
+    static platform::native::EControllerRead read(platform::native::SControllers& source,
+        const std::uint64_t instance, const bool baseline, platform::native::SControllerReading& reading) noexcept
+    {
+        SControllers& self = *static_cast<SControllers*>(source.state);
+        for (SDevice& device : self.devices)
+        {
+            if (!device.connected || (device.info.device != instance))
+            {
+                continue;
+            }
+            ++device.reads;
+            if (device.history_lost)
+            {
+                device.history_lost = false;
+                return platform::native::EControllerRead::history_lost;
+            }
+            if (baseline)
+            {
+                reading = device.latest;
+                device.head = device.count = 0u;
+            }
+            else if (device.count)
+            {
+                reading = device.queued[device.head];
+                device.head = (device.head + 1u) & 15u;
+                --device.count;
+            }
+            else return platform::native::EControllerRead::empty;
+            reading.ordinal = ++device.ordinal;
+            return platform::native::EControllerRead::reading;
+        }
+        return platform::native::EControllerRead::disconnected;
+    }
+    static bool destroy(platform::native::SControllers& source) noexcept { source.state = nullptr; return true; }
+    static const platform::native::SControllerAdapter& adapter() noexcept
+    {
+        static const platform::native::SControllerAdapter result{ &initialise, &dispatch, &read, &destroy };
+        return result;
+    }
+    void attach(platform::runtime::CPlatformRuntime& runtime, const std::uint32_t slot, const std::uint64_t instance) noexcept
+    {
+        SDevice& device = devices[slot];
+        device = {};
+        device.connected = true;
+        device.info.device = instance;
+        device.info.vendor = 0x045eu;
+        device.info.product = 0x028eu;
+        std::memcpy(device.info.name, "Synthetic pad", 14u);
+        runtime.controller_arrived(device.info);
+    }
+    void sample(const std::uint32_t slot, const platform::native::SControllerReading& reading) noexcept
+    {
+        SDevice& device = devices[slot];
+        device.latest = reading;
+        if (device.count == 16u) device.history_lost = true;
+        else device.queued[(device.head + device.count++) & 15u] = reading;
+    }
+};
+
 struct SReceived
 {
     ServiceReply reply;
@@ -192,6 +287,7 @@ struct SFixture
     TTestContext& tests;
     SClock clock;
     SNative native;
+    SControllers controllers;
     platform::threading::COwnerWait wake;
     host::CHostRestrictions restrictions{ clock.source() };
     host::SClientRecord client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
@@ -319,9 +415,11 @@ struct SFixture
         return result;
     }
     explicit SFixture(TTestContext& tests, const bool seed = true,
-        const platform::native::SWindowAdapter& adapter = SNative::adapter()) noexcept : tests{ tests }
+        const platform::native::SWindowAdapter& adapter = SNative::adapter(),
+        const platform::native::SControllerAdapter& controller_adapter = SControllers::adapter()) noexcept : tests{ tests }
     {
         SNative::current = &native;
+        SControllers::current = &controllers;
         TEST_EXPECT(tests, (wake.initialise().code == platform::threading::EWaitError::none));
         client.phase = other.phase = provider.phase = host::EClientPhase::ready;
         client.execution = other.execution = provider.execution = host::EClientExecution::pumped;
@@ -342,7 +440,7 @@ struct SFixture
         context.service_context = this;
         context.execution = &execution;
         context.owner_wake = wake.endpoint();
-        TEST_EXPECT(tests, (runtime.emplace(context, adapter, clock.source()) && runtime->initialise()));
+        TEST_EXPECT(tests, (runtime.emplace(context, adapter, clock.source(), controller_adapter) && runtime->initialise()));
         if (seed)
         {
             TEST_EXPECT(tests, SPlatformInputTestAccess::install(*runtime, EConnection::desktop));
@@ -517,14 +615,15 @@ struct SUse
     CInputReader reader;
     SPreparedServiceBorrow borrow;
     ServiceNotificationRegistered registered;
-    const SInputEndpointV3* view{ nullptr };
+    const SInputEndpointV4* view{ nullptr };
     std::uint64_t acquisition{ 0u };
     bool second{ false };
     unsigned boundaries{ 0u }, records{ 0u };
     std::uint32_t cancellations{ 0u };
     ~SUse() noexcept { reader.close(); }
     bool acquire(SFixture& fixture, const EConnection kind, const bool other = false,
-        const SInstallationToken installation = {}, const std::uint32_t profile = 1u, const std::uint32_t context = 1u) noexcept
+        const SInstallationToken installation = {}, const std::uint32_t profile = 1u, const std::uint32_t context = 1u,
+        const std::uint64_t device = k_default_device) noexcept
     {
         second = other;
         if (kind == EConnection::desktop)
@@ -533,13 +632,13 @@ struct SUse
                 { installation.value ? installation.value : 1u }, profile, context }, second);
         }
         else acquisition = fixture.submit(ECommand::acquire_controller,
-            SAcquireController{ { installation.value ? installation.value : 2u }, 0u, profile, context }, second);
+            SAcquireController{ { installation.value ? installation.value : 2u }, device, profile, context }, second);
         fixture.step();
         for (std::uint32_t step = 0u; !fixture.prepared(acquisition).borrow.value && (step < 10000u); ++step) fixture.step();
         borrow = fixture.prepared(acquisition);
         TEST_EXPECT(fixture.tests, (borrow.view.descriptor != nullptr));
         if (!borrow.view.descriptor) return false;
-        view = static_cast<const SInputEndpointV3*>(borrow.view.descriptor);
+        view = static_cast<const SInputEndpointV4*>(borrow.view.descriptor);
         TEST_EXPECT(fixture.tests, reader.install(*view, (second ? fixture.other.instance : fixture.client.instance)));
         return true;
     }
@@ -776,14 +875,16 @@ void deadlines_admission_and_retirement(TTestContext& ctx)
         fixture.step();
         TEST_EXPECT(ctx, (fixture.terminal(busy) == EServiceStatus::busy));
         SPlatformInputTestAccess::saturate_acquisitions(*fixture.runtime, false);
+        fixture.controllers.attach(*fixture.runtime, 0u, 17u);
+        const std::uint64_t device = SPlatformInputTestAccess::device(*fixture.runtime, 17u);
         SUse use;
         if (!use.acquire(fixture, EConnection::controller))
         {
             return;
         }
-        const std::uint64_t duplicate = fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, 0u, 1u, 1u });
+        const std::uint64_t duplicate = fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, device, 1u, 1u });
         fixture.step();
-        TEST_EXPECT(ctx, (fixture.terminal(duplicate) == EServiceStatus::busy));
+        TEST_EXPECT(ctx, (fixture.terminal(duplicate) == EServiceStatus::occupied));
         fixture.clock.time += 4000000000u;
         use.ready(fixture);
         use.drain(fixture);
@@ -1234,7 +1335,7 @@ void mapper_runtime_integration(TTestContext& ctx)
     desktop.borrow = fixture.prepared(acquisition);
     TEST_EXPECT(ctx, desktop.borrow.view.descriptor);
     if (!desktop.borrow.view.descriptor) return;
-    desktop.view = static_cast<const SInputEndpointV3*>(desktop.borrow.view.descriptor);
+    desktop.view = static_cast<const SInputEndpointV4*>(desktop.borrow.view.descriptor);
     TEST_EXPECT(ctx, desktop.reader.install(*desktop.view, fixture.client.instance));
     desktop.activate(fixture);
     if (!controller.acquire(fixture, EConnection::controller, false, token, 8u, 4u)) return;
@@ -1251,6 +1352,10 @@ void mapper_runtime_integration(TTestContext& ctx)
     SInputObservation key, stick;
     key.device = 11u;
     stick.device = 22u;
+    fixture.runtime->input_device(controller.view->connection, stick.device);
+    fixture.step();
+    controller.drain(fixture);
+    controller.acknowledge(fixture);
     key.ordinal = stick.ordinal = 1u;
     key.time_ns = stick.time_ns = 100u;
     key.baseline = stick.baseline = true;
@@ -1258,8 +1363,8 @@ void mapper_runtime_integration(TTestContext& ctx)
     key.count = stick.count = 1u;
     key.controls[0].control = 1u;
     stick.controls[0].control = 270u;
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::accepted));
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::controller, stick) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(controller.view->connection, stick) == EInputAdmission::accepted));
     fixture.step();
     TEST_EXPECT(ctx, (connection->mapper().pending() && !pad.mapper().pending() && fixture.progress.work_pending));
     settle();
@@ -1267,13 +1372,13 @@ void mapper_runtime_integration(TTestContext& ctx)
     ++key.ordinal;
     ++stick.ordinal;
     key.controls[0].x = stick.controls[0].x = 1.0f;
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::accepted));
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::controller, stick) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(controller.view->connection, stick) == EInputAdmission::accepted));
     fixture.step();
     desktop.drain(fixture);
     controller.drain(fixture);
     TEST_EXPECT(ctx, ((controller.records == 1u) && (desktop.records > 0u) && ((desktop.records + controller.records) <= 64u)));
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::busy));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::busy));
     TEST_EXPECT(ctx, fixture.restrictions.begin_invocation(fixture.provider.instance, true));
     fixture.runtime->enter_modal(false);
     const std::uint64_t desktop_generation = connection->snapshot().action_generation;
@@ -1297,26 +1402,26 @@ void mapper_runtime_integration(TTestContext& ctx)
         key.controls[0].x = stick.controls[0].x = value;
         ++key.ordinal;
         ++stick.ordinal;
-        TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::accepted));
-        TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::controller, stick) == EInputAdmission::accepted));
+        TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
+        TEST_EXPECT(ctx, (fixture.runtime->input_observation(controller.view->connection, stick) == EInputAdmission::accepted));
         settle();
     }
     fixture.runtime->input_focus(true);
     ++key.ordinal;
     ++stick.ordinal;
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::accepted));
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::controller, stick) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(controller.view->connection, stick) == EInputAdmission::accepted));
     settle();
     desktop.drain(fixture);
     controller.drain(fixture);
     TEST_EXPECT(ctx, ((desktop.records == desktop_before) && (controller.records == pad_before)));
     key.controls[0].x = 0.0f;
     ++key.ordinal;
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
     settle();
     key.controls[0].x = 1.0f;
     ++key.ordinal;
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::accepted));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
     const std::uint64_t committed = connection->snapshot().committed;
     fixture.native.fail_dispatch = true;
     SPlatformInputTestAccess::late_dispatch(*fixture.runtime);
@@ -1325,7 +1430,7 @@ void mapper_runtime_integration(TTestContext& ctx)
     TEST_EXPECT(ctx, ((connection->snapshot().phase == EPhase::closing) &&
         (fixture.native.committed_at_failure >= committed) &&
         (connection->snapshot().committed == fixture.native.committed_at_failure)));
-    TEST_EXPECT(ctx, (fixture.runtime->input_observation(EConnection::desktop, key) == EInputAdmission::closed));
+    TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::closed));
 }
 
 void installation_lifecycle(TTestContext& ctx)
@@ -1531,7 +1636,605 @@ void capture_failure_cleanup(TTestContext& ctx)
     }
 }
 
+struct SCatalogue
+{
+    SPreparedServiceBorrow borrow;
+    const SControllerCatalogueV1* view{};
+    bool acquire(SFixture& fixture)
+    {
+        const std::uint64_t request = fixture.submit(static_cast<std::uint16_t>(ECommand::acquire_catalogue), nullptr, 0u);
+        for (unsigned step = 0u; !fixture.prepared(request).borrow.value && (step < 16u); ++step) fixture.step();
+        borrow = fixture.prepared(request);
+        if (!borrow.view.descriptor) return false;
+        view = static_cast<const SControllerCatalogueV1*>(borrow.view.descriptor);
+        const ServiceNotificationRegistered registered = fixture.registration(borrow);
+        (void)fixture.submit(ECommand::catalogue_ready, SCatalogueReady{ borrow.borrow, registered.registration, { request } });
+        fixture.step();
+        TEST_EXPECT(fixture.tests, (fixture.terminal(request) == EServiceStatus::success));
+        return true;
+    }
+};
+
+static void controller_settle(SFixture& fixture, SUse& use)
+{
+    for (unsigned step = 0u; step < 12u; ++step) fixture.step();
+    use.drain(fixture);
+    SBoundaryReady ready;
+    if (use.reader.boundary_ready(ready)) use.acknowledge(fixture);
+    for (unsigned step = 0u; step < 12u; ++step) fixture.step();
+}
+
+void controller_catalogue_and_claims(TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    SCatalogue catalogue;
+    TEST_EXPECT(ctx, catalogue.acquire(fixture));
+    if (!catalogue.view) return;
+    SCatalogueSnapshot empty;
+    TEST_EXPECT(ctx, (catalogue.view->state->read(empty) == EStateRead::success));
+    TEST_EXPECT(ctx, ((empty.backend == EControllerBackend::ready) && !empty.count &&
+        (catalogue.view->pipe_capacity == 4u) && (catalogue.view->device_capacity == 16u)));
+    SUse first, second, third, fourth;
+    if (!first.acquire(fixture, EConnection::controller))
+    {
+        return;
+    }
+    first.activate(fixture);
+    SInputEndpointV4 wrong_clock = *first.view;
+    wrong_clock.clock = EClock::awake_nanoseconds;
+    TEST_EXPECT(ctx, !wrong_clock.is_valid());
+    TEST_EXPECT(ctx, !first.reader.snapshot().device);
+    for (std::uint32_t slot = 0u; slot < 3u; ++slot) fixture.controllers.attach(*fixture.runtime, slot, 100u + slot);
+    const std::uint64_t one = SPlatformInputTestAccess::device(*fixture.runtime, 100u);
+    const std::uint64_t two = SPlatformInputTestAccess::device(*fixture.runtime, 101u);
+    const std::uint64_t three = SPlatformInputTestAccess::device(*fixture.runtime, 102u);
+    TEST_EXPECT(ctx, (one && two && three && (one != two) && (two != three)));
+    first.drain(fixture);
+    TEST_EXPECT(ctx, !first.reader.snapshot().device); // Arrival does not auto-fill an existing slot.
+    const std::uint64_t stale = fixture.submit(ECommand::enumerate_device, SEnumerateDevice{ catalogue.borrow.borrow, empty.revision });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(stale) == EServiceStatus::stale));
+    SCatalogueSnapshot current;
+    TEST_EXPECT(ctx, (catalogue.view->state->read(current) == EStateRead::success));
+    const std::uint64_t query = fixture.submit(ECommand::enumerate_device, SEnumerateDevice{ catalogue.borrow.borrow, current.revision });
+    const std::uint64_t foreign = fixture.submit(ECommand::enumerate_device, SEnumerateDevice{ catalogue.borrow.borrow, current.revision }, true);
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(query) == EServiceStatus::success) && (fixture.terminal(foreign) == EServiceStatus::invalid_request)));
+    SDeviceResult result;
+    for (std::uint32_t index = 0u; index < fixture.history_count; ++index)
+    {
+        const ServiceReply& reply = fixture.history[index].reply;
+        if ((reply.request.value == query) && (reply.payload_size == sizeof(result))) std::memcpy(&result, reply.payload, sizeof(result));
+    }
+    TEST_EXPECT(ctx, ((result.device == one) && (result.flags == k_device_eligible)));
+    //  Hold an enumeration completion across the claim change. Its copied result
+    //  must retain the revision and availability that were actually enumerated.
+    fixture.completion_busy = true;
+    const std::uint64_t retained = fixture.submit(ECommand::enumerate_device,
+        SEnumerateDevice{ catalogue.borrow.borrow, current.revision });
+    fixture.step();
+    const std::uint64_t assign = fixture.submit(ECommand::assign_device,
+        SAssignDevice{ first.view->connection, one, first.reader.snapshot().action_generation });
+    fixture.step();
+    fixture.completion_busy = false;
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(assign) == EServiceStatus::success));
+    bool retained_found = false;
+    for (std::uint32_t index = 0u; index < fixture.history_count; ++index)
+    {
+        const ServiceReply& reply = fixture.history[index].reply;
+        if ((reply.request.value == retained) && (reply.payload_size == sizeof(result)))
+        {
+            std::memcpy(&result, reply.payload, sizeof(result));
+            retained_found = true;
+        }
+    }
+    TEST_EXPECT(ctx, (retained_found && (result.revision == current.revision) &&
+        (result.device == one) && (result.flags == k_device_eligible)));
+    controller_settle(fixture, first);
+    TEST_EXPECT(ctx, (first.reader.snapshot().device == one));
+    if (!second.acquire(fixture, EConnection::controller, true))
+    {
+        return;
+    }
+    second.activate(fixture);
+    if (!third.acquire(fixture, EConnection::controller, false, {}, 1u, 1u, three))
+    {
+        return;
+    }
+    third.activate(fixture);
+    controller_settle(fixture, second);
+    controller_settle(fixture, third);
+    TEST_EXPECT(ctx, ((second.reader.snapshot().device == two) && (third.reader.snapshot().device == three)));
+    const std::uint64_t occupied = fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, one, 1u, 1u });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(occupied) == EServiceStatus::occupied));
+    if (!fourth.acquire(fixture, EConnection::controller, false, {}, 1u, 1u, k_unassigned_device))
+    {
+        return;
+    }
+    fourth.activate(fixture);
+    const std::uint64_t full = fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, 0u, 1u, 1u });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(full) == EServiceStatus::busy));
+    const std::uint64_t independent = second.reader.snapshot().action_generation;
+    fixture.runtime->controller_departed(100u);
+    fixture.controllers.attach(*fixture.runtime, 0u, 100u); // Reused native identity still gets a new public instance.
+    const std::uint64_t replacement = SPlatformInputTestAccess::device(*fixture.runtime, 100u);
+    TEST_EXPECT(ctx, (replacement && (replacement != one)));
+    controller_settle(fixture, first);
+    second.drain(fixture);
+    TEST_EXPECT(ctx, (!first.reader.snapshot().device && (first.reader.snapshot().controller_state == EControllerState::disconnected) &&
+        (second.reader.snapshot().action_generation == independent) && (second.reader.snapshot().device == two)));
+    const std::uint64_t old = fixture.submit(ECommand::assign_device,
+        SAssignDevice{ first.view->connection, one, first.reader.snapshot().action_generation });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(old) == EServiceStatus::stale));
+    const std::uint64_t reassign = fixture.submit(ECommand::assign_device,
+        SAssignDevice{ first.view->connection, replacement, first.reader.snapshot().action_generation });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(reassign) == EServiceStatus::success));
+    controller_settle(fixture, first);
+    TEST_EXPECT(ctx, (first.reader.snapshot().device == replacement));
+    for (std::uint32_t slot = 3u; slot < k_device_capacity; ++slot) fixture.controllers.attach(*fixture.runtime, slot, 100u + slot);
+    platform::native::SControllerInfo extra;
+    extra.device = 999u;
+    fixture.runtime->controller_arrived(extra);
+    TEST_EXPECT(ctx, (catalogue.view->state->read(current) == EStateRead::success));
+    TEST_EXPECT(ctx, ((current.count == k_device_capacity) && current.overflow && !SPlatformInputTestAccess::device(*fixture.runtime, 999u)));
+    first.drain(fixture);
+    TEST_EXPECT(ctx, (first.reader.snapshot().device == replacement));
+    // A closing pipe retains its claim and capacity until consumer quiescence.
+    const SConnectionToken first_token = first.view->connection;
+    first.reader.close();
+    fixture.router.release_borrow(fixture.client, { fixture.route, first.borrow.borrow });
+    fixture.step();
+    CInputConnection* const closing = SPlatformInputTestAccess::connection(*fixture.runtime, first_token);
+    TEST_EXPECT(ctx, (closing && (closing->snapshot().phase == EPhase::closing) && (closing->snapshot().device == replacement)));
+    fixture.router.quiesce_borrow(fixture.client, { fixture.route, first.borrow.borrow });
+    for (unsigned step = 0u; step < 8u; ++step) fixture.step();
+    TEST_EXPECT(ctx, !SPlatformInputTestAccess::connection(*fixture.runtime, first_token));
+}
+
+void controller_source_history(TTestContext& ctx)
+{
+    SFixture fixture{ ctx, false };
+    const CAssetId source = fixture.schema_source();
+    const std::uint64_t install = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    for (unsigned step = 0u; !installation_token(fixture, install).value && (step < 20000u); ++step) fixture.step();
+    const SInstallationToken installation = installation_token(fixture, install);
+    TEST_EXPECT(ctx, installation.value);
+    fixture.controllers.attach(*fixture.runtime, 0u, 201u);
+    fixture.controllers.attach(*fixture.runtime, 1u, 202u);
+    SUse first, second;
+    if (!first.acquire(fixture, EConnection::controller, false, installation, 8u, 4u))
+    {
+        return;
+    }
+    first.activate(fixture);
+    if (!second.acquire(fixture, EConnection::controller, true, installation, 8u, 4u))
+    {
+        return;
+    }
+    second.activate(fixture);
+    controller_settle(fixture, first);
+    controller_settle(fixture, second);
+    const std::uint64_t other_generation = second.reader.snapshot().action_generation;
+    platform::native::SControllerReading sample;
+    sample.time_ns = 10u;
+    sample.left_x = 0.8f;
+    const auto observe = [&](const bool available, const std::uint64_t time, const float x)
+    {
+        sample.time_valid = available;
+        sample.time_ns = time;
+        sample.left_x = x;
+        fixture.controllers.sample(0u, sample);
+        for (unsigned step = 0u; step < 12u; ++step) fixture.step();
+        SInputEvent captured;
+        bool found = false;
+        for (unsigned step = 0u; step < 32u; ++step)
+        {
+            SInputEvent event;
+            const EInputRead read = first.reader.next(event);
+            if (read == EInputRead::empty) break;
+            if (read == EInputRead::record)
+            {
+                captured = event;
+                found = true;
+            }
+        }
+        TEST_EXPECT(ctx, found);
+        TEST_EXPECT(ctx, ((captured.action.time_ns == (available ? time : 0u)) &&
+            (((captured.action.flags & k_no_source_time) == 0u) == available) && captured.device && captured.clock_domain && captured.clock_epoch));
+        return captured;
+    };
+    const SInputEvent a = observe(true, 10u, 0.8f);
+    const SInputEvent b = observe(true, 10u, 0.5f); // Tied timestamps still preserve source order.
+    const SInputEvent c = observe(false, 0u, 0.3f);
+    const SInputEvent d = observe(true, 11u, 0.7f);
+    TEST_EXPECT(ctx, ((a.action.sequence < b.action.sequence) && (b.action.sequence < c.action.sequence) &&
+        (c.action.sequence < d.action.sequence)));
+    fixture.clock.time = 777u;
+    sample.time_ns = 12u;
+    fixture.controllers.sample(0u, sample); // Unchanged controls still update receipt diagnostics.
+    for (unsigned step = 0u; step < 12u; ++step) fixture.step();
+    first.drain(fixture);
+    TEST_EXPECT(ctx, (first.reader.snapshot().receipt_awake_ns == 777u));
+    fixture.controllers.devices[0].history_lost = true;
+    fixture.step();
+    controller_settle(fixture, first);
+    TEST_EXPECT(ctx, ((first.reader.snapshot().device == a.device) && first.reader.snapshot().ingress_loss));
+    second.drain(fixture);
+    TEST_EXPECT(ctx, (second.reader.snapshot().action_generation == other_generation));
+    // A clock reset crosses a boundary and permits a smaller source timestamp.
+    fixture.controllers.devices[0].info.clock_epoch = 2u;
+    fixture.controllers.devices[0].latest = {};
+    fixture.runtime->controller_arrived(fixture.controllers.devices[0].info);
+    controller_settle(fixture, first);
+    TEST_EXPECT(ctx, ((first.reader.snapshot().clock_epoch == 2u) && (first.reader.validate(d) == EInputValidation::stale)));
+    (void)observe(true, 1u, 0.5f);
+    // A backwards timestamp without an epoch change is an explicit source fault.
+    sample.time_ns = 0u;
+    sample.left_x = 0.9f;
+    fixture.controllers.sample(0u, sample);
+    controller_settle(fixture, first);
+    TEST_EXPECT(ctx, (!first.reader.snapshot().device && (first.reader.snapshot().controller_state == EControllerState::invalid_sample)));
+    second.drain(fixture);
+    TEST_EXPECT(ctx, ((second.reader.snapshot().device != 0u) && (second.reader.snapshot().action_generation == other_generation)));
+    CInputConnection& survivor = *SPlatformInputTestAccess::connection(*fixture.runtime, second.view->connection);
+    const std::uint64_t retained_device = survivor.snapshot().device;
+    SInputPublicationTestAccess::revision(SPlatformInputTestAccess::publication(survivor), 0xfffffffcu);
+    sample.time_ns = 20u;
+    fixture.controllers.sample(1u, sample);
+    fixture.step();
+    TEST_EXPECT(ctx, ((survivor.snapshot().phase == EPhase::closing) && (survivor.snapshot().device == retained_device)));
+    TEST_EXPECT(ctx, !survivor.assign(0u, 0u, 0u, EControllerState::unassigned, EReason::assignment));
+    TEST_EXPECT(ctx, (survivor.snapshot().device == retained_device));
+}
+
+void controller_parallel_recovery(TTestContext& ctx)
+{
+    SFixture fixture{ ctx, false };
+    const CAssetId source = fixture.schema_source();
+    fixture.source = tests::controller_schema();
+    const std::uint64_t install = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    for (unsigned step = 0u; !installation_token(fixture, install).value && (step < 20000u); ++step) fixture.step();
+    const SInstallationToken installation = installation_token(fixture, install);
+    TEST_EXPECT(ctx, installation.value);
+    fixture.controllers.attach(*fixture.runtime, 0u, 301u);
+    fixture.controllers.attach(*fixture.runtime, 1u, 302u);
+    SUse first, second;
+    if (!first.acquire(fixture, EConnection::controller, false, installation, 8u, 4u) ||
+        !second.acquire(fixture, EConnection::controller, false, installation, 8u, 5u))
+    {
+        return;
+    }
+    first.activate(fixture);
+    second.activate(fixture);
+    controller_settle(fixture, first);
+    controller_settle(fixture, second);
+    platform::native::SControllerReading sample;
+    for (unsigned report = 0u; report < 16u; ++report)
+    {
+        sample.time_ns = report + 1u;
+        sample.buttons = (report & 1u) ? 0u : 0x3fffu;
+        sample.left_x = (report & 1u) ? 0.0f : 0.8f;
+        fixture.controllers.sample(0u, sample);
+        fixture.controllers.sample(1u, sample);
+    }
+    for (unsigned step = 0u; step < 128u; ++step) fixture.step();
+    first.drain(fixture);
+    second.drain(fixture);
+    TEST_EXPECT(ctx, ((first.records >= 200u) && (second.records >= 200u) &&
+        (first.reader.snapshot().context == 4u) && (second.reader.snapshot().context == 5u)));
+    const std::uint64_t original_device = first.reader.snapshot().device;
+    const std::uint64_t generation = first.reader.snapshot().action_generation;
+    const std::uint64_t context = fixture.submit(ECommand::select_context, SSelectContext{ first.view->connection, 5u });
+    const std::uint64_t stale = fixture.submit(ECommand::assign_device, SAssignDevice{ first.view->connection, k_unassigned_device, generation });
+    fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(context) == EServiceStatus::success) && (fixture.terminal(stale) == EServiceStatus::stale)));
+    controller_settle(fixture, first);
+    TEST_EXPECT(ctx, (first.reader.snapshot().device == original_device));
+    //  Both sources remain held throughout focus loss. The returning baseline
+    //  must suppress them until a subsequent neutral report and fresh input.
+    fixture.runtime->input_focus(false);
+    sample.time_ns = 100u;
+    sample.buttons = 1u;
+    sample.left_x = 0.8f;
+    fixture.controllers.sample(0u, sample);
+    fixture.controllers.sample(1u, sample);
+    fixture.step();
+    fixture.runtime->input_focus(true);
+    controller_settle(fixture, first);
+    controller_settle(fixture, second);
+    const unsigned before_first = first.records, before_second = second.records;
+    sample.time_ns = 101u;
+    fixture.controllers.sample(0u, sample);
+    fixture.controllers.sample(1u, sample);
+    for (unsigned step = 0u; step < 16u; ++step) fixture.step();
+    first.drain(fixture);
+    second.drain(fixture);
+    TEST_EXPECT(ctx, ((first.records == before_first) && (second.records == before_second)));
+    sample.time_ns = 102u;
+    sample.buttons = 0u;
+    sample.left_x = 0.0f;
+    fixture.controllers.sample(0u, sample);
+    fixture.controllers.sample(1u, sample);
+    for (unsigned step = 0u; step < 16u; ++step) fixture.step();
+    sample.time_ns = 103u;
+    sample.buttons = 1u;
+    sample.left_x = 0.8f;
+    fixture.controllers.sample(0u, sample);
+    fixture.controllers.sample(1u, sample);
+    for (unsigned step = 0u; step < 16u; ++step) fixture.step();
+    first.drain(fixture);
+    second.drain(fixture);
+    TEST_EXPECT(ctx, ((first.records > before_first) && (second.records > before_second)));
+    fixture.runtime->controller_backend(EControllerBackend::failed, 99u);
+    controller_settle(fixture, first);
+    controller_settle(fixture, second);
+    TEST_EXPECT(ctx, (!first.reader.snapshot().device && !second.reader.snapshot().device &&
+        (first.reader.snapshot().controller_state == EControllerState::unavailable) &&
+        (second.reader.snapshot().controller_state == EControllerState::unavailable)));
+}
+
+void controller_unavailable_and_catalogue_retirement(TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    fixture.controllers.available = false;
+    SCatalogue catalogue;
+    TEST_EXPECT(ctx, catalogue.acquire(fixture));
+    if (!catalogue.view) return;
+    SCatalogueSnapshot snapshot;
+    TEST_EXPECT(ctx, (catalogue.view->state->read(snapshot) == EStateRead::success));
+    TEST_EXPECT(ctx, ((snapshot.backend == EControllerBackend::unavailable) && !snapshot.count));
+    const std::uint64_t unavailable = fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, 0u, 1u, 1u });
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.terminal(unavailable) == EServiceStatus::unavailable));
+    SUse unassigned;
+    if (!unassigned.acquire(fixture, EConnection::controller, false, {}, 1u, 1u, k_unassigned_device))
+    {
+        return;
+    }
+    unassigned.activate(fixture);
+    TEST_EXPECT(ctx, !unassigned.reader.snapshot().device);
+    const std::uint64_t request = fixture.submit(static_cast<std::uint16_t>(ECommand::acquire_catalogue), nullptr, 0u);
+    fixture.step();
+    const SPreparedServiceBorrow pending = fixture.prepared(request);
+    TEST_EXPECT(ctx, pending.view.descriptor);
+    if (!pending.view.descriptor) return;
+    fixture.clock.time += UINT64_C(5000000001);
+    //  Catalogue progress runs after this pump's completion flush; allow the
+    //  retained terminal reply to be delivered by the following pump.
+    for (unsigned step = 0u; (fixture.terminal(request) == EServiceStatus::unavailable) && (step < 4u); ++step)
+    {
+        fixture.step();
+    }
+    TEST_EXPECT(ctx, (fixture.terminal(request) == EServiceStatus::timed_out));
+    const SControllerCatalogueV1& retained = *static_cast<const SControllerCatalogueV1*>(pending.view.descriptor);
+    TEST_EXPECT(ctx, (retained.state->read(snapshot) == EStateRead::success));
+    TEST_EXPECT(ctx, !fixture.router.provider_borrows_retired(fixture.provider));
+    fixture.release(pending);
+    fixture.router.release_borrow(fixture.client, { fixture.route, catalogue.borrow.borrow });
+    fixture.step();
+    TEST_EXPECT(ctx, (catalogue.view->state->read(snapshot) == EStateRead::success));
+    fixture.router.quiesce_borrow(fixture.client, { fixture.route, catalogue.borrow.borrow });
+    for (unsigned step = 0u; step < 8u; ++step) fixture.step();
+}
+
 #if MV_PLATFORM_WINDOWS
+static void controller_native_acceptance(TTestContext& ctx, const bool interactive)
+{
+    SFixture fixture{ ctx, false, (interactive ? platform::native::window_adapter() : SNative::adapter()),
+        platform::native::controller_adapter() };
+    fixture.clock.native_time = true;
+    SCatalogue catalogue;
+    TEST_EXPECT(ctx, catalogue.acquire(fixture));
+    if (!catalogue.view) return;
+    SCatalogueSnapshot available;
+    const ULONGLONG startup_deadline = GetTickCount64() + 5000u;
+    do
+    {
+        fixture.step();
+        TEST_EXPECT(ctx, (catalogue.view->state->read(available) == EStateRead::success));
+        if (available.backend != EControllerBackend::initialising)
+        {
+            break;
+        }
+        Sleep(1u);
+    } while (GetTickCount64() < startup_deadline);
+    std::printf("GameInput backend=%u devices=%u error=0x%08x (zero devices is valid)\n",
+        static_cast<unsigned>(available.backend), available.count, available.error);
+    TEST_EXPECT(ctx, (available.backend == EControllerBackend::ready));
+    if (available.backend != EControllerBackend::ready)
+    {
+        return;
+    }
+    //  Enumerate copied public results, including the revision check at the end.
+    std::uint32_t cursor = 0u;
+    bool enumeration_complete = false;
+    for (std::uint32_t item = 0u; item <= k_device_capacity; ++item)
+    {
+        const std::uint64_t request = fixture.submit(ECommand::enumerate_device,
+            SEnumerateDevice{ catalogue.borrow.borrow, available.revision, cursor });
+        fixture.step();
+        if (fixture.terminal(request) == EServiceStatus::stale)
+        {
+            break;
+        }
+        TEST_EXPECT(ctx, (fixture.terminal(request) == EServiceStatus::success));
+        SDeviceResult device;
+        bool found = false;
+        for (std::uint32_t index = 0u; index < fixture.history_count; ++index)
+        {
+            const ServiceReply& reply = fixture.history[index].reply;
+            if ((reply.request.value == request) && (reply.payload_size == sizeof(device)))
+            {
+                std::memcpy(&device, reply.payload, sizeof(device));
+                found = true;
+            }
+        }
+        TEST_EXPECT(ctx, (found && (device.revision == available.revision)));
+        if (!found) return;
+        if (device.flags & k_device_end)
+        {
+            enumeration_complete = true;
+            break;
+        }
+        TEST_EXPECT(ctx, (device.device && (device.next_cursor > cursor) && (device.next_cursor <= k_device_capacity)));
+        std::printf("  device=%llu eligible=%u claimed=%u\n", static_cast<unsigned long long>(device.device),
+            ((device.flags & k_device_eligible) ? 1u : 0u), ((device.flags & k_device_claimed) ? 1u : 0u));
+        cursor = device.next_cursor;
+    }
+    SCatalogueSnapshot after;
+    TEST_EXPECT(ctx, (catalogue.view->state->read(after) == EStateRead::success));
+    TEST_EXPECT(ctx, (enumeration_complete || (after.revision != available.revision)));
+    if (after.revision != available.revision) std::printf("Catalogue changed during scan; repeat for a coherent list.\n");
+    const CAssetId source = fixture.schema_source();
+    fixture.source = tests::controller_schema();
+    const std::uint64_t install = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    for (unsigned step = 0u; !installation_token(fixture, install).value && (step < 20000u); ++step) fixture.step();
+    const SInstallationToken installation = installation_token(fixture, install);
+    TEST_EXPECT(ctx, installation.value);
+    if (!installation.value) return;
+    if (interactive) (void)fixture.window();
+    SUse pipes[k_controller_capacity];
+    for (std::uint32_t index = 0u; index < k_controller_capacity; ++index)
+    {
+        if (!pipes[index].acquire(fixture, EConnection::controller, false, installation, 8u, 4u + (index & 1u)))
+        {
+            return;
+        }
+        pipes[index].activate(fixture);
+        controller_settle(fixture, pipes[index]);
+        std::printf("  pipe=%u device=%llu context=%u\n", (index + 1u),
+            static_cast<unsigned long long>(pipes[index].reader.snapshot().device), pipes[index].reader.snapshot().context);
+    }
+    if (!interactive)
+    {
+        std::printf("Runtime/pipe lifecycle smoke only; physical controls remain unverified.\n");
+        return;
+    }
+    const HWND handle = reinterpret_cast<HWND>(SPlatformInputTestAccess::handle(*fixture.runtime));
+    (void)SetForegroundWindow(handle);
+    (void)SetFocus(handle);
+    std::printf("60-second observation: 1-4 select displayed pipe; C changes its context; U unassigns it;\n"
+        "R explicitly assigns available devices to unassigned pipes; Escape finishes. Move/release every control.\n"
+        "After disconnect/reconnect, press R to reassign. Alt+Tab tests held-state recovery.\n");
+    struct SDisplay
+    {
+        std::uint32_t buttons{}, records{};
+        SVectorAction left, right;
+        float left_trigger{}, right_trigger{};
+        std::uint64_t time{}, domain{}, epoch{};
+    } display[k_controller_capacity];
+    constexpr int keys[]{ '1', '2', '3', '4', 'C', 'U', 'R', VK_ESCAPE };
+    bool held[sizeof(keys) / sizeof(keys[0])]{};
+    std::uint32_t selected = 0u;
+    const ULONGLONG end = GetTickCount64() + 60000u;
+    ULONGLONG display_at = 0u;
+    while ((GetTickCount64() < end) && IsWindow(handle) && !fixture.runtime->cancelling())
+    {
+        fixture.step();
+        for (std::uint32_t index = 0u; index < k_controller_capacity; ++index)
+        {
+            SUse& use = pipes[index];
+            SDisplay& values = display[index];
+            for (unsigned work = 0u; work < k_action_capacity; ++work)
+            {
+                SInputEvent event;
+                const EInputRead read = use.reader.next(event);
+                if (read == EInputRead::empty) break;
+                if ((read == EInputRead::failed) || (read == EInputRead::closing))
+                {
+                    std::printf("Pipe %u reader stopped unexpectedly: %u\n", (index + 1u), static_cast<unsigned>(read));
+                    TEST_EXPECT(ctx, false);
+                    return;
+                }
+                if (read == EInputRead::cancelled)
+                {
+                    (void)use.reader.take_cancellation();
+                    const std::uint32_t records = values.records;
+                    values = {};
+                    values.records = records;
+                }
+                if (read != EInputRead::record) continue;
+                TEST_EXPECT(ctx, (use.reader.validate(event) == EInputValidation::current));
+                ++values.records;
+                values.time = event.action.time_ns;
+                values.domain = event.clock_domain;
+                values.epoch = event.clock_epoch;
+                const std::uint32_t control = event.action.subject - 100u;
+                if (control < 14u)
+                {
+                    SDigitalAction value;
+                    std::memcpy(&value, event.action.payload, sizeof(value));
+                    if (value.active) values.buttons |= 1u << control;
+                    else values.buttons &= ~(1u << control);
+                }
+                else if (control == 14u) std::memcpy(&values.left, event.action.payload, sizeof(values.left));
+                else if (control == 15u) std::memcpy(&values.right, event.action.payload, sizeof(values.right));
+                else if (control == 16u) std::memcpy(&values.left_trigger, event.action.payload, sizeof(values.left_trigger));
+                else if (control == 17u) std::memcpy(&values.right_trigger, event.action.payload, sizeof(values.right_trigger));
+            }
+            SBoundaryReady ready;
+            if (use.reader.boundary_ready(ready)) use.acknowledge(fixture);
+        }
+        for (unsigned key = 0u; key < (sizeof(keys) / sizeof(keys[0])); ++key)
+        {
+            const bool down = (GetForegroundWindow() == handle) && ((GetAsyncKeyState(keys[key]) & 0x8000) != 0);
+            const bool pressed = down && !held[key];
+            held[key] = down;
+            if (!pressed) continue;
+            if (key < k_controller_capacity) selected = key;
+            else if (keys[key] == VK_ESCAPE) return;
+            else if (keys[key] == 'C')
+            {
+                const SInputSnapshot& snapshot = pipes[selected].reader.snapshot();
+                const std::uint64_t request = fixture.submit(ECommand::select_context,
+                    SSelectContext{ pipes[selected].view->connection, ((snapshot.context == 4u) ? 5u : 4u) });
+                fixture.step();
+                std::printf("Context request: status=%u\n", static_cast<unsigned>(fixture.terminal(request)));
+            }
+            else
+            {
+                for (std::uint32_t index = 0u; index < k_controller_capacity; ++index)
+                {
+                    const SInputSnapshot& snapshot = pipes[index].reader.snapshot();
+                    if (((keys[key] == 'U') && (index != selected)) || ((keys[key] == 'R') && snapshot.device))
+                    {
+                        continue;
+                    }
+                    const std::uint64_t target = (keys[key] == 'U') ? k_unassigned_device : k_default_device;
+                    const std::uint64_t request = fixture.submit(ECommand::assign_device,
+                        SAssignDevice{ pipes[index].view->connection, target, snapshot.action_generation });
+                    fixture.step();
+                    std::printf("Assignment pipe=%u status=%u\n", (index + 1u), static_cast<unsigned>(fixture.terminal(request)));
+                }
+            }
+        }
+        if (GetTickCount64() >= display_at)
+        {
+            const SInputSnapshot& snapshot = pipes[selected].reader.snapshot();
+            const SDisplay& values = display[selected];
+            wchar_t title[512]{};
+            (void)std::swprintf(title, 512u,
+                L"Pad %u device %llu state %u context %u | buttons %04x L %.2f %.2f R %.2f %.2f T %.2f %.2f | records %u/%u/%u/%u",
+                (selected + 1u), static_cast<unsigned long long>(snapshot.device), static_cast<unsigned>(snapshot.controller_state), snapshot.context,
+                values.buttons, values.left.x, values.left.y, values.right.x, values.right.y, values.left_trigger, values.right_trigger,
+                display[0].records, display[1].records, display[2].records, display[3].records);
+            (void)SetWindowTextW(handle, title);
+            std::printf("Pipe %u device=%llu time=%llu domain/epoch=%llu/%llu receipt=%llu records=%u\n", (selected + 1u),
+                static_cast<unsigned long long>(snapshot.device), static_cast<unsigned long long>(values.time),
+                static_cast<unsigned long long>(values.domain), static_cast<unsigned long long>(values.epoch),
+                static_cast<unsigned long long>(snapshot.receipt_awake_ns), values.records);
+            display_at = GetTickCount64() + 1000u;
+        }
+        Sleep(1u);
+    }
+    std::printf("Physical behaviour requires operator review; record each model and transport separately.\n");
+}
+
 void desktop_native_bookkeeping(TTestContext& ctx, SFixture& fixture, SUse& desktop)
 {
     using namespace platform::native;
@@ -1951,9 +2654,11 @@ void desktop_native_acceptance(TTestContext& ctx, const bool interactive)
 }   //  namespace
 
 void run_input_mapper_tests(tests::TTestContext& ctx);
+void run_gameinput_ownership_tests(tests::TTestContext& ctx);
 
 void run_platform_input_tests(tests::TTestContext& ctx)
 {
+    run_gameinput_ownership_tests(ctx);
     run_input_mapper_tests(ctx);
     mapper_runtime_integration(ctx);
     installation_lifecycle(ctx);
@@ -1973,6 +2678,10 @@ void run_platform_input_tests(tests::TTestContext& ctx)
     local_cancellation_survives_overflow(ctx);
     capture_authority(ctx);
     capture_failure_cleanup(ctx);
+    controller_catalogue_and_claims(ctx);
+    controller_source_history(ctx);
+    controller_parallel_recovery(ctx);
+    controller_unavailable_and_catalogue_retirement(ctx);
 }
 
 int run_platform_input_focused()
@@ -1988,6 +2697,18 @@ int run_platform_input_native(const bool interactive)
     tests::TTestContext ctx;
     desktop_native_acceptance(ctx, interactive);
     return ctx.report(interactive ? "DesktopInputInteractive" : "DesktopInputNativeMessages");
+#else
+    (void)interactive;
+    return 2;
+#endif
+}
+
+int run_platform_controller_native(const bool interactive)
+{
+#if MV_PLATFORM_WINDOWS
+    tests::TTestContext ctx;
+    controller_native_acceptance(ctx, interactive);
+    return ctx.report(interactive ? "ControllerInputInteractive" : "ControllerInputNative");
 #else
     (void)interactive;
     return 2;
