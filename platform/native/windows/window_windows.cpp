@@ -229,7 +229,13 @@ static bool dispatch(SWindow& window, const std::uint64_t budget_ns) noexcept
         if (!desktop_next(window, message))
         {
             window.work_pending = false;
-            desktop_baseline(window);
+            //  Synchronise before deciding whether to sample. A later reentrant
+            //  cutover invalidates this epoch; an empty quiet report cannot
+            //  become a new action baseline. Ordinary quiet points retain the
+            //  state established by native transitions, including Ctrl evidence.
+            const std::uint64_t epoch = window.runtime->desktop_epoch();
+            if (window.runtime->desktop_needs_baseline()) desktop_baseline(window);
+            else window.runtime->desktop_quiet({}, epoch);
             break;
         }
         if (message.message == WM_QUIT)

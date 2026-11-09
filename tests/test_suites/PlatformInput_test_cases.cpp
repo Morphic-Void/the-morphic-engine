@@ -80,6 +80,7 @@ struct SPlatformInputTestAccess
     }
     static void late_dispatch(CPlatformRuntime& runtime) noexcept { runtime.m_native_first = true; }
     static std::uintptr_t handle(const CPlatformRuntime& runtime) noexcept { return runtime.m_window.native.handle; }
+    static const native::SDesktop& desktop(const CPlatformRuntime& runtime) noexcept { return runtime.m_window.native.desktop; }
 };
 }
 
@@ -1531,10 +1532,11 @@ void capture_failure_cleanup(TTestContext& ctx)
 }
 
 #if MV_PLATFORM_WINDOWS
-void desktop_native_bookkeeping(TTestContext& ctx, platform::runtime::CPlatformRuntime& runtime)
+void desktop_native_bookkeeping(TTestContext& ctx, SFixture& fixture, SUse& desktop)
 {
     using namespace platform::native;
     using namespace platform::runtime::input_control;
+    platform::runtime::CPlatformRuntime& runtime = *fixture.runtime;
     SWindow probe;
     probe.runtime = &runtime;
     probe.handle = SPlatformInputTestAccess::handle(runtime);
@@ -1624,6 +1626,92 @@ void desktop_native_bookkeeping(TTestContext& ctx, platform::runtime::CPlatformR
             TEST_EXPECT(ctx, (!probe.desktop.genuine_ctrl && !probe.desktop.keys[k_left_ctrl] && !probe.desktop.keys[k_either_ctrl]));
         }
     }
+    //  Physical UK trace: Ctrl, Ctrl+RAlt, Ctrl-up, then native AltGr repeat
+    //  pairs whose Ctrl prefix changes from first-down to bit-30 repeat.
+    const auto settle = [&]()
+    {
+        for (std::uint32_t step = 0u; step < 32u; ++step) fixture.step();
+    };
+    probe.desktop = {};
+    desktop_baseline(probe);
+    settle();
+    desktop.drain(fixture);
+    deliver(WM_KEYDOWN, VK_CONTROL, k_ctrl_down, false);
+    deliver(WM_KEYUP, VK_F12, ((0x58u << 16u) | k_released | 1u), false);
+    deliver(WM_KEYDOWN, VK_MENU, (k_alt_down | (1u << 29u)), false);
+    deliver(WM_SYSKEYUP, VK_CONTROL, (k_ctrl_down | k_released | (1u << 29u)), false);
+    TEST_EXPECT(ctx, (!probe.desktop.genuine_ctrl && !probe.desktop.keys[k_left_ctrl] && probe.desktop.keys[k_right_alt]));
+    settle();
+    desktop.drain(fixture);
+    constexpr std::uint16_t k_ctrl_mask = 1u << 2u;
+    constexpr std::uint16_t k_right_alt_mask = 1u << 5u;
+    constexpr std::uint16_t k_altgr_mask = 1u << 8u;
+    std::uint32_t modifier_records = 0u;
+    for (const bool repeat : { false, true, true })
+    {
+        deliver(WM_KEYDOWN, VK_CONTROL, (k_ctrl_down | (1u << 29u) | (repeat ? (1u << 30u) : 0u)), false);
+        deliver(WM_KEYDOWN, VK_MENU, (k_alt_down | (1u << 29u) | (1u << 30u)), true);
+        TEST_EXPECT(ctx, (probe.desktop.altgr && !probe.desktop.genuine_ctrl &&
+            !probe.desktop.keys[k_left_ctrl] && !probe.desktop.keys[k_either_ctrl] && probe.desktop.keys[k_right_alt]));
+        settle();
+        for (std::uint32_t step = 0u; step < 128u; ++step)
+        {
+            SInputEvent event;
+            const EInputRead result = desktop.reader.next(event);
+            if (result == EInputRead::empty) break;
+            if ((result != EInputRead::record) || (event.stream != k_actions) || (event.action.kind != EActionKind::modifiers))
+            {
+                continue;
+            }
+            SModifierInput value;
+            std::memcpy(&value, event.action.payload, sizeof(value));
+            ++modifier_records;
+            TEST_EXPECT(ctx, ((value.state.modifiers == (k_right_alt_mask | k_altgr_mask)) &&
+                (value.state.modifiers_known & k_ctrl_mask)));
+        }
+        if (!repeat) TEST_EXPECT(ctx, (modifier_records == 1u));
+    }
+    TEST_EXPECT(ctx, (modifier_records == 1u));
+    //  An ordinary quiet point must not replace tracked modifier knowledge with
+    //  the OS's synthetic Ctrl state. Only a required recovery baseline may do so.
+    const SDesktop tracked = SPlatformInputTestAccess::desktop(runtime);
+    keyboard[VK_CONTROL] = keyboard[VK_LCONTROL] = keyboard[VK_MENU] = keyboard[VK_RMENU] = 0x80u;
+    TEST_EXPECT(ctx, SetKeyboardState(keyboard));
+    settle();
+    const SDesktop& current = SPlatformInputTestAccess::desktop(runtime);
+    TEST_EXPECT(ctx, ((current.keys[k_left_ctrl] == tracked.keys[k_left_ctrl]) &&
+        (current.known[k_left_ctrl] == tracked.known[k_left_ctrl]) && (current.keys[k_right_alt] == tracked.keys[k_right_alt]) &&
+        (current.altgr == tracked.altgr)));
+    TEST_EXPECT(ctx, desktop_message(probe, WM_MOUSEMOVE, 0u, MAKELPARAM(10, 10)));
+    settle();
+    bool pointer_seen = false;
+    for (std::uint32_t step = 0u; step < 128u; ++step)
+    {
+        SInputEvent event;
+        const EInputRead result = desktop.reader.next(event);
+        if (result == EInputRead::empty) break;
+        if ((result == EInputRead::record) && (event.stream == k_actions) && (event.action.kind == EActionKind::pointer))
+        {
+            SPointerInput value;
+            std::memcpy(&value, event.action.payload, sizeof(value));
+            pointer_seen = true;
+            TEST_EXPECT(ctx, ((value.state.modifiers == (k_right_alt_mask | k_altgr_mask)) &&
+                (value.state.modifiers_known == k_modifier_mask)));
+        }
+    }
+    TEST_EXPECT(ctx, pointer_seen);
+    std::memset(keyboard, 0, sizeof(keyboard));
+    TEST_EXPECT(ctx, SetKeyboardState(keyboard));
+    //  A genuine unpaired Ctrl re-press while AltGr remains held still counts.
+    deliver(WM_KEYDOWN, VK_CONTROL, k_ctrl_down, false);
+    deliver(WM_KEYUP, VK_F12, ((0x58u << 16u) | k_released | 1u), false);
+    TEST_EXPECT(ctx, (probe.desktop.genuine_ctrl && probe.desktop.keys[k_left_ctrl] && probe.desktop.keys[k_either_ctrl]));
+    deliver(WM_KEYUP, VK_CONTROL, (k_ctrl_down | k_released), false);
+    deliver(WM_KEYUP, VK_MENU, (k_alt_down | k_released), false);
+    deliver(WM_KEYUP, VK_CONTROL, (k_ctrl_down | k_released), true);
+    TEST_EXPECT(ctx, (!probe.desktop.keys[k_left_ctrl] && !probe.desktop.keys[k_either_ctrl] && !probe.desktop.keys[k_right_alt]));
+    settle();
+    desktop.drain(fixture);
     probe.desktop.dead = probe.desktop.translation = true;
     probe.desktop.turn_char = false;
     TEST_EXPECT(ctx, desktop_message(probe, WM_UNICHAR, 0x1f600u, 1));
@@ -1848,6 +1936,7 @@ void desktop_native_acceptance(TTestContext& ctx, const bool interactive)
         }
     }
     TEST_EXPECT(ctx, (pointer && wheel && (buttons == 2u)));
+    desktop_native_bookkeeping(ctx, fixture, desktop);
     const std::uint64_t grant = fixture.submit(ECommand::set_capture,
         SSetCapture{ desktop.view->connection, connection.snapshot().transition, connection.snapshot().action_generation });
     pump();
@@ -1856,8 +1945,6 @@ void desktop_native_acceptance(TTestContext& ctx, const bool interactive)
     TEST_EXPECT(ctx, ReleaseCapture());
     TEST_EXPECT(ctx, (!connection.snapshot().capture_grant && (connection.snapshot().capture_reason == ECaptureReason::lost) &&
         (connection.snapshot().text_generation == text_generation)));
-    pump();
-    desktop_native_bookkeeping(ctx, *fixture.runtime);
 }
 #endif
 

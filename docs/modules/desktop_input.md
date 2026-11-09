@@ -50,6 +50,9 @@ cutover remains gated until affected retained input, native messages and in-flig
 translation have been consumed/discarded and a coherent baseline is available.
 Reentrant lifecycle changes invalidate an unfinished quiet-point sample. This is
 an observation-order guarantee, not a claim about physical hardware simultaneity.
+Sample native baseline state only while action recovery requires it. Ordinary
+quiet points preserve state and modifier knowledge established by native messages;
+they do not replace it with a fresh operating-system keyboard sample.
 
 Context/focus/history loss cancels immediately. Native cutover and the existing
 marker/acknowledgement protocol must both permit reopening; acknowledgement alone
@@ -75,7 +78,10 @@ Keep left/right modifiers and virtual either-side controls coherent. Recognised
 AltGr sequences suppress the synthetic Ctrl contribution without modifying the
 messages passed to native translation. Preserve established physical Ctrl state.
 Windows recognises adjacent matching-timestamp Ctrl/Right-Alt messages, including
-ordinary and system key families and paired release bookkeeping. This is native
+ordinary and system key families, first-down and repeat prefixes, and paired
+release bookkeeping. A synthetic repeat after genuine Ctrl release must not
+restore Ctrl. Recognition publishes the AltGr modifier transition once, and later
+keyboard and pointer packets retain the same modifier state. This is native
 message evidence, not physical-device identity. A held ambiguous Ctrl/AltGr or
 shared virtual-key position at baseline remains unknown until disambiguated.
 
@@ -170,8 +176,9 @@ report; this contract alone does not claim hardware acceptance.
 `MorphicTests --platform-input-native` creates an owned window and exercises
 installation, acquisition, the public reader, injected text/edit ordering, raw
 pointer/button/wheel packets, UTF-32 validation and capture loss. Adapter probes
-also cover AltGr/Ctrl release orders and ambiguous held-key baselines. These
-injected/probed results do not establish physical keyboard-layout acceptance.
+also cover AltGr/Ctrl release orders, synthetic Ctrl repeat after physical Ctrl
+release, coherent public modifier/pointer state and ambiguous held-key baselines.
+These injected/probed results do not establish physical keyboard-layout acceptance.
 
 `MorphicTests --platform-input-interactive` provides a 30-second manual session.
 Its window title displays transient decoded text, Backspace editing, pointer and
@@ -181,6 +188,33 @@ and monitors to inspect recovery and coordinate behaviour. Typed text is not
 logged and the title is cleared on exit. This mode reports liveness assertions;
 the operator must assess physical layout, dead-key/AltGr, editing, capture and DPI
 results. IME pre-edit and controller acquisition remain outside this increment.
+
+### Acceptance record: 9 November 2026
+
+Physical Windows acceptance used a UK keyboard layout and multiple monitors with
+different resolutions. The operator believes their scaling is the same; exact
+scale settings were not verified.
+
+| Physical check | Result |
+| --- | --- |
+| Typing, capitals/punctuation, held-letter repeat, single/held Backspace | Operator confirmed correct. |
+| Capture while held, movement outside the client including negative coordinates, release, opposite wheel directions | Operator confirmed correct. |
+| Alt+Tab away/back while captured | Text cleared, capture remained revoked, and a fresh release/press obtained capture. |
+| Ctrl/AltGr release ordering | Exposed synthetic Ctrl repeat and idle-resampling defects. After correction, the physical trace preserved genuine Ctrl when AltGr was released first; releasing Ctrl first produced `024 -> 020 -> 120 -> 000`, confirmed by the operator on retry. Mouse observations no longer restored the synthetic Ctrl bit. Values are hexadecimal modifier masks. |
+| Moving the window between monitors | Operator confirmed typing, pointer coordinates, outside-client capture and release on each monitor. |
+
+The AltGr correction pairs repeat prefixes as well as first-down prefixes,
+publishes recognition coherently and samples baseline state only for recovery.
+A regression replay of the captured sequence failed before the correction and
+passed afterward. Windows Debug x64 and Win32 native suites each reported 2,262
+checks with zero failures; the x64 portable suite reported 41,764 with zero
+failures. Temporary modifier tracing was removed after verification; the replay
+and idle-state/pointer consistency tests remain.
+
+This record does not establish dead-key text entry, AltGr-generated text or
+mixed-DPI acceptance. The operator does not normally use the first two, and no
+keyboard layout or display settings were changed for this session. Other native
+platforms and controller acquisition remain later work.
 
 Native references: [TranslateMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-translatemessage),
 [WM_CHAR](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-char),

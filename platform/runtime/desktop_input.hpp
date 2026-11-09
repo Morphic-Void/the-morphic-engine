@@ -48,6 +48,10 @@ public:
     [[nodiscard]] std::uint64_t epoch() const noexcept { return m_epoch; }
     [[nodiscard]] std::uint64_t text_epoch() const noexcept { return m_text_epoch; }
     [[nodiscard]] bool text_pending() const noexcept { return (m_cutover & input::k_text) != 0u; }
+    [[nodiscard]] bool needs_baseline() const noexcept
+    {
+        return m_connection && (m_cutover & input::k_actions) && !m_baseline_pending && !m_baseline_inflight;
+    }
     [[nodiscard]] std::uint64_t malformed() const noexcept { return m_malformed; }
 
 private:

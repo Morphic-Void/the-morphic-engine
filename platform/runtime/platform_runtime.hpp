@@ -47,6 +47,7 @@ public:
     void desktop_observation(const SDesktopTransaction& transaction) noexcept;
     void desktop_quiet(const SInputObservation& baseline, const std::uint64_t epoch) noexcept;
     [[nodiscard]] std::uint64_t desktop_epoch() noexcept { m_desktop.synchronise(); return m_desktop.epoch(); }
+    [[nodiscard]] bool desktop_needs_baseline() const noexcept { return m_desktop.needs_baseline(); }
     [[nodiscard]] std::uint64_t desktop_text_epoch() const noexcept { return m_desktop.text_epoch(); }
     [[nodiscard]] bool desktop_text_pending() const noexcept { return m_desktop.text_pending(); }
     void desktop_capture_lost() noexcept;

@@ -175,7 +175,9 @@ static void key(SWindow& window, const UINT message, const WPARAM wparam, const 
         const input::SModifierInput payload{ current };
         std::memcpy(raw.payload, &payload, sizeof(payload));
     }
-    if ((code == k_left_ctrl) && down && !repeat)
+    //  AltGr can reintroduce synthetic Ctrl while repeating after a genuine
+    //  Ctrl release. Both first-down and repeat prefixes need the same pairing.
+    if ((code == k_left_ctrl) && down)
     {
         desktop.ctrl = transaction;
         desktop.ctrl_was_down = ctrl_was_down;
@@ -244,7 +246,8 @@ bool desktop_next(SWindow& window, MSG& message) noexcept
             desktop.keys[k_left_ctrl] = desktop.ctrl_was_down;
             desktop.known[k_left_ctrl] = desktop.ctrl_was_known;
             desktop.altgr = true;
-            virtual_modifiers(desktop);
+            //  Let key() apply virtual modifiers with RAlt. Pre-applying them
+            //  here hides the AltGr transition from the public raw packet.
         }
         else flush_ctrl(window);
     }
