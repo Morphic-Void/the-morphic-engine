@@ -179,7 +179,10 @@ full rings, combined/superseded recovery, neutral reactivation, capacity wakes,
 stale/foreign controls, cancellation, replacement, timeout and retirement. The
 fixture uses real routed services, borrows and pumped notifications; a separate
 concurrent stream stress case exercises 20,000 publication attempts with bounded
-merge/recovery. No native input or hardware acceptance is claimed.
+merge/recovery. These synthetic cases do not establish hardware acceptance.
+Subsequent Windows evidence is recorded in [desktop acquisition](desktop_input.md#acceptance-record-9-november-2026)
+and [controller acquisition](controller_input.md#usb-physical-acceptance-10-november-2026).
+The proposed [real Host/consumer pass](input_host_integration.md) is awaiting review.
 
 Validation on 6 November 2026:
 
@@ -191,4 +194,5 @@ Validation on 6 November 2026:
 | Repository checks | Policy validator: zero errors/warnings (one existing negative-test suppression). Tracked/new-file line endings and diff whitespace passed. |
 
 Win32 build warnings were confined to unchanged vendor and HostRestriction test
-code. Android/macOS native integration and hardware input remain unvalidated.
+code. Android/macOS native integration remains unvalidated; the later Windows
+hardware records above do not extend that coverage to other platforms.

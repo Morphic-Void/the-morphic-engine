@@ -60,11 +60,15 @@ policy, line-ending and whitespace checks passed.
 
 These results do not claim manual dragging review, cross-monitor/hardware DPI
 transitions, graphics-dependent cleanup, Release/Clang qualification or native
-Linux support for the first-window increment. Input lifetimes/transports, mapping,
-configuration, GameInput and window modes remain future work. Direct POD
-connections between module service threads join input lifetimes in the next scope
-review; ownership transfers continue through Host and no endpoint ABI is selected
-by this completion record.
+Linux support for the first-window increment. Subsequent delivered work is recorded
+in [direct POD connections](../modules/direct_pod_connections.md),
+[Host timed waiting](../modules/host_timed_wait.md), [input connections](../modules/input_connections.md),
+[configuration installation](../modules/input_configuration_installation.md),
+[mapping](../modules/input_mapping.md), [desktop acquisition](../modules/desktop_input.md)
+and [controller acquisition](../modules/controller_input.md). Those records include
+later Windows desktop and USB controller acceptance without extending the earlier
+test counts above. Window modes and native ports remain later work; the combined
+[Host/consumer input pass](../modules/input_host_integration.md) is proposed for review.
 
 ## Message and ownership consolidation
 

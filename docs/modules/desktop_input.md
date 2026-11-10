@@ -215,8 +215,11 @@ and idle-state/pointer consistency tests remain.
 This record does not establish dead-key text entry, AltGr-generated text or
 mixed-DPI acceptance. The operator does not normally use the first two, and no
 keyboard layout or display settings were changed for this session. Other native
-platforms remain later work. Controller acquisition is now described in its
-[separate contract](controller_input.md); its physical acceptance remains pending.
+platforms remain later work. The [controller acceptance record](controller_input.md#usb-physical-acceptance-10-november-2026)
+now covers two Xbox controllers and a PS5 over USB, including independent pipes
+and reconnection. Wireless remains untested. The proposed next integration pass
+is described in [Host/consumer input acceptance](input_host_integration.md);
+it is awaiting review, not additional completed evidence.
 
 Native references: [TranslateMessage](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-translatemessage),
 [WM_CHAR](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-char),

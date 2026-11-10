@@ -304,11 +304,14 @@ acceptance creates the real window and checks default geometry/DPI, repeated
 resize/close, stationary and continuous move/size, system menus, cancellation and
 shutdown, with evidence separated into automated native, manual and untested.
 
-Input/GameInput, schema preparation, shortcuts/modes, Vulkan presentation,
-extensions, multiple windows/output selection, native Linux/SteamOS and Host
-sleep/wake remain deferred. The next scope review covers input connection lifetimes
-and direct service-thread-to-service-thread POD transports, using the existing
-borrow/notification foundation. These connections are not implemented by this commit.
+The original first-window commit did not include input, configuration or Host
+waiting. Subsequent increments deliver [input connections](input_connections.md),
+[schema preparation/installation](input_configuration_installation.md),
+[mapping](input_mapping.md), [Windows desktop input](desktop_input.md),
+[GameInput controllers](controller_input.md), [direct POD connections](direct_pod_connections.md)
+and [Host timed waiting](host_timed_wait.md), with their own validation records.
+Shortcuts/modes, Vulkan presentation, extensions, multiple windows/output selection
+and native Linux/SteamOS remain later work.
 
 ## Implementation evidence, 4 November 2026
 

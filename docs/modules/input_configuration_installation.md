@@ -4,13 +4,15 @@ Approved 6 November 2026. The portable implementation combines the nominated
 [Host schema conditioner](../schema/prepared-schema.md) with incremental Platform
 validation and installation. It does not execute Platform jobs on a Host worker.
 The [portable mapper](input_mapping.md), implemented 8 November 2026, adds resolved
-evaluation tables and tighter threshold-source validation to installation. Native
-acquisition remains subsequent work.
+evaluation tables and tighter threshold-source validation to installation.
+[Desktop acquisition](desktop_input.md) and [controller acquisition](controller_input.md)
+now supply Windows native input to that mapper.
 
 ## Commands and ownership
 
-Input service contract 2/version 2 retains opcode 1 (`SInstallConfiguration`) and
-opcode 2 (`SRetireConfiguration`). Installation carries a retained raw asset ID,
+Input service contract 2 now uses version 4 through the controller increment;
+configuration format remains version 1. It retains opcode 1 (`SInstallConfiguration`)
+and opcode 2 (`SRetireConfiguration`). Installation carries a retained raw asset ID,
 format version 1 and reserved zero. Its terminal payload is `SInstallationResult`
 (24 bytes): installation token or copied error/category/definition/field detail.
 An error has no usable installation token. Retirement carries an installation
@@ -77,7 +79,7 @@ Explicit analog values are finite, `0 <= dead_zone < 1`,
 `0 <= neutral_enter < neutral_leave <= 1`, and `0 <= release < press <= 1`;
 scale is finite. A zero parameter reference selects the source default.
 Window policy/shortcut data is validated and retained; attaching policies to
-native windows remains part of the later native/mapping work.
+native windows and executing reserved shortcuts remain part of window/mode integration.
 
 ## Cadence, cancellation and durable completion
 

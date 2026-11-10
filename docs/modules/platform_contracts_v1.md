@@ -17,7 +17,8 @@ was reviewed against `07064fc`. As of `f55d514` (4 November 2026), the
 and [first Windows window](platform_first_window.md) are implemented and committed.
 Those references and current headers define the implemented APIs and validation
 limits. This document retains the broader design starting point, with current
-window commands separated from prospective configuration/mode contracts.
+window commands separated from historical configuration/input proposals and
+still-prospective mode contracts.
 The 6 November [portable input contract](input_connections.md) supersedes this
 document's prospective input mechanics, including concrete commands, readiness,
 ordering, recovery and the designated-reader restriction. The input transport is
@@ -29,23 +30,26 @@ framing. [Desktop acquisition](desktop_input.md) subsequently adds Windows input
 portable ingestion and capture using input service/endpoint version 3.
 The [controller acquisition contract](controller_input.md), accepted 9 November,
 adds discovery and multiple controller pipes with service/endpoint version 4.
+Windows desktop and three-controller USB acceptance are now recorded in those
+references. The [real Host/consumer integration pass](input_host_integration.md)
+is a proposal awaiting review, not completed qualification.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.
 There is no backward-compatibility promise for these unfinished interfaces: Host,
 modules and fixtures require matching headers and coordinated rebuilds.
 
-The next scope review joins input lifetimes/transports with direct POD connections
-between module service threads. The agreed
+Input lifetimes/transports and [direct POD connections](direct_pod_connections.md)
+between module service threads are implemented. The agreed
 [general direct-message architecture](platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging)
-uses Host-owned duplex connections: two bounded SPSC pipes under one identity and
+uses Host-owned duplex connections: two growable SPSC queues under one identity and
 coordinated lifetime, initiated by either participant through Host. Every new offer
 requires an explicit receiving service-thread accept/reject response; advertised
 contract support does not replace it. Host coordinates complementary endpoint and
 notification installation, then authorises activation only after both participants
 report readiness. Ordinary POD traffic and
 wakes flow directly. Input/HID retains Platform-owned producer streams, with grouped
-desktop text/control and an independent controller connection.
+desktop text/control and up to four independent controller connections.
 
 The logical key is the unordered pair of exact module instances plus the shared
 contract identity, formed from the canonical unordered pair of participating roles.
@@ -81,12 +85,11 @@ below or Platform's typed input records. The [direct admission rules](platform_h
 require SYSTEM identities and agreed contract/version/direction checks; the carrier
 alone does not supply them.
 
-Queue capacities, concrete role/version representation and admission APIs remain
-open, as do control byte layouts and APIs.
-Minimal Host-mediated connection control versus a
-broader threaded provider adapter also remains an implementation-design choice,
-not a selected prerequisite.
-Owning transfers stay via Host. No new endpoint ABI or implementation is defined here.
+The [direct POD contract](direct_pod_connections.md) defines the implemented
+role/version representation, controls, admission APIs and growable transport.
+A broader threaded routed-service provider adapter remains outside that scope.
+Owning transfers stay via Host; this older design document does not override the
+implemented endpoint ABI.
 
 Keep the existing Rendering load/unload semantics. Host owns module records;
 there is no persistent original-loader ownership. Window control, input connections,
@@ -97,8 +100,9 @@ asset acquisitions and request lifetimes remain distinct.
 The following table records the `07064fc` baseline and the changes it motivated;
 its absence statements are historical. Client records, generic request/test
 routing, pump preparation, checked clocks and borrow notifications are now
-implemented. Worker configuration preparation and direct input connections remain
-future work, as detailed in the current references above.
+implemented. Nominated Host schema conditioning, Platform configuration
+installation and input connections are also delivered in the current references
+above; the original absence statements below are not a current backlog.
 
 | Existing code | Consequence |
 | --- | --- |
@@ -148,6 +152,11 @@ or both execution advertisements in v1. Passive modules remain valid when neithe
 is required. Availability follows execution readiness, not DLL binding alone.
 
 ## Optional pumped capability and Host services
+
+The V1 description below is historical. [Host timed waiting](host_timed_wait.md)
+supersedes it with `SHostPumpV2`, `morphic_module_host_pump_v2` and the complete V2
+context, including owner wake and native-event ownership. Current Host rejects
+legacy V1 exports. Use current headers and a coordinated rebuild.
 
 Export `morphic_module_host_pump_v1`, queried by `CBoundModule::query_host_pump` on
 the binding worker. Its query accepts the caller's descriptor size and returns
@@ -321,9 +330,14 @@ dispatcher. Consumers stop all reads and destroy dependent graphics/native objec
 before acknowledging generic quiescence. `execution_ended` proves CPU inactivity,
 not external resource cleanup; published native uses can remain unresolved.
 
-### Prospective configuration, input and mode contracts
+### Historical configuration/input proposals and prospective modes
 
-The following opcodes/layouts are design starting points, not implemented API:
+The following list/table retains the original proposed layouts. Configuration and
+input commands are now implemented and superseded by [installation](input_configuration_installation.md),
+[connections](input_connections.md), [desktop](desktop_input.md) and
+[controllers](controller_input.md), including catalogue commands absent here.
+Only mode requests remain prospective. Do not use these historical payloads to
+implement a current consumer. Original command numbers:
 install=1, retire=2, set-mode=21; acquire-desktop=32, acquire-controller=33,
 input-ready=34, boundary-ready=35, select-context=38, enable-text=39, disable-text=40,
 set-capture=41, release-capture=42, enumerate-device=48 and assign-device=49.
@@ -353,8 +367,9 @@ sequence; consumers do not infer identity from notification order alone.
 The original design proposed event codes 0x8001 through 0x8005 for window changes,
 close intent, closing, capture loss and device changes. None is implemented. Window
 state now uses the durable publication above; capture uses the durable input
-publication described in [desktop acquisition](desktop_input.md). Device notification
-details remain for input review. No future notification may silently discard a resource
+publication described in [desktop acquisition](desktop_input.md). Device changes
+use the durable [controller catalogue](controller_input.md), with revision-checked
+enumeration and borrow-bound notification. No notification may silently discard a resource
 withdrawal obligation under delivery pressure.
 
 Native views are tagged, versioned borrowed descriptors containing window ID,
@@ -512,8 +527,9 @@ publication races with clearing, either the consumer observes durable work or th
 publisher signals again. A registration that remains pending while its consumer
 is idle is a protocol failure. Keep the existing message/exit predicate notifications
 intact; do not introduce a separate indefinite wait that misses message/exit wakes.
-For pumped consumers, signal a Host-owned work-pending flag; no Host sleeping API is
-implied. Initial Platform connections use one reader thread per logical connection.
+For pumped consumers, notification integrates with the Host-owned aggregate wake
+and durable work state described in [Host timed waiting](host_timed_wait.md).
+Input connections retain one designated reader thread per logical connection.
 
 Retirement stops the producer and all signal calls before releasing the registration.
 The consumer's explicit quiescent acknowledgement, or proven terminal reader state,
@@ -613,9 +629,10 @@ commit and retirement.
 
 ## Window/input and shutdown sequences
 
-The combined sequence below includes prospective configuration and input steps.
-The implemented window-only readiness/close sequence is in the first-window
-reference and has no configuration prerequisite.
+The combined sequence below is a lifecycle overview. Configuration and input steps
+are implemented by the linked subsystem contracts; a real Host/consumer run of
+the combined path is proposed separately. The window-only readiness/close sequence
+is in the first-window reference and has no configuration prerequisite.
 
 ### Successful startup
 
@@ -658,8 +675,9 @@ after it is terminal and no accepted completion needs its route. Stop/deactivate
 Platform on Host only after conditioning results, endpoints, windows, notifications and native
 callbacks are quiescent; then dispose module-dependent assets and worker-unbind.
 Same ordering applies after activation/pump failure. The implemented Host emergency
-path preserves pumped progress and retains unproven obligations; prospective
-input/configuration work must preserve that ordering.
+path preserves pumped progress and retains unproven obligations. Implemented
+input/configuration cleanup follows that ordering; the proposed combined
+Host/consumer pressure pass will exercise it through the complete integration.
 
 On shutdown grace expiry diagnose and retain unsafe resources/code. Never kill a
 thread or free a Host client record while execution can still reach it. Continue
@@ -705,8 +723,11 @@ deadline for a paused budget; unrelated deadlines may still bound that wait.
 These are the original broader acceptance criteria. Completed foundation,
 notification, maintenance and first-window evidence is recorded in their linked
 references and the [completion record](../project/completed_milestones.md#host-pumped-services-and-first-windows-window).
-Configuration, input, controller and mode criteria remain future work. No runtime
-matrix was repeated for this documentation reconciliation.
+Configuration, input and controller evidence is now in their subsystem references,
+including Windows x64 USB hardware results. Mode work remains prospective; the
+combined Host/consumer pressure and timing pass awaits review. The numbered list
+below is the historical acceptance checklist, not a list of wholly unfinished work.
+No runtime matrix was repeated for this documentation reconciliation.
 
 1. Add generic client/routing fixtures before Platform native code: threaded/passive
    behaviour, requester replacement, per-client asset acquisition ownership, in-flight
@@ -730,6 +751,6 @@ matrix was repeated for this documentation reconciliation.
    native window/device tests are separate evidence. Linux runs portable mapper,
    protocol and pumped-fixture coverage; its native window adapter remains deferred.
 
-Remaining input/configuration/mode work requires its own bounded implementation
+Remaining integration, native-port and mode work requires its own bounded implementation
 scope and compile/layout, behavioural and native evidence. Completed stages do not
 authorise the later features or establish their validation.

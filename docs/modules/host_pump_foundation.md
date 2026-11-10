@@ -204,7 +204,11 @@ same scenarios with one and two requested Host workers.
 
 The Windows window provider now uses the generic borrow, notification, restriction
 and maintenance boundaries without introducing native Platform knowledge into
-Host. Input connections/transports, GameInput/HID, mapping, prepared configuration,
-window modes, Vulkan integration, native Linux and Host sleep/wake remain deferred.
-Direct service-thread-to-service-thread POD connections are part of the next scope
-review alongside input lifetimes; the current service provider adapter is pumped.
+Host. Subsequent increments implement [direct POD connections](direct_pod_connections.md),
+[Host timed waiting](host_timed_wait.md), [input connections](input_connections.md),
+[prepared configuration](input_configuration_installation.md), [mapping](input_mapping.md),
+[Windows desktop input](desktop_input.md) and [GameInput controllers](controller_input.md).
+Those references own their validation evidence; this foundation record does not
+claim the proposed [combined Host/consumer input pass](input_host_integration.md).
+Window modes, Vulkan integration and native Linux UI remain later work. The generic
+routed service-provider adapter remains pumped.

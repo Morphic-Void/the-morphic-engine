@@ -14,17 +14,21 @@ Review: 04 Nov 2026
 The [controller acquisition contract](controller_input.md), accepted 9 November,
 adds portable discovery, explicit assignment, four independent pipes and Windows
 GameInput integration. Input service/endpoint version 4 supersedes the earlier
-interfaces. Physical controller acceptance remains separate.
+interfaces. The 10 November record confirms Windows x64 USB acceptance with two
+Xbox controllers and a PS5, including independent pipes and recovery; wireless
+remains untested. The [real Host/consumer input pass](input_host_integration.md)
+is proposed for review and has not been implemented.
 
 The [desktop acquisition contract](desktop_input.md), accepted 8 November, defines
 Windows keyboard/text/mouse integration, bounded portable ingestion, native cutover,
-raw pointer records and capture. Input service/endpoint version 3 supersedes the
-earlier version-2 mapper interface; hardware evidence is reported separately.
+raw pointer records and capture. Its version-3 interface was subsequently superseded
+by version 4. UK-layout and cross-monitor acceptance passed; dead-key/AltGr text
+and mixed-DPI coverage remain unverified.
 
 8 November update: the [portable mapper](input_mapping.md) implements binding
 rearming, selective cancellation, analog projection and bounded evaluation, with
-connection integration and focused synthetic coverage. Native input acquisition
-remains a later increment.
+connection integration and focused synthetic coverage. The desktop and controller
+increments above subsequently supplied Windows native acquisition.
 The focused [input connection](input_connections.md) and
 [configuration installation](input_configuration_installation.md) references
 describe their delivered implementations and supersede historical deferrals below.
@@ -46,9 +50,14 @@ sections describe those earlier baselines, not the current checkout.
 | Borrow-bound notification registrations (`aca926f`) | [Notifications](service_notifications.md). |
 | Restriction accounting, eligible budgets and bounded modal maintenance (`078b595`) | [Restriction/maintenance contract and portable evidence](host_restriction_maintenance.md). |
 | On-demand Platform shell and first Windows window (`f55d514`) | [Window interfaces, native acceptance and limits](platform_first_window.md). |
+| Host-owned general direct messaging | [Direct POD connections](direct_pod_connections.md), using growable queues. |
+| Aggregate wake and anchored 120 Hz opportunities | [Host timed waiting](host_timed_wait.md), implemented on Windows and the Linux shell. |
+| Input lifetime, schema installation and mapping | [Connections](input_connections.md), [configuration installation](input_configuration_installation.md) and [mapper](input_mapping.md). |
+| Windows desktop and multiple controller acquisition | [Desktop acceptance](desktop_input.md) and [controller acceptance](controller_input.md), including the recovery fixes in `8ad2323`. |
 
 The [first-stage contracts](platform_contracts_v1.md) distinguish the implemented
-subset from prospective input/configuration/mode definitions. Current headers and
+subset from superseded input/configuration proposals and still-prospective modes.
+Current headers and
 the subsystem references above govern the implemented APIs: generic borrow
 retirement replaces duplicate domain release opcodes, and durable window state
 with notifications replaces the proposed window event messages. All components
@@ -57,24 +66,19 @@ use matching headers; the pre-release layouts are not a compatibility promise.
 The 4 November connection decision separates allocation ownership: general direct
 service-thread messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging),
 while input/HID keeps [Platform-owned producer streams](#platform-owned-desktop-and-controller-connections).
-Each direct connection groups two bounded SPSC pipes under one identity and
+Each direct connection groups two growable SPSC queues under one identity and
 coordinated lifetime. Either participant can request it; both must be ready before
 Host authorises activation. Ordinary POD traffic and wake signals then pass directly.
-This supersedes the earlier conversational recommendation of producer-owned general
-direct pipes; neither proposal has been implemented.
+The implemented [direct POD contract](direct_pod_connections.md) supersedes the
+earlier producer-owned and fixed-capacity proposals for general direct messages.
 
 The transitional [Framework project](#shared-framework-contracts) (`MorphicFramework`)
-now contains Platform's public window contracts. General direct connections remain
-design work: they will reuse existing role identities to identify their contract
-and carry the existing `CErasedPodMsg` record. No direct-connection implementation
-or type-registration changes are included in the Framework extraction.
-
-The next scope review must define the concrete connection controls and interfaces.
-Common publication, notification and quiescence principles need not impose one
-allocation owner. A minimal Host-mediated connection lifecycle versus a broader
-threaded service-provider adapter remains an open implementation-design choice;
-the latter is not a prerequisite selected by this decision. Owning transfers stay
-via Host, and input readiness/generation barriers remain domain concerns.
+now contains public window, input and direct-connection contracts. Direct
+connections reuse existing role identities and `CErasedPodMsg`, with concrete
+establishment, admission and retirement defined in the linked implementation.
+A broader threaded routed-service provider adapter remains outside this increment.
+Owning transfers stay via Host; input readiness/generation barriers remain domain
+concerns, and input streams retain their bounded Platform-owned transports.
 
 The decisions in the next section and later sections explicitly marked as agreed
 are settled. Concrete API names/layouts and explicitly proposed policies still
@@ -89,12 +93,11 @@ initial HID scope, with semantic actions as the application-facing baseline.
 The initial local mapping vocabulary and cancellation/delivery semantics are
 agreed below. Configuration uses schema-defined records, named definitions and
 configuration-local IDs. GameInput is selected for Windows controller acquisition;
-configuration packaging and concrete ABI details remain open.
+configuration ownership and concrete APIs are defined by the delivered references.
 A complete remapping UI and
 native Steam Input integration are not prerequisites for the first stage.
-Direct module-to-module POD messaging is an agreed future direction. Its first
-service-thread connection increment is to be scoped with input lifetimes, building
-on the implemented generic borrow and notification foundation.
+Direct module-to-module POD messaging is implemented separately from input streams,
+building on the generic lifetime and notification foundation.
 
 ## Agreed decisions
 
@@ -131,10 +134,10 @@ on the implemented generic borrow and notification foundation.
 - Platform owns every window. Executive and Rendering hold explicit uses; neither
   client directly destroys the other's window or owns the Platform binding.
 - Initially support one application window at the default native location/monitor.
-  Its desktop connection protects that window's lifetime. The controller connection
-  is independent of windows and initially represents one logical player/input slot
-  with one assigned device. Multiple windows, monitors and player slots are later
-  extensions, not assumptions to encode as global singleton identities.
+  Its desktop connection protects that window's lifetime. Up to four controller
+  connections are independent of windows, each with one assigned device. This
+  supersedes the original single-slot limit. Multiple windows and explicit output
+  selection remain later extensions.
 - In a later stage, a client may supply an extension to Platform's window handling.
   Platform keeps its window procedure and standard keyboard/mouse handling. The extension may
   pre-empt eligible handling, including redraw, and otherwise falls through to
@@ -196,7 +199,7 @@ on the implemented generic borrow and notification foundation.
   watchdogs continue unless their work is explicitly suspended; shutdown grace
   continues throughout the interaction.
 - General direct service-thread messaging uses Host-owned duplex connections:
-  two bounded SPSC pipes, one each direction, with one identity and coordinated
+  two growable SPSC queues, one each direction, with one identity and coordinated
   lifetime. Either participant can initiate through Host, which coordinates
   acceptance, endpoint installation and readiness from both sides before activation.
   Ordinary POD messages and notifications flow directly between the participants.
@@ -204,8 +207,8 @@ on the implemented generic borrow and notification foundation.
   do not transfer payload ownership, which remains exclusively through Host.
   Host remains the repository for long-lived assets, file I/O mediator and
   module load/unload coordinator.
-- Host currently has no blocking wait/wakeup cycle. Host pumping can initially
-  fit into that loop; a complete sleep/wake design is separate follow-on work.
+- Host uses the [aggregate wake and timed-wait contract](host_timed_wait.md), with
+  anchored 120 Hz opportunities, early wakes and no catch-up loop after overruns.
 - Core retains low-level platform foundations needed to load modules, create
   threads and support the runtime. Platform does not absorb those foundations.
   Core's project include boundary remains Core plus SuiteUTF only.
@@ -213,8 +216,8 @@ on the implemented generic borrow and notification foundation.
 ## Original code assessment and consequences
 
 This table records the pre-implementation baseline at `07064fc`. The generic Host
-gaps identified here were addressed by the committed stages listed above; input
-transports and later features remain prospective. Linked files now contain the
+gaps and subsequent input transports are addressed by the delivered stages above;
+mode integration and native ports remain later work. Linked files now contain the
 newer implementation, so use Git history for the exact assessed baseline.
 
 | Area | Existing implementation | Consequence for this work |
@@ -477,13 +480,13 @@ before freeing its package. A replacement with the same module identity must not
 receive its predecessor's reply. Prevent self-targeting transitions and dependency
 cycles from leaving a request waiting for its own requester to disappear.
 
-### Service connections and prospective direct transports
+### Service connections and direct transports
 
 Generic service routes, 48-byte commands, prepared borrows and notifications are
-implemented. They provide lifetime/notification foundations for the planned input
-streams and general direct connections below, whose allocation owners differ.
-Neither connection implementation nor threaded service-provider execution exists
-yet; the general direct lifecycle need not require the full provider adapter.
+implemented. They underpin the delivered [input streams](input_connections.md) and
+[general direct connections](direct_pod_connections.md), whose allocation owners
+differ. A broader threaded routed-service provider adapter remains outside scope;
+the implemented direct lifecycle does not require it.
 
 Use a generic, Host-mediated service connection to acquire a Platform endpoint
 after module readiness. The load completion may eventually carry such a generic
@@ -512,7 +515,7 @@ requests from other threads and outgoing input still use appropriate transports.
 Host tracks identities, admission and connection lifetime while Platform interprets
 its command vocabulary. The implemented generic envelope/result representation
 keeps Platform opcodes outside Core's SYSTEM vocabulary and does not relax LOCAL
-admission. Its layouts/routing are defined by the Host foundation. Input will use the
+admission. Its layouts/routing are defined by the Host foundation. Input uses the
 separate Platform-owned pipes below, each with exactly one producer and consumer;
 Executive and Rendering cannot share an SPSC producer role.
 
@@ -525,7 +528,7 @@ design the necessary transport change.
 ### Host-owned duplex connections for general POD messaging
 
 Host owns each connection record and its transport storage through the codebase's
-curated containers. A connection groups two bounded SPSC pipes, A-to-B and B-to-A,
+curated containers. A connection groups two growable SPSC queues, A-to-B and B-to-A,
 under one connection identity and coordinated lifetime. A's service thread holds
 the A-to-B producer and B-to-A consumer roles; B holds the complementary roles.
 Participants receive non-owning endpoint descriptors and notification arrangements;
@@ -558,9 +561,10 @@ Either participant may initiate establishment through Host:
    and wake signals then flow directly between the service threads, without Host
    dispatch of each message. Host remains responsible for lifecycle coordination.
 
-A successful ordinary post means queued, not processed. A full pipe reports the
-inability to enqueue rather than silently overwriting records. Exact status names
-and posting APIs remain open.
+A successful ordinary post means queued, not processed. General direct queues
+grow without silent overwrite; terminal allocation/publication/wake outcomes and
+posting APIs are defined in [direct POD connections](direct_pod_connections.md).
+Input rings retain their separately defined fixed-capacity recovery behaviour.
 
 Connection identity distinguishes the relationship, its current lifetime and each
 initiating operation:
@@ -708,7 +712,7 @@ above. Common lifetime and notification principles do not require the same owner
 | Logical connection | Streams and consumer-facing purpose |
 | --- | --- |
 | Desktop input | One exclusive consumer and interaction context for keyboard/mouse. Separate translated-text and mouse/keyboard-control streams retain different buffering and text enable/pause semantics. Desktop-derived actions go to this consumer. |
-| Controller input | Independent exclusive consumer, context and semantic action stream. Physical controller snapshots remain beneath the local mapper. |
+| Controller input | Up to four independent pipes, each with one exclusive consumer, context and semantic action stream. Physical controller snapshots remain beneath the local mapper. |
 
 Connections are requested explicitly. Each logical connection has at most one
 connected consumer module instance, with no implicit broadcast or second reader.
@@ -733,7 +737,8 @@ establishment of a new one; no stale pointer, queued input or context is implici
 inherited. Close acknowledgement must establish that the old consumer can no
 longer read before reusing or freeing its endpoint storage. The lifecycle policy
 below fixes admission, readiness, release and Host cleanup for removed consumers;
-concrete message layouts and acquisition-failure details remain to be specified.
+concrete message layouts and acquisition-failure details are defined in
+[input connections](input_connections.md).
 
 Mouse/keyboard bindings produce actions for the desktop consumer; controller
 bindings produce actions for the controller consumer. They share an action
@@ -756,10 +761,10 @@ retirement. Window creation does not automatically connect a consumer. Preserve
 explicit window identity so later multiple-window support does not change this
 relationship.
 
-The controller connection is independent of windows. Initially it represents one
-logical player/input slot with one assigned controller. Platform exposes device
-availability; the consumer selects assignment, with the first available supported
-controller as the initial policy. Assignment remains stable until disconnection or
+Controller connections are independent of windows. The implemented contract
+supports four slots with one assigned device per slot and at most one claimant per
+device. Default assignment selects the first eligible unclaimed device; an empty
+slot does not automatically claim a later arrival. Assignment remains stable until disconnection or
 explicit reassignment. Disconnection cancels that device's contributions; the
 consumer requests reassignment rather than Platform silently switching devices.
 Executive may implement an automatic reassignment policy through those requests.
@@ -808,13 +813,15 @@ catalogue identity reused after replacement does not validate an old token.
 Failed acquisition unwinds the reservation, but once views have escaped, endpoint
 access must be quiescent before reclamation. A timeout is not proof of quiescence.
 Concrete readiness replies and the initial marker boundary across desktop streams
-remain part of the ABI/protocol review.
+are implemented in [input connections](input_connections.md).
 
-An acquisition by another consumer returns occupied immediately. Acquisition by
-the existing consumer returns already connected without creating another reader.
-Reserved, closing and retiring connections expose their transitional status.
-There is initially no implicit waiting list, eviction or last-requester-wins rule.
-Final status names and representation remain open.
+For the exclusive desktop connection, acquisition by another consumer returns
+occupied; its existing consumer receives already connected without another reader.
+Controller admission instead uses available slots and exclusive device claims.
+Reserved, closing and retiring resources expose their transitional status.
+There is no implicit waiting list, eviction or last-requester-wins rule.
+Current status names, desktop exclusivity and multi-slot controller admission are
+defined by the implemented connection/controller contracts and public headers.
 
 Release is cooperative and idempotent for the same tracked operation. A repeated
 or stale operation must never release a newer connection. The consumer first
@@ -922,13 +929,14 @@ Backspace, Delete, cursor movement, selection and submission are actions interpr
 by the consumer, not control characters embedded in the text stream. Log and discard
 malformed Unicode/unpaired surrogates without notifying the consumer or emitting a
 replacement character. The initial-defaults section below specifies recovery,
-repeat and key identity. Precise native observation timing and record layouts still
-need technical definition; do not import the proof of concept's polling/ASCII model.
+repeat and key identity. Native observation timing and record layouts are defined
+by [desktop acquisition](desktop_input.md); the proof of concept's polling/ASCII
+model is not the current implementation.
 
 A full input pipe must not block the Host thread or overwrite unread records.
 The bounded-loss recovery and durable control publication rules below apply.
-Initial usable capacities are fixed below; atomic publication layout remains an
-implementation-review item.
+Initial usable capacities are fixed below; coherent atomic publication and reader
+ordering are implemented in [input connections](input_connections.md).
 
 ### Common action interface
 
@@ -1037,7 +1045,7 @@ analog parameter defaults.
 | `ContextDefinition` | `id`; named contexts such as `scene` and `menu`. |
 | `ContextAction` | `context`, `action`; membership by configuration-local IDs. |
 | `BindingProfile` | `id`, `connection_kind`; named profiles for desktop or controller input. |
-| `BindingDefinition` | `id`, `profile`, `context`, `action`, `source`, `activation`, modifier requirements and text-entry/repeat eligibility; binding associations and evaluation choices. Store modifier requirements in ordinary rows keyed by binding ID; exact layouts remain technical work. |
+| `BindingDefinition` | `id`, `profile`, `context`, `action`, `source`, `activation`, modifier requirements and text-entry/repeat eligibility; binding associations and evaluation choices. Modifier requirements use ordinary rows keyed by binding ID; current layouts and validation are in the configuration-installation contract. |
 
 `ActionKind`, `ConnectionKind`, `InputSource` and `ActivationKind` are schema
 enumerations. Author enum values using labels. Physical source descriptions refer
@@ -1223,8 +1231,8 @@ rather than being one process-global setting. The transition protocol is:
 The marker identifies the transition, not just the context: leaving and returning
 to the same context cannot match an old marker. A superseded transition's marker
 does not resume consumption. Invalid/unavailable contexts receive explicit
-rejection rather than leaving the consumer waiting indefinitely. Exact rejection
-recovery and supersession remain API details. The connection's fixed installation
+rejection rather than leaving the consumer waiting indefinitely. Rejection recovery
+and supersession are defined by [input connections](input_connections.md). The connection's fixed installation
 association supplies configuration identity throughout its lifetime.
 Acknowledgement must not execute a second cancellation after the consumer's local
 reset. Marker publication must survive queue pressure.
@@ -1328,7 +1336,8 @@ delivery with detectable bounded loss, not an unbounded reliability guarantee.
 Cancellation, closure, discontinuity and generation changes remain observable
 through coherent shared control state independent of data-queue capacity. Pending
 in-stream markers delimit where resumed data becomes valid. Atomic layout,
-recovery handshake and sequence/loss representation remain open.
+recovery handshake and sequence/loss representation are implemented in the
+[connection contract](input_connections.md).
 Do not overwrite unread ring entries or reset live roles to implement recovery.
 
 Associate a notification with each connection, covering both queued data and
@@ -1409,8 +1418,9 @@ a shared atomic generation and a generation-bearing stream marker, avoiding a
 generation field on every text event. The consumer discards until it receives a
 marker matching the current generation. Marker delivery must survive queue-full
 conditions. Disabled text still carries protocol markers. The desktop joint-boundary
-rules above apply; exact atomic ordering and acknowledgement layouts remain to be
-specified. Preserve generation correlation for target changes and delayed enables.
+rules above apply; exact ordering and acknowledgement layouts are defined in
+[input connections](input_connections.md). Preserve generation correlation for
+target changes and delayed enables.
 Text focus does not gate controller actions, although modal/application policy may.
 Pausing text also does not suspend desktop modifier tracking; application keyboard
 action eligibility is determined by the desktop context.
@@ -1438,8 +1448,8 @@ microseconds; neither implies physical ordering within a single report. History
 loss uses the discontinuity policy. After modal suppression, establish a fresh
 baseline rather than replaying suppressed actions. Pin a reviewed GameInput package
 and include its redistributable in development/deployment. The selected initial
-package and architecture acceptance checks are recorded below; build/CI integration
-remains implementation-review work. See
+package is integrated into x64/Win32 builds and CI; current implementation and
+hardware evidence are in [controller acquisition](controller_input.md). See
 [reading history](https://learn.microsoft.com/en-us/gaming/gdk/docs/reference/input/gameinput/interfaces/igameinput/methods/igameinput_getnextreading?view=gdk-2604),
 [timestamps](https://learn.microsoft.com/en-us/gaming/gdk/docs/reference/input/gameinput/interfaces/igameinputreading/methods/igameinputreading_gettimestamp?view=gdk-2604)
 and [redistribution](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-nuget?view=gdk-2604).
@@ -1464,7 +1474,8 @@ its activation threshold, and neutral detection uses a rest region rather than
 exact floating-point zero. Parameters belong in configuration with shared defaults;
 start with the numerical defaults below and validate them against actual devices.
 Richer response curves remain deferred. Clamp magnitude outside the unit circle
-while preserving direction; parameter record layouts remain technical work.
+while preserving direction; parameter layouts and validation are implemented in
+[configuration installation](input_configuration_installation.md).
 
 ## Windows, uses and presentation modes
 
@@ -1602,13 +1613,12 @@ the existing unbounded queue drains so sustained traffic cannot starve native
 events, input delivery or lifecycle completion. This bounds engine scheduling,
 not the duration of every native operation or third-party callback.
 
-The first stage retains the current outer spin loop. Do not introduce an independent
-blocking native message loop or arbitrary sleep inside Platform. Native operations
-can themselves enter modal loops; those require the maintenance contract below.
-Later sleep/wake integration must consider module/worker messages, input/native
-events, lifecycle progress,
-deadlines and shutdown together, including the no-Platform case and lost-wakeup
-races. Existing worker parking is not already a Host event multiplexer.
+The current Host uses [aggregate wake and timed waiting](host_timed_wait.md).
+Platform introduces no independent blocking native message loop or arbitrary
+sleep. Native operations can themselves enter modal loops; those retain the
+maintenance contract below. Host integrates module/worker publications, native
+queue readiness, deadlines and shutdown, including the no-Platform case and
+lost-wakeup checks; worker parking remains a separate facility.
 
 ### Native modal interaction and restricted Host maintenance
 
@@ -1817,27 +1827,28 @@ or evidence of Vulkan/Linux compatibility.
 
 ## Implementation sequence and review checkpoints
 
-The original sequence has progressed through the first-window increment. Completed
-stages and remaining scope are separated below; each reference records its actual
+The original sequence has progressed through Windows desktop and USB controller
+acceptance. Completed stages and remaining scope are separated below; each reference records its actual
 validation limits rather than implying the whole design has been qualified.
 
 | Stage | Changes | Exit criteria |
 | --- | --- | --- |
-| 1. First-stage contract pass | Completed design starting point, with implemented/prospective sections reconciled in [Platform contracts v1](platform_contracts_v1.md). | Input/configuration layouts remain unimplemented; completed generic/window layouts have the evidence linked above. |
+| 1. First-stage contract pass | Completed design starting point, reconciled in [Platform contracts v1](platform_contracts_v1.md). | Current subsystem references supersede the original input/configuration/pump layouts; mode proposals remain prospective. |
 | 2. Generic pumped lifecycle | Committed: context preparation, passive/threaded/pumped clients, activation cleanup, worker-only unbind and direct inline process ownership. | Portable fixtures cover malformed capabilities, activation/pump failures, prefix retention, stop and lifetime ordering. |
-| 3. Client routes and dependencies | Committed: exact-instance routing, borrows, notifications, generic test routing, restriction accounting and bounded maintenance. Direct service-thread/input transports remain next-scope work. | Portable/simulated-modal evidence is in the foundation and maintenance references; no direct ownership transfers. |
+| 3. Client routes and dependencies | Implemented: exact-instance routing, borrows, notifications, restriction accounting, bounded maintenance, direct POD connections and aggregate Host waiting. | Evidence is in the foundation, maintenance, direct-connection and timed-wait references; direct traffic transfers no ownership. |
 | 4. Platform shell and Windows windows | Committed in `f55d514`: portable shell, one standard Windows window, explicit uses, durable state and native modal maintenance/cancellation. | Automated portable and native checks passed with stated manual/hardware/compiler limits; see the first-window reference. |
-| 5. Input and modes | Add exclusive desktop and controller connections backed by Platform-owned transports, with separate text and mouse/keyboard-control streams inside desktop input; implement schema configuration, agreed input/local bindings, one assigned controller and mode requests at the default location/monitor. | Cover distinct desktop/controller consumers, grouped desktop retirement, configuration validation, device assignment/disconnection, modifiers with text paused, gesture cancellation, text flush, chords/pulses, context barriers, neutral reactivation, discontinuity and mode transitions. No extension dispatch or explicit output selection. Real exclusive success requires Rendering integration. |
-| 6. Windows-stage qualification | Validate both request origins using fixtures where actual presentation is absent; run Windows/Linux build and portable regression matrices, plus Windows native acceptance. | Preserve existing coverage and conditioning-only behaviour; verify release/deactivate/unbind order and report headless versus native evidence explicitly. Update implemented references. |
+| 5. Input and modes | Input connections, configuration installation, portable mapping, Windows desktop acquisition and four independent controller pipes are implemented. Mode requests and reserved shortcuts remain work. | Subsystem records cover protocol, recovery and native acceptance. Mode transitions and exclusive success require separate window/Rendering integration. |
+| 6. Windows-stage qualification | Desktop physical checks and three-controller USB acceptance are recorded. Real Host/consumer input pressure and latency measurement are [proposed for review](input_host_integration.md). | Keep native/synthetic evidence separate. Wireless, dead-key/AltGr text and mixed-DPI checks remain unvalidated; timing is not inferred from the manual display. |
 | Later, separately authorised | Integrate Vulkan presentation/exclusivity with Rendering; select and implement Linux/SteamOS adapters and native Steam Input; design extensions, richer mapping/UI and wider direct messaging as needed. | Each has its own design/validation checkpoint. The initial module does not claim these capabilities before they exist. |
 
 ### Build, policy and test integration
 
 The build/catalogue/policy integration and portable pump fixtures are implemented,
 including the Linux shell and separately invoked Windows native harnesses. The
-list below retains the broader design checklist; input, configuration and mode
-items remain requirements for later work, not completed tests. The first-window
-evidence records exactly which configurations and native interactions were run.
+list below retains the original broader design checklist, not a current backlog.
+Input and configuration now have their own implementation/validation references;
+mode work remains outstanding. Each record states the configurations and native
+interactions actually exercised.
 
 - Add `MorphicPlatform` project/shared items/filters and solution configurations,
   matching the current Debug/Development/Release project conventions. Preserve
@@ -2097,8 +2108,10 @@ Its initial contents are Alt+Enter and Ctrl+Alt+Enter as agreed; application bin
 profiles cannot override them implicitly. A profile can be immutable alongside its
 configuration, with the window retaining the relevant installation while in use.
 
-The portable implementation is described in [input connections](input_connections.md);
-native mapping and configuration installation remain later work.
+The implemented [input connections](input_connections.md), [mapper](input_mapping.md)
+and [configuration installer](input_configuration_installation.md) define the
+current mechanics. Windows native acquisition is also implemented; attaching and
+executing window-policy shortcuts remains part of window/mode integration.
 
 Allow one context transition in flight per connection; additional requests return
 busy. A rejected context request does not silently resume cancelled consumer state.
@@ -2151,36 +2164,38 @@ and modal shutdown. Record hardware-specific tests separately from headless CI.
 ## Remaining implementation definitions and deferred work
 
 Concrete starting definitions are in [Platform contracts v1](platform_contracts_v1.md).
-Generic client records, routed service requests, borrows, notifications, restricted
-maintenance and the first window are complete. The table distinguishes those
-foundations from the remaining implementation/verification obligations. Earlier
+Generic clients, routing, borrows, notifications, maintenance, the first window,
+direct POD connections, Host waiting and Windows input are implemented. The table
+records current status as of 10 November 2026, separating implementation from
+remaining verification and deferred features. Earlier
 decisions are preserved; new substantive interface choices still require review.
 
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
-| Shared Framework contracts | `MorphicFramework` is implemented as a shared header project/interface target, initially containing Platform's public window contract and state publication. Core's dependency boundary and type registrations are unchanged. Review further contracts before migration; direct connections and broader Core decomposition remain separate work. |
-| Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Explicit receiver acceptance, both-participant readiness, the unordered exact-instance-pair/role-contract key, unique lifetime token, independent request correlations and targeted cancellation with deferred token checks are agreed. Direct records reuse `CErasedPodMsg`. Concrete control/role/version representations, capacities and admission APIs remain open; a full threaded provider adapter is not a selected prerequisite. |
-| Acquisition failure and removal mechanics | Apply the selected five-second eligible-time limits and define cancellation/removal sequencing that proves endpoint/notification quiescence. Host logs omitted release and completes cleanup after quiescence without requiring a departed client's acknowledgement. No successor reservation or transfer. |
+| Shared Framework contracts | Public window/input and direct-connection interfaces are implemented. Core's dependency boundary is preserved; broader Core decomposition remains separate work. |
+| Input and direct service-thread connection ABI | Implemented separately: [input](input_connections.md) has bounded Platform-owned rings; [direct POD](direct_pod_connections.md) has Host-owned growable queues. Concrete readiness, identity, admission and retirement APIs are defined. A broader threaded routed-service provider adapter is not selected. |
+| Acquisition failure and removal mechanics | Implemented eligible-time limits, retained completion, cancellation and quiescence-based cleanup. Preserve these contracts in the proposed combined Host/consumer pass; timeout is never permission to reclaim live views. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
 | Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |
 | Pause and watchdog publication | Generic atomic publication and eligible budgets are implemented. Future simulation/presentation consumers must apply their own pause policy; no renderer repaint/simulation integration is claimed. |
-| Text and desktop input mechanics | Implement logged/discarded malformed input, native editing repeat, physical action keys, AltGr handling, wheel steps and DPI-scaled logical coordinates. Define record/native adapter details and test the selected policies. Composition and relative mouse mode remain deferred. |
-| Configuration schema and installation ABI | Complete version-1 structures/enums, modifier association rows, parameter profiles, metadata and separate shortcut policy records. Implement retained names, layout checks, any-client installation/idle retirement and bounded admission. Define asset publication/results without ownership transfer. |
-| Context protocol mechanics | Define transition/generation representation and native cutover for serialised context changes, busy rejection and explicit re-selection after failure. Preserve joint desktop barriers, local cancellation and neutral inhibition. |
-| Controller integration and parameters | Validate the GameInput 4.0.306 candidate and redist on x64/Win32, retaining existing Linux builds. Implement device tokens, explicit clock domains and the selected thresholds/clamping; validate USB gamepad acceptance and record actual hardware coverage. |
+| Text and desktop input mechanics | Implemented Windows text/repeat, physical keys, AltGr, pointer/wheel/capture and DPI-scaled coordinates. [Physical limits](desktop_input.md#acceptance-record-9-november-2026) include untested dead-key/AltGr text and mixed DPI. IME pre-edit and relative mouse mode remain deferred. |
+| Configuration schema and installation ABI | Implemented Host schema conditioning, explicit work budgets, bounded Platform installation, owned records/names, validation and retirement. Window-policy data is retained; attaching/executing reserved shortcuts remains window/mode work. |
+| Context protocol mechanics | Implemented serialised transitions, native cutover, joint desktop barriers, selective cancellation and per-binding neutral rearming. Broader consumer integration is proposed separately. |
+| Controller integration and parameters | Implemented GameInput 4.0.306 on x64/Win32, device identity/catalogue, four pipes, clocks and conditioning. Windows x64 USB acceptance covers two Xbox models and a PS5. Wireless and advanced controller features remain outside that evidence. |
 | Window and mode protocol mechanics | Creator control, close-on-controller-exit, asynchronous OS-close veto and shutdown override are implemented with durable state. Shortcuts, mode transitions/restoration and exclusive-loss recovery remain work; exclusive presentation needs Rendering integration. Control transfer is deferred. |
-| Monitors and sizing | PMv2, initial work-area fitting and coherent logical/pixel extents are implemented. Cross-monitor/hardware DPI acceptance remains unvalidated; output-loss recovery and exclusive mode requests remain work. Explicit output selection and multiple windows/monitors remain deferred. |
-| Input transport mechanics | Bounded SPSC streams, coalescing boundaries, durable recovery, joint desktop markers and notifications are agreed. Initial usable capacities are 256 desktop-control/action, 256 controller-action and 64 text records, using the documented rate/frame heuristic. Define record byte sizes, atomic control/marker handshakes, sequence/loss accounting and race-safe wakeups; validate occupancy. Cross-connection aggregation remains explicit consumer policy. |
-| Stop/failure mechanics | Generic busy/unload, shutdown-grace retention and native cancellation paths are implemented. Preserve them for input/configuration dependencies; CPU termination never substitutes for proof of graphics cleanup. |
+| Monitors and sizing | PMv2, work-area fitting and logical/pixel extents are implemented. Cross-monitor desktop checks passed with believed equal scaling; mixed DPI remains unverified. Output-loss recovery, mode requests, explicit output selection and multiple windows remain later work. |
+| Input transport mechanics | Implemented 256-record action rings, 64-record text ring, 48/40-byte framing, coherent authority/watermarks, loss and boundary recovery, reader and capacity wakes. Real Host/consumer occupancy, pressure and performance measurements await review of the [integration proposal](input_host_integration.md). Cross-connection aggregation remains consumer policy. |
+| Stop/failure mechanics | Generic busy/unload, shutdown retention, native cancellation and input/configuration retirement are implemented and tested in their respective fixtures. Combined real Host/consumer shutdown under input pressure is proposed; CPU termination never proves graphics cleanup. |
 | Native Linux/SteamOS backend | Not selected. Evaluate Wayland and XCB/XWayland against actual target sessions, decorations/input, output control and native test environments before Linux implementation. Native Steam adaptation must define action-neutral versus physical-neutral guarantees. Does not block Windows work. |
 | Extensions | Deferred entirely from first implementation; preserve the future extension concept without adding its ABI now. |
-| Host waiting | Deferred. Preserve a future wake-source integration point without declaring a wait ABI or adding arbitrary sleeps in this stage. |
+| Host waiting | Implemented [aggregate wake and timed waiting](host_timed_wait.md) on Windows and the Linux shell. Native Linux UI, Android and macOS wait-loop integration remain later work. |
 
 The behavioural model and initial policy defaults are selected. Later increments
 must establish their own layout, concurrency/lifetime and native evidence,
-especially on Win32. Completed foundation/window validation does not qualify
-unimplemented input/configuration/mode features or authorise deferred expansion.
+especially on Win32. Completed input validation does not qualify deferred modes,
+other native backends or the proposed combined integration pass, and does not
+authorise feature expansion.
 
 ## Review record
 

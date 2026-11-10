@@ -192,17 +192,19 @@ marker and acknowledgement protocol. Application focus loss and native modal
 interaction suppress desktop and controller actions while retaining ownership
 and device assignment. Acknowledgement cannot override continued ineligibility.
 
-Raw pointer/button/modifier packet definitions, capture operations and native
-text decoding remain separate from this semantic-mapper increment. Already
-decoded text still participates in desktop ordering and eligibility.
+Raw pointer/button/modifier packets, capture operations and native text decoding
+are implemented in the subsequent [desktop acquisition](desktop_input.md)
+increment. Decoded text participates in desktop ordering and eligibility.
 
 Text-target controls return `busy` while an observation or selective pass remains
 unfinished. An accepted control updates text authority and schedules a resumable
 selective pass before accepting more observations; unrelated held contributions
 are preserved. Context, device/history loss, focus loss and closure can supersede
 unfinished work immediately. `input_focus` and aggregate native modal depth govern
-both connections. Ordinary native dispatch restrictions do not suppress input.
-Focus event acquisition is left to the later native input adapters.
+desktop and controller connections. Ordinary native dispatch restrictions do not
+suppress input. Windows focus acquisition is implemented by the native desktop
+adapter; the [controller freshness guard](controller_input.md#windows-and-acceptance)
+additionally protects recovery from cached focus-loss readings.
 
 ## Work budgets and pressure
 

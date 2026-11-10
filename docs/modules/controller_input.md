@@ -386,6 +386,11 @@ the trigger followed promptly in the display. This is a qualitative observation,
 not an end-to-end latency measurement. The updated x64 Debug harness built cleanly;
 read-only review and repository diff/line-ending checks passed.
 
+The next [Host/consumer integration pass](input_host_integration.md) is proposed
+for review. The existing physical harness pumps Platform directly; its acceptance
+does not establish real Host/consumer scheduling, queue-pressure performance or
+measured input latency.
+
 Native API references:
 [GameInput v4](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/gameinput-overview),
 [reading lifetime and identity](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-fundamentals),
