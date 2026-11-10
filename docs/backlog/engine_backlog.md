@@ -108,9 +108,12 @@ the [deferred observation cleanup review](../modules/input_host_integration.md#d
 retain current acceptance coverage until then.
 
 Window modes/shortcuts, multiple windows/output selection, dialogs, rendering
-surfaces and extensions remain separate work. A broader threaded routed-service
-provider adapter is not selected. Native thread primitives and thread creation
-remain below these modules; Host thread provisioning and TLS remain separate.
+surfaces and extensions remain separate work. Multiple simultaneously live windows
+for rendering across multiple monitors are a confirmed future requirement; see the
+[follow-up context](../project/future_work_notes.md#multiple-windows-across-monitors).
+A broader threaded routed-service provider adapter is not selected. Native thread
+primitives and thread creation remain below these modules; Host thread provisioning
+and TLS remain separate.
 Host ownership and worker authority are documented in the
 [asset](../assets/asynchronous_asset_services.md) and
 [module](../modules/asynchronous_module_lifecycle.md) references.

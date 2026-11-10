@@ -26,6 +26,22 @@ Use:
 Remove notes from this file when they are completed, rejected, or promoted into
 a permanent subsystem contract.
 
+## Multiple windows across monitors
+
+Confirmed by the user on 10 November 2026: Platform must eventually support
+multiple simultaneously live windows for rendering across multiple monitors.
+The current single-window implementation is a stage limit, not the intended
+long-term application model. The existing
+[window ownership contract](../modules/platform_first_window.md) remains the
+starting point: Platform owns native windows and Rendering owns graphics resources.
+
+The future design review should cover independent window identities/uses and
+retirement, rendering/presentation per window, input focus and target routing,
+per-window sizing/DPI and monitor changes. Window limits, output-selection policy,
+graphics-device selection and presentation synchronization remain to be decided.
+This records a requirement for follow-up work; it does not start implementation
+or resume the parked HID/Input work.
+
 ## Platform input observation cleanup
 
 The 10 November Host/consumer integration retains its acceptance support for now.
