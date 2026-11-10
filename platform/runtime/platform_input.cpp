@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include "runtime/platform_runtime.hpp"
+#include "runtime/input_acceptance.hpp"
 #include "debug/macros.hpp"
 
 namespace platform::runtime
@@ -587,6 +588,9 @@ void CPlatformRuntime::desktop_observation(const SDesktopTransaction& transactio
 {
     if (cancelling()) return;
     SDesktopTransaction timed = transaction;
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::desktop_ingress(timed);
+#endif
     if (m_clock.read(timed.time_ns).code != platform::threading::EWaitError::none)
     {
         native_failure(UINT32_MAX);

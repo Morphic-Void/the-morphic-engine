@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="acceptance" />
+    <Filter Include="acceptance\consumer" />
+    <Filter Include="acceptance\registry" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\tests\input_host\consumer.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\input_host\scenarios.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\input_host\measurement.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp"><Filter>acceptance\registry</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\tests\input_host\consumer.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
+    <ClInclude Include="..\tests\input_host\control.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
+    <ClInclude Include="..\tests\input_host\schema.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>acceptance\registry</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp"><Filter>acceptance\registry</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def"><Filter>acceptance\registry</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_types.hpp"><Filter>acceptance\registry</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\erased_owner_payloads.def"><Filter>acceptance\registry</Filter></ClInclude>
+  </ItemGroup>
+</Project>

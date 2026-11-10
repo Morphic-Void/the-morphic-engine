@@ -1,13 +1,12 @@
-# Proposed real Host/consumer input acceptance
+# Real Host/consumer input acceptance
 
-Draft for review, 10 November 2026. This is a proposed integration and measurement
-pass, not an approved implementation or a new public input contract. Documentation
-reconciliation does not authorise its test hooks or runtime changes.
+Implemented and validated 10 November 2026 following approval of this contract.
+This integration and measurement pass preserves the public input contract. Its
+private fixture controls and trace hooks are confined to the acceptance build.
 
 The [desktop](desktop_input.md) and [controller](controller_input.md) records cover
-Windows physical behaviour. Their current interactive fixture directly pumps
-Platform. The next question is whether the same input contracts behave correctly
-with the actual Host scheduler, module boundaries and independently scheduled
+Windows physical behaviour in a fixture that directly pumps Platform. This record
+adds the actual Host scheduler, module boundaries and independently scheduled
 consumer, including deliberate queue pressure. Latency measurements establish a
 software-path baseline; they do not measure physical actuation or display latency.
 
@@ -72,7 +71,7 @@ Keep the [anchored 120 Hz cadence](host_timed_wait.md) and skip-overrun policy i
 8.333 ms is neither an input deadline nor a guaranteed response bound.
 
 No public service opcode, descriptor or 48/40-byte record layout changes are
-proposed. The private hook must have explicit ownership, bounded work and shutdown
+introduced. The private hook has explicit ownership, bounded work and shutdown
 quiescence. Use existing containers for preallocated trace storage. Production
 builds expose no input-injection control surface.
 
@@ -143,10 +142,11 @@ invalidate the affected measurement window; keep the diagnostic counts and never
 replace missing times with zero. Functional observations may still be reported
 separately when timing evidence is incomplete.
 
-For the initial Windows x64 Release baseline, propose two seconds of warm-up and
+For the initial Windows x64 Release baseline, use two seconds of warm-up and
 three ten-second measured windows per selected load. Report sample count,
-p50/p95/p99/max, achieved rates, queue high-water marks, losses/recoveries, Host
-pump gaps/work and consumer wait/read activity. Identify build, hardware, source
+p50/p95/p99/max, achieved rates, queue high-water marks, losses/recoveries,
+Host-invoked Platform pump duration/start gaps and consumer wait/read activity.
+Identify build, hardware, source
 mode, pipe count, worker count, load and trace configuration. Compare tracing enabled
 and disabled for overhead; logging and the 60 Hz observation display stay outside
 timed baseline runs. No automatic subtraction of estimated instrumentation cost.
@@ -166,7 +166,7 @@ threshold before collecting it, or treat a correct manual display as evidence of
 button-to-photon latency. Unexpected long tails, growing backlog or polling while
 blocked require investigation before declaring the integration pass complete.
 
-After approval, the proposed order is:
+Implementation and acceptance order:
 
 1. Implement the real consumer lifecycle and native Windows smoke, including idle
    waiting and normal retirement. Keep the production Executive's behaviour intact.
@@ -181,7 +181,190 @@ After approval, the proposed order is:
    results, limitations and any proposed scheduling/transport changes for review.
    No transport replacement, capacity tuning or new latency guarantee is pre-approved.
 
-Review requested: the fixture consumer and private acceptance build, the queue
-pressure cases, and the proposed measurement boundaries/reporting. Wireless,
+Wireless,
 additional native platforms, window-mode shortcuts, IME/relative mouse, Steam Input
 and advanced controller features retain their separate scope decisions.
+
+## Fixture implementation
+
+`tests/input_host` contains the independently scheduled Executive consumer, a
+second consumer mounted as Rendering, the private Platform adapter and the runner.
+Platform runtime files and filters belong directly to the ordinary module's
+Visual Studio project. The acceptance project mirrors its runtime source/header
+entries; a focused check compares both lists and their filters before acceptance
+runs and Linux configuration. Only that variant defines `MV_INPUT_ACCEPTANCE`;
+the production module has no private control contract, synthetic adapter or trace
+fields.
+
+The private feed/trace descriptor is itself a Host-tracked borrow. The Executive
+is its sole feed producer and Host its sole feed consumer and trace writer. A
+separate atomic complete-state snapshot per synthetic controller remains available
+when queued history is lost. Device instances and source observation identities
+are monotonic within a fixture run. The synthetic source clock is deliberately
+artificial; all latency arithmetic uses performance-counter samples instead.
+
+Before a latency run freezes its Host writer, a published drain frontier proves
+the finite feed, source history, desktop ingress and mapper continuations have
+finished. The designated readers must also have reached empty with no retained
+validation retry. Synthetic measurement cohorts are selected by offer time, so
+later ingress, publication and application remain included after the offer window
+ends. The join checks both reader-to-publication and publication-to-reader
+correlation for these lossless windows.
+
+The runner preserves the isolated runtime, logs and a `report.json` containing
+window counts, nanosecond percentiles, generator lateness, queue high-water marks
+and separate source/output/ingress losses. Native observation windows require an
+interactive Windows desktop and user confirmation; automated completion alone is
+not physical acceptance. Their display updates are excluded from synthetic timing
+baselines.
+
+The fixture's [running instructions](../../tests/input_host/README.md) list each
+case and the native/synthetic commands. Cleanup also retains late successful
+source-asset transfer/acquisition results before releasing and disposing them;
+pending replies do not make their conveyed ownership disappear.
+
+## Deferred observation cleanup
+
+Reviewed with the user on 10 November 2026: retain the current acceptance support
+for this stage. Revisit its internal boundaries when the first real Executive/game
+consumer is integrated, using that consumer's diagnostic needs to guide the work.
+This is a deferred review, not an approved implementation or a general profiling
+framework design.
+
+Keep the real Host/consumer lifecycle, pressure, recovery, isolation and retirement
+coverage as lasting regression tests. Retain narrow compile-time observation points
+where timing semantics require them, particularly source ingress and publication
+immediately before the committed watermark becomes visible. Synthetic sources,
+test commands, trace storage and reporting should remain owned by the fixture.
+
+The main cleanup candidate is `SInputAcceptanceAccess` in
+`tests/input_host/platform_fixture.cpp`. It currently reconstructs drainage,
+readiness and observation attribution from private desktop, connection and mapper
+fields. Review whether public behaviour can replace each access without weakening
+coverage. Where internal observation remains necessary, prefer small, explicitly
+defined acceptance-only snapshots or queries owned by the relevant component over
+duplicating the meaning of its individual recovery flags. Do not widen the public
+input interface merely to replace a friend declaration.
+
+Also review separating fixture control/borrow lifetime handling from observation,
+and concentrating fixture registration/composition at the module-binding boundary
+where practical. Preserve bounded work, precise timestamp placement and explicit
+quiescence throughout any cleanup. A general observer framework or runtime callback
+cost needs a separate concrete justification; hiding conditional compilation alone
+is not a sufficient reason to introduce either.
+
+The instrumented variant has additional private fields and work. Disabling tracing
+retains fixture controls, counters and those layouts; it does not produce the
+ordinary module. Continue ordinary-module physical acceptance alongside synthetic
+measurement and preserve this distinction in future performance claims. Any cleanup
+must retain the behavioural coverage and trace validity checks before replacing
+the existing support. The broader
+[testing-framework discussion](../backlog/testing_framework_consolidation.md#intrusive-tests-and-access-to-internals)
+remains a separate review.
+
+## Acceptance record: 10 November 2026
+
+| Target | Evidence |
+| --- | --- |
+| Windows x64 Debug | All ten fixture cases passed with one and two Host workers. The ordinary portable input suite passed 46,278 checks with zero failures after rebuilding against the production runtime. |
+| Windows Win32 Debug | Two-worker lifecycle, pressure, acquisition cleanup, source cleanup, second consumer and blocked shutdown passed. |
+| Linux GCC Debug | The original nine-case matrix passed with one and two workers (18 cases). After late-asset cleanup was added, lifecycle, acquisition cleanup, source cleanup and load smoke passed with both counts (8 focused cases). Native Linux desktop/controller acquisition is not claimed. |
+| Production Windows module | The real Host loaded the ordinary Platform module for an Xbox USB/keyboard observation pass. The operator requested a retry, then confirmed the two-minute retry performed as expected: prompt keyboard/controller input and held A/stick suppression across Alt+Tab and context changes until release/centre. |
+| Repository checks | Policy validation reported zero errors/warnings and the existing negative-test suppression. Eight source-manifest tests passed. Tracked/new UTF-8 text, line endings and diff whitespace were checked. |
+
+The hardware retry's local record is `build/input-host/lifecycle-1-knxyg25u`.
+It establishes qualitative behaviour through the ordinary loaded module; it
+does not provide a physical actuation timestamp or button-to-photon measurement.
+
+All new synthetic loads run through the Host cadence and consumer notifications;
+the fixture does not wake Host for each offered report. Expected-output counts
+are checked independently of trace correlation. Overload cases intentionally
+cause loss and then require cancellation/recovery; below-capacity load runs
+require complete output and zero source, ingress or output loss.
+
+Latency percentiles are weighted by output records, not independent physical
+samples: a controller report's button and stick changes each contribute a sample.
+The CPU field covers the entire process, including setup, warm-up, drain, trace
+sorting/reporting and teardown. It supports a coarse tracing comparison but
+does not isolate per-event overhead. Timing runs must remain uninterrupted. The
+performance/awake-clock guard detects Windows suspend divergence; both Linux
+clocks exclude suspend, so the same guard cannot detect Linux suspension.
+
+The report names `pump_work` and `pump_gap` measure the duration and start-to-start
+gap of `CPlatformRuntime::pump` calls. They do not measure the whole Host iteration,
+total Host scheduler work or time spent in unrelated module/worker activity.
+
+The fixture Executive both generates source reports and applies input. Its own
+descheduling/work can delay the offer; overdue rounds can catch up in bursts.
+Offered-to-applied starts at actual handoff and excludes pre-offer generator
+lateness, which is reported separately. Four-controller runs emit all four reports
+in each generator round, rather than simulating independently phased devices.
+`SOURCE.feed/history` count private synthetic buffer overflow; public per-pipe
+`ingress_loss` records native/injected source-history recovery. The private history
+counter is not a GameInput lost-history measurement.
+
+## Windows x64 Release baseline
+
+Collected serially on 10 November 2026, Windows 11 build 26200, AMD Ryzen
+Threadripper 7980X (64 cores / 128 logical processors), MSVC v143 and Windows SDK
+10.0.26100.0. The performance counter frequency was 10,000,000 ticks/s. Each run
+used two seconds of warm-up followed by three ten-second windows, without
+concurrent builds or other acceptance runs. All source and consumers were in one
+process. This is synthetic report-to-application timing, not hardware latency.
+
+The ranges below are the minimum and maximum **per-window p99**, not pooled
+percentiles. Maximum is the largest individual sample across all three windows.
+[The retained CSV](input_host_latency_2026-11-10.csv) contains sample counts and
+p50/p95/p99/max for every stage/window, including Platform pump metrics; all
+values there are nanoseconds. Full local reports and logs remain under
+`build/input-host-baseline/<run>/`.
+
+| Controllers | Reports/s each | Workers | Applied samples | Achieved reports/s each | Offered-to-applied p99 (ms) | Maximum (ms) | Ingress-to-applied p99 (ms) | Action high-water |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 120 | 1 | 7,425 | 119.988–119.995 | 4.085–5.194 | 5.828 | 0.185–0.191 | 2 |
+| 1 | 500 | 1 | 30,937 | 499.939–499.997 | 7.621–7.770 | 9.518 | 0.175–0.177 | 6 |
+| 1 | 1000 | 1 | 61,873 | 999.815–1000.000 | 7.634–7.706 | 13.585 | 0.174–0.175 | 6 |
+| 4 | 120 | 1 | 29,025 | 119.977–119.994 | 3.658–6.148 | 6.726 | 0.206–0.209 | 2 |
+| 4 | 500 | 1 | 120,937 | 499.958–499.997 | 7.687–7.707 | 11.775 | 0.197–0.199 | 6 |
+| 4 | 1000 | 1 | 241,867 | 999.812–999.875 | 7.576–7.711 | 13.303 | 0.188–0.191 | 6 |
+| 4 | 1000 | 2 | 241,859 | 999.864–999.958 | 7.609–7.626 | 13.856 | 0.189–0.191 | 6 |
+
+All nine runs passed, including the two trace-disabled comparisons. Every measured
+window had its expected applied outputs, with zero missing correlations, invalid
+clocks, stale applications or source/ingress/output losses. Traced action high-water
+never exceeded six records; trace-disabled runs reached at most seven, against
+capacity 256. Each pipe had only its initial cancellation. All finite loads drained
+completely. The measured rates and counters show no sustained backlog.
+
+The largest offered-to-applied sample was 13.856 ms in the two-worker run
+`load-2-wdd1xmg5`, window 0. That window's offered-to-ingress maximum was 13.684 ms;
+ingress-to-applied maximum was 0.679 ms. This localizes the long tail before ingress.
+The largest Platform pump start gap in that window was 9.775 ms, so the tail cannot
+be attributed simply to one long Host sleep. Polling/feed handoff and scheduling
+variability are plausible contributors, but the retained summaries do not identify
+the exact cause of that individual sample. The 120 Hz cadence is not an upper
+latency bound. No transport, capacity or scheduling change is justified by this
+initial evidence alone.
+
+Whole-process CPU comparison at four controllers × 1,000 reports/s each:
+
+| Workers | Tracing | Process CPU (s) | Wall duration (s) | Local run |
+| --- | --- | --- | --- | --- |
+| 1 | on | 4.718750 | 32.309 | `load-1-hyl47so8` |
+| 1 | off | 4.859375 | 32.166 | `load-1-hhzyy5v5` |
+| 2 | on | 5.421875 | 32.321 | `load-2-wdd1xmg5` |
+| 2 | off | 4.312500 | 32.164 | `load-2-hovdzrjo` |
+
+These single sequential process totals do not establish a precise tracing overhead:
+one worker used less measured CPU with tracing on than off, while two workers
+showed the opposite. They include offline reporting and ordinary scheduling
+variation; no instrumentation cost is subtracted from latency.
+
+The first Release smoke used an older Host executable and exited with an access
+violation before producing measurements. Rebuilding Host against the same checkout
+resolved it; both trace-on and trace-off smoke checks then passed before collecting
+this baseline. That failed run is excluded. The subsequent reporting-only change
+preserves detailed clock/overflow/source/pipe diagnostics on failure and does not
+change sampling or the measured path. After that change, two-worker load smoke
+passed on Windows x64 Debug/Release, Win32 Debug and Linux GCC Debug; the emitted
+diagnostic counters were zero.

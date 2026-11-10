@@ -19,6 +19,15 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
 endif()
 
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tests/input_host/check_sources.py"
+        --root "${CMAKE_SOURCE_DIR}"
+    COMMAND_ERROR_IS_FATAL ANY
+)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/tests/input_host/check_sources.py"
+    "${CMAKE_SOURCE_DIR}/visual_studio/MorphicPlatform.vcxproj.filters"
+    "${CMAKE_SOURCE_DIR}/visual_studio/MorphicInputPlatform.vcxproj.filters")
 find_package(Threads REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,13 +74,13 @@ add_custom_target(MorphicPolicyCheck
 
 morphic_sources(pump_fixture_sources visual_studio/MorphicPumpFixture.vcxproj)
 foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform MorphicTests
-        MorphicPumpProvider MorphicPumpExecutive MorphicPumpReplacement)
+        MorphicPumpProvider MorphicPumpExecutive MorphicPumpReplacement MorphicInputPlatform MorphicInputExecutive MorphicInputSecondary)
     if(target MATCHES "^MorphicPump")
         set(target_sources ${pump_fixture_sources})
     else()
         morphic_sources(target_sources "visual_studio/${target}.vcxproj")
     endif()
-    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio" OR target STREQUAL "MorphicPlatform" OR target MATCHES "^MorphicPump")
+    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio" OR target STREQUAL "MorphicPlatform" OR target MATCHES "^Morphic(Pump|Input)")
         add_library(${target} SHARED ${target_sources})
         # Engine modules retain their basename and use the native library suffix.
         set_target_properties(${target} PROPERTIES PREFIX "")
@@ -97,6 +106,9 @@ target_include_directories(MorphicHost PRIVATE
 target_include_directories(MorphicExecutive PRIVATE "${CMAKE_SOURCE_DIR}/executive")
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/rendering")
 target_include_directories(MorphicPlatform PRIVATE "${CMAKE_SOURCE_DIR}/platform")
+target_include_directories(MorphicInputPlatform PRIVATE "${CMAKE_SOURCE_DIR}/platform")
+target_compile_definitions(MorphicInputPlatform PRIVATE MV_INPUT_ACCEPTANCE=1)
+target_compile_definitions(MorphicInputSecondary PRIVATE MV_INPUT_SECONDARY=1)
 target_include_directories(MorphicAudio PRIVATE "${CMAKE_SOURCE_DIR}/audio")
 add_custom_command(TARGET MorphicAudio POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/external/miniaudio/LICENSE"
@@ -143,6 +155,12 @@ add_test(NAME MorphicReflectionArenaFatal COMMAND "${Python3_EXECUTABLE}"
     "--output-directory=${CMAKE_BINARY_DIR}/reflection-arena-fatal")
 set_tests_properties(MorphicReflectionArenaFatal PROPERTIES TIMEOUT 120)
 foreach(workers IN ITEMS 1 2)
+    foreach(input_case IN ITEMS lifecycle pressure transitions work-pressure second-consumer shutdown-blocked ingress-loss acquisition-cleanup source-cleanup load-smoke)
+        add_test(NAME MorphicInputHost-${input_case}-${workers}Worker COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/input_host/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
+            "--output-directory=${CMAKE_BINARY_DIR}/input-host" --host-workers ${workers} --case ${input_case} --rate 120)
+        set_tests_properties(MorphicInputHost-${input_case}-${workers}Worker PROPERTIES TIMEOUT 150)
+    endforeach()
     add_test(NAME MorphicHostPump${workers}Worker COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/host_pump/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
         "--output-directory=${CMAKE_BINARY_DIR}/host-pump" --host-workers ${workers})

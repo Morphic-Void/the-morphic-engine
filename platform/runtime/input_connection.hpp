@@ -71,6 +71,7 @@ private:
     friend class CInputMapper;
     friend class CDesktopInput;
     friend struct SPlatformInputTestAccess;
+    friend struct SInputAcceptanceAccess;
     [[nodiscard]] EInputPost post_action(const input::SActionInputV1 record) noexcept;
     [[nodiscard]] EInputPost post_text(input::STextInputV1 record) noexcept;
     [[nodiscard]] static bool valid_text(const input::STextInputV1& record) noexcept;

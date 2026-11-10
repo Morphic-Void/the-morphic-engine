@@ -32,7 +32,7 @@ The [controller acquisition contract](controller_input.md), accepted 9 November,
 adds discovery and multiple controller pipes with service/endpoint version 4.
 Windows desktop and three-controller USB acceptance are now recorded in those
 references. The [real Host/consumer integration pass](input_host_integration.md)
-is a proposal awaiting review, not completed qualification.
+records subsequent integrated lifecycle, pressure and timing evidence.
 
 Generic borrow release/quiescence replaces the original domain release messages;
 Platform retains readiness, stream-barrier and native cleanup responsibilities.
@@ -630,8 +630,8 @@ commit and retirement.
 ## Window/input and shutdown sequences
 
 The combined sequence below is a lifecycle overview. Configuration and input steps
-are implemented by the linked subsystem contracts; a real Host/consumer run of
-the combined path is proposed separately. The window-only readiness/close sequence
+are implemented by the linked subsystem contracts; the
+[real Host/consumer record](input_host_integration.md) covers the combined path. The window-only readiness/close sequence
 is in the first-window reference and has no configuration prerequisite.
 
 ### Successful startup
@@ -676,8 +676,8 @@ Platform on Host only after conditioning results, endpoints, windows, notificati
 callbacks are quiescent; then dispose module-dependent assets and worker-unbind.
 Same ordering applies after activation/pump failure. The implemented Host emergency
 path preserves pumped progress and retains unproven obligations. Implemented
-input/configuration cleanup follows that ordering; the proposed combined
-Host/consumer pressure pass will exercise it through the complete integration.
+input/configuration cleanup follows that ordering; the combined Host/consumer
+pressure pass exercises it through the complete integration.
 
 On shutdown grace expiry diagnose and retain unsafe resources/code. Never kill a
 thread or free a Host client record while execution can still reach it. Continue
@@ -725,9 +725,10 @@ notification, maintenance and first-window evidence is recorded in their linked
 references and the [completion record](../project/completed_milestones.md#host-pumped-services-and-first-windows-window).
 Configuration, input and controller evidence is now in their subsystem references,
 including Windows x64 USB hardware results. Mode work remains prospective; the
-combined Host/consumer pressure and timing pass awaits review. The numbered list
+combined Host/consumer pressure and timing evidence is recorded separately. The numbered list
 below is the historical acceptance checklist, not a list of wholly unfinished work.
-No runtime matrix was repeated for this documentation reconciliation.
+The preceding documentation-only reconciliation did not repeat runtime validation;
+the later integration record identifies its own builds, tests and limitations.
 
 1. Add generic client/routing fixtures before Platform native code: threaded/passive
    behaviour, requester replacement, per-client asset acquisition ownership, in-flight

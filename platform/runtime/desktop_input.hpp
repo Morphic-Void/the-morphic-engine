@@ -21,6 +21,9 @@ inline constexpr std::uint32_t k_desktop_changes = 8u;
 
 struct SDesktopTransaction
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::SObservationTrace trace;
+#endif
     std::uint64_t time_ns{};
     std::uint32_t count{}, raw_count{}, repeats{ 1u };
     SInputControl controls[k_desktop_changes]{};
@@ -55,6 +58,7 @@ public:
     [[nodiscard]] std::uint64_t malformed() const noexcept { return m_malformed; }
 
 private:
+    friend struct SInputAcceptanceAccess;
     struct SEntry
     {
         SDesktopTransaction transaction;

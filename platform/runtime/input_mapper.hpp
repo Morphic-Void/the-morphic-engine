@@ -12,6 +12,7 @@
 
 #include "runtime/input_plan.hpp"
 #include "framework/platform/input.hpp"
+#include "runtime/input_trace.hpp"
 
 namespace platform::runtime
 {
@@ -36,6 +37,9 @@ struct SInputControl
 //  values retain logical coordinates and fractional steps respectively.
 struct SInputObservation
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::SObservationTrace trace;
+#endif
     std::uint64_t device{}, ordinal{}, time_ns{};
     EObservationKind kind{ EObservationKind::transition };
     bool baseline{}, suppressed{}, source_time_valid{ true };
@@ -73,6 +77,7 @@ public:
     void require_baseline(const bool preserve_text = false) noexcept { invalidate(preserve_text); m_need_baseline = true; }
 
 private:
+    friend struct SInputAcceptanceAccess;
     enum class EStage { idle, copy, apply, raw, binding, modifiers, evaluate, output, finish };
     struct SPhysical
     {

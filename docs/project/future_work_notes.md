@@ -26,6 +26,17 @@ Use:
 Remove notes from this file when they are completed, rejected, or promoted into
 a permanent subsystem contract.
 
+## Platform input observation cleanup
+
+The 10 November Host/consumer integration retains its acceptance support for now.
+At the first real Executive/game consumer integration, review the
+[deferred observation cleanup](../modules/input_host_integration.md#deferred-observation-cleanup):
+preserve lasting lifecycle/pressure/recovery tests and precise observation points,
+reduce fixture knowledge of private runtime flags, and review separating fixture
+control/lifetime handling from observation. Keep ordinary-module acceptance as the
+production reference; trace-disabled fixture builds remain instrumented variants.
+The linked note records review scope, not authority to begin a redesign.
+
 ## Erased Payload Context
 
 Future provisioning or payload-context metadata must remain semantically

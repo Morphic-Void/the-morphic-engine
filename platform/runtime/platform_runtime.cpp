@@ -11,6 +11,7 @@
 
 #include <cstring>
 #include "runtime/platform_runtime.hpp"
+#include "runtime/input_acceptance.hpp"
 #include "threading/messages/CErasedPodMsg.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "module/module_messages.hpp"
@@ -239,6 +240,12 @@ EServiceStatus CPlatformRuntime::ready(const services::SDispatchedCommand& comma
 
 bool CPlatformRuntime::command(const services::SDispatchedCommand& dispatched) noexcept
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    if (dispatched.contract.number == acceptance::k_contract.number)
+    {
+        return acceptance::command(*this, dispatched);
+    }
+#endif
     if (dispatched.contract.number == input::k_input_contract.number)
     {
         return input_command(dispatched);
@@ -394,6 +401,9 @@ void CPlatformRuntime::close_use(SWindowUse& use, const EServiceStatus status) n
 
 bool CPlatformRuntime::message(const ::threading::CErasedPodMsg& message) noexcept
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::message(message);
+#endif
     configuration_message(message);
     input_message(message);
     services::ServiceBorrowControl control;
@@ -664,6 +674,9 @@ void CPlatformRuntime::progress_window() noexcept
 
 bool CPlatformRuntime::stopped() const noexcept
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    if (!acceptance::retired()) return false;
+#endif
     if (m_preparation.configuration >= 0) return false;
     for (const SConfiguration& configuration : m_configurations)
     {
@@ -719,6 +732,9 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
 void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
 {
     m_stopping = true;
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::progress(*this, true);
+#endif
     cancel_configuration(EServiceStatus::closing);
     m_configuration_runnable = (m_preparation.configuration >= 0);
     for (const SConfiguration& configuration : m_configurations)
@@ -737,6 +753,9 @@ void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
 
 void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResult& result) noexcept
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::pump_begin(*this);
+#endif
     result = {};
     std::uint64_t start = 0u;
     const bool clock_valid = m_clock.read(start).code == platform::threading::EWaitError::none;
@@ -802,6 +821,10 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_configurations(remaining());
     progress_catalogues();
     progress(result.progress);
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::progress(*this, m_stopping);
+    acceptance::pump_end();
+#endif
 }
 
 }   //  namespace platform::runtime

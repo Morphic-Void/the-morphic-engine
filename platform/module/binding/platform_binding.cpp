@@ -13,6 +13,7 @@
 #include "module/module_binding_context.hpp"
 #include "module/service_provider.hpp"
 #include "runtime/platform_runtime.hpp"
+#include "runtime/input_acceptance.hpp"
 #include "containers/TInstance.hpp"
 
 namespace platform::module_binding
@@ -46,8 +47,25 @@ static modules::ECallStatus MV_STD_ABI_CALL activate(const modules::SHostPumpCon
         return modules::ECallStatus::invalid_argument;
     }
     *runtime = nullptr;
+#if defined(MV_INPUT_ACCEPTANCE)
+    if (!acceptance::initialise(*context)) return modules::ECallStatus::failed;
+    if (!runtime_state().emplace(*context, acceptance::window_adapter(),
+        platform::threading::SAwakeClock{}, acceptance::controller_adapter()))
+    {
+        acceptance::destroy();
+        return modules::ECallStatus::failed;
+    }
+#else
     if (!runtime_state().emplace(*context)) return modules::ECallStatus::failed;
-    if (!runtime_state()->initialise()) { runtime_state().reset(); return modules::ECallStatus::failed; }
+#endif
+    if (!runtime_state()->initialise())
+    {
+        runtime_state().reset();
+#if defined(MV_INPUT_ACCEPTANCE)
+        acceptance::destroy();
+#endif
+        return modules::ECallStatus::failed;
+    }
     *runtime = &*runtime_state();
     *progress = {};
     progress->phase = modules::EPumpPhase::ready;
@@ -78,6 +96,9 @@ static modules::ECallStatus MV_STD_ABI_CALL deactivate(void* const runtime) noex
 {
     if (!runtime_state() || (runtime != &*runtime_state()) || !runtime_state()->stopped()) return modules::ECallStatus::failed;
     runtime_state().reset();
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::destroy();
+#endif
     return modules::ECallStatus::success;
 }
 
@@ -101,7 +122,11 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_
     modules::SServiceProviderV1* const value) noexcept
 {
     if (!value || (capacity != sizeof(*value))) return modules::EBindingResult::invalid_argument;
-    static constexpr services::SServiceContract contracts[]{ platform::windows::k_window_contract, platform::input::k_input_contract };
-    *value = { sizeof(*value), 1u, 0u, 2u, contracts };
+    static constexpr services::SServiceContract contracts[]{ platform::windows::k_window_contract, platform::input::k_input_contract
+#if defined(MV_INPUT_ACCEPTANCE)
+        , platform::acceptance::k_contract
+#endif
+    };
+    *value = { sizeof(*value), 1u, 0u, static_cast<std::uint32_t>(sizeof(contracts) / sizeof(contracts[0])), contracts };
     return modules::EBindingResult::success;
 }

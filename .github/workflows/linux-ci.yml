@@ -121,6 +121,7 @@ jobs:
             build/linux-ci/Testing/Temporary/
             build/linux-ci/test-output/
             build/linux-ci/host-acceptance/
+            build/linux-ci/input-host/
             development/logical-roots/logs/policy_validator/
           if-no-files-found: warn
           retention-days: 7

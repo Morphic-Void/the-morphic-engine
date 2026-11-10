@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include "runtime/input_connection.hpp"
+#include "runtime/input_acceptance.hpp"
 
 namespace platform::runtime
 {
@@ -145,6 +146,9 @@ void CInputConnection::progress(const std::uint64_t time_ns) noexcept
             return;
         }
         m_markers |= k_actions;
+#if defined(MV_INPUT_ACCEPTANCE)
+        acceptance::publication(*this, k_actions, m_state.action_generation, record.sequence, true);
+#endif
         m_state.committed = record.sequence;
         if (!publish()) return;
     }
@@ -162,6 +166,9 @@ void CInputConnection::progress(const std::uint64_t time_ns) noexcept
             return;
         }
         m_markers |= k_text;
+#if defined(MV_INPUT_ACCEPTANCE)
+        acceptance::publication(*this, k_text, m_state.text_generation, record.sequence, true);
+#endif
         m_state.committed = record.sequence;
         (void)publish();
     }
@@ -393,6 +400,9 @@ EInputPost CInputConnection::post_mapped(SActionInputV1 record, const std::uint6
         close(UINT32_MAX);
         return EInputPost::failed;
     }
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::publication(*this, k_actions, m_state.action_generation, record.sequence, false);
+#endif
     m_state.committed = record.sequence;
     return publish() ? EInputPost::published : EInputPost::failed;
 }
@@ -453,6 +463,9 @@ EInputPost CInputConnection::post_text(STextInputV1 record) noexcept
         close(UINT32_MAX);
         return EInputPost::failed;
     }
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::publication(*this, k_text, m_state.text_generation, record.sequence, false);
+#endif
     m_state.committed = record.sequence;
     return publish() ? EInputPost::published : EInputPost::failed;
 }

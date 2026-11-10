@@ -11,6 +11,7 @@
 #pragma once
 
 #include "framework/platform/controllers.hpp"
+#include "runtime/input_trace.hpp"
 
 namespace platform::native
 {
@@ -24,6 +25,9 @@ struct SControllerInfo
 };
 struct SControllerReading
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    acceptance::SObservationTrace trace;
+#endif
     std::uint64_t ordinal{}, time_ns{};
     std::uint32_t buttons{};
     float left_x{}, left_y{}, right_x{}, right_y{}, left_trigger{}, right_trigger{};

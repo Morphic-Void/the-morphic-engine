@@ -17,7 +17,7 @@ GameInput integration. Input service/endpoint version 4 supersedes the earlier
 interfaces. The 10 November record confirms Windows x64 USB acceptance with two
 Xbox controllers and a PS5, including independent pipes and recovery; wireless
 remains untested. The [real Host/consumer input pass](input_host_integration.md)
-is proposed for review and has not been implemented.
+records integrated lifecycle, pressure, retirement and software-path timing.
 
 The [desktop acquisition contract](desktop_input.md), accepted 8 November, defines
 Windows keyboard/text/mouse integration, bounded portable ingestion, native cutover,
@@ -1838,7 +1838,7 @@ validation limits rather than implying the whole design has been qualified.
 | 3. Client routes and dependencies | Implemented: exact-instance routing, borrows, notifications, restriction accounting, bounded maintenance, direct POD connections and aggregate Host waiting. | Evidence is in the foundation, maintenance, direct-connection and timed-wait references; direct traffic transfers no ownership. |
 | 4. Platform shell and Windows windows | Committed in `f55d514`: portable shell, one standard Windows window, explicit uses, durable state and native modal maintenance/cancellation. | Automated portable and native checks passed with stated manual/hardware/compiler limits; see the first-window reference. |
 | 5. Input and modes | Input connections, configuration installation, portable mapping, Windows desktop acquisition and four independent controller pipes are implemented. Mode requests and reserved shortcuts remain work. | Subsystem records cover protocol, recovery and native acceptance. Mode transitions and exclusive success require separate window/Rendering integration. |
-| 6. Windows-stage qualification | Desktop physical checks and three-controller USB acceptance are recorded. Real Host/consumer input pressure and latency measurement are [proposed for review](input_host_integration.md). | Keep native/synthetic evidence separate. Wireless, dead-key/AltGr text and mixed-DPI checks remain unvalidated; timing is not inferred from the manual display. |
+| 6. Windows-stage qualification | Desktop physical checks and three-controller USB acceptance are recorded. Real Host/consumer input pressure and software-path timing are [recorded separately](input_host_integration.md). | Keep native/synthetic evidence separate. Wireless, dead-key/AltGr text and mixed-DPI checks remain unvalidated; timing is not inferred from the manual display. |
 | Later, separately authorised | Integrate Vulkan presentation/exclusivity with Rendering; select and implement Linux/SteamOS adapters and native Steam Input; design extensions, richer mapping/UI and wider direct messaging as needed. | Each has its own design/validation checkpoint. The initial module does not claim these capabilities before they exist. |
 
 ### Build, policy and test integration
@@ -2175,18 +2175,18 @@ decisions are preserved; new substantive interface choices still require review.
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
 | Shared Framework contracts | Public window/input and direct-connection interfaces are implemented. Core's dependency boundary is preserved; broader Core decomposition remains separate work. |
 | Input and direct service-thread connection ABI | Implemented separately: [input](input_connections.md) has bounded Platform-owned rings; [direct POD](direct_pod_connections.md) has Host-owned growable queues. Concrete readiness, identity, admission and retirement APIs are defined. A broader threaded routed-service provider adapter is not selected. |
-| Acquisition failure and removal mechanics | Implemented eligible-time limits, retained completion, cancellation and quiescence-based cleanup. Preserve these contracts in the proposed combined Host/consumer pass; timeout is never permission to reclaim live views. |
+| Acquisition failure and removal mechanics | Implemented eligible-time limits, retained completion, cancellation and quiescence-based cleanup. The combined Host/consumer pass exercises these contracts; timeout is never permission to reclaim live views. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
 | Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |
 | Pause and watchdog publication | Generic atomic publication and eligible budgets are implemented. Future simulation/presentation consumers must apply their own pause policy; no renderer repaint/simulation integration is claimed. |
 | Text and desktop input mechanics | Implemented Windows text/repeat, physical keys, AltGr, pointer/wheel/capture and DPI-scaled coordinates. [Physical limits](desktop_input.md#acceptance-record-9-november-2026) include untested dead-key/AltGr text and mixed DPI. IME pre-edit and relative mouse mode remain deferred. |
 | Configuration schema and installation ABI | Implemented Host schema conditioning, explicit work budgets, bounded Platform installation, owned records/names, validation and retirement. Window-policy data is retained; attaching/executing reserved shortcuts remains window/mode work. |
-| Context protocol mechanics | Implemented serialised transitions, native cutover, joint desktop barriers, selective cancellation and per-binding neutral rearming. Broader consumer integration is proposed separately. |
+| Context protocol mechanics | Implemented serialised transitions, native cutover, joint desktop barriers, selective cancellation and per-binding neutral rearming. Real Host/consumer integration is recorded separately. |
 | Controller integration and parameters | Implemented GameInput 4.0.306 on x64/Win32, device identity/catalogue, four pipes, clocks and conditioning. Windows x64 USB acceptance covers two Xbox models and a PS5. Wireless and advanced controller features remain outside that evidence. |
 | Window and mode protocol mechanics | Creator control, close-on-controller-exit, asynchronous OS-close veto and shutdown override are implemented with durable state. Shortcuts, mode transitions/restoration and exclusive-loss recovery remain work; exclusive presentation needs Rendering integration. Control transfer is deferred. |
 | Monitors and sizing | PMv2, work-area fitting and logical/pixel extents are implemented. Cross-monitor desktop checks passed with believed equal scaling; mixed DPI remains unverified. Output-loss recovery, mode requests, explicit output selection and multiple windows remain later work. |
-| Input transport mechanics | Implemented 256-record action rings, 64-record text ring, 48/40-byte framing, coherent authority/watermarks, loss and boundary recovery, reader and capacity wakes. Real Host/consumer occupancy, pressure and performance measurements await review of the [integration proposal](input_host_integration.md). Cross-connection aggregation remains consumer policy. |
-| Stop/failure mechanics | Generic busy/unload, shutdown retention, native cancellation and input/configuration retirement are implemented and tested in their respective fixtures. Combined real Host/consumer shutdown under input pressure is proposed; CPU termination never proves graphics cleanup. |
+| Input transport mechanics | Implemented 256-record action rings, 64-record text ring, 48/40-byte framing, coherent authority/watermarks, loss and boundary recovery, reader and capacity wakes. Real Host/consumer occupancy, pressure and software-path measurements are in the [integration record](input_host_integration.md). Cross-connection aggregation remains consumer policy. |
+| Stop/failure mechanics | Generic busy/unload, shutdown retention, native cancellation and input/configuration retirement are implemented and tested in their respective fixtures. Combined real Host/consumer shutdown under input pressure is tested; CPU termination never proves graphics cleanup. |
 | Native Linux/SteamOS backend | Not selected. Evaluate Wayland and XCB/XWayland against actual target sessions, decorations/input, output control and native test environments before Linux implementation. Native Steam adaptation must define action-neutral versus physical-neutral guarantees. Does not block Windows work. |
 | Extensions | Deferred entirely from first implementation; preserve the future extension concept without adding its ABI now. |
 | Host waiting | Implemented [aggregate wake and timed waiting](host_timed_wait.md) on Windows and the Linux shell. Native Linux UI, Android and macOS wait-loop integration remain later work. |
@@ -2194,7 +2194,7 @@ decisions are preserved; new substantive interface choices still require review.
 The behavioural model and initial policy defaults are selected. Later increments
 must establish their own layout, concurrency/lifetime and native evidence,
 especially on Win32. Completed input validation does not qualify deferred modes,
-other native backends or the proposed combined integration pass, and does not
+other native backends or physical actuation-to-display latency, and does not
 authorise feature expansion.
 
 ## Review record

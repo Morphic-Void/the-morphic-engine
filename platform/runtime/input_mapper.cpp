@@ -171,6 +171,9 @@ void CInputMapper::begin_evaluation() noexcept
 
 void CInputMapper::text_changed() noexcept
 {
+#if defined(MV_INPUT_ACCEPTANCE)
+    m_observation.trace = {};
+#endif
     m_selective = true;
     m_generation = m_connection.snapshot().action_generation;
     m_admitted = allowed();

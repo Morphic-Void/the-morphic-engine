@@ -208,7 +208,8 @@ Host. Subsequent increments implement [direct POD connections](direct_pod_connec
 [Host timed waiting](host_timed_wait.md), [input connections](input_connections.md),
 [prepared configuration](input_configuration_installation.md), [mapping](input_mapping.md),
 [Windows desktop input](desktop_input.md) and [GameInput controllers](controller_input.md).
-Those references own their validation evidence; this foundation record does not
-claim the proposed [combined Host/consumer input pass](input_host_integration.md).
+Those references own their validation evidence. The separate
+[combined Host/consumer input record](input_host_integration.md) covers integrated
+input pressure, retirement and software-path timing.
 Window modes, Vulkan integration and native Linux UI remain later work. The generic
 routed service-provider adapter remains pumped.

@@ -60,4 +60,8 @@
     <ClCompile Include="..\platform\runtime\controller_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\controller_catalogue.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\platform\runtime\input_acceptance.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\input_trace.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+  </ItemGroup>
 </Project>

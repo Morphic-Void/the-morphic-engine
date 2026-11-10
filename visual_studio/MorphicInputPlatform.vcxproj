@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File:    MorphicInputPlatform.vcxproj
+  Date:    10 Nov 26
+
+  Builds the private acceptance Platform variant from the production runtime,
+  with bounded synthetic sources and trace hooks.
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Development|Win32"><Configuration>Development</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Development|x64"><Configuration>Development</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{9827E9DA-84F5-4610-BE81-FD08DC7FD3DD}</ProjectGuid>
+    <RootNamespace>MorphicInputPlatform</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Development'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared">
+    <Import Project="MorphicCore.vcxitems" Label="Shared" />
+    <Import Project="MorphicFramework.vcxitems" Label="Shared" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>MorphicInputPlatform</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\platform;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ExceptionHandling>false</ExceptionHandling>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>User32.lib;Gdi32.lib;Synchronization.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=1;MV_COMPILED_INFORMATION_LEVEL=3;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Development'">
+    <ClCompile>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;MV_DEBUG_BUILD=1;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=2;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;MV_DEVELOPMENT_BUILD=0;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
+    <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 /EXPORT:morphic_module_host_pump_v2=_morphic_module_host_pump_v2@8 /EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">
+      <Project>{0BF5D948-138E-45A7-915F-AA8C3D6DBA08}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="MorphicPolicyValidator.vcxproj">
+      <Project>{9F240D42-75CB-4F16-A5B4-2B8D6A7E2C41}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\platform\module\binding\platform_binding.cpp" />
+    <ClInclude Include="..\platform\module\types\erased_owner_payloads.def" />
+    <ClCompile Include="..\platform\module\types\local_type_ids.cpp" />
+    <ClInclude Include="..\platform\module\types\local_type_ids.def" />
+    <ClInclude Include="..\platform\module\types\local_type_ids.hpp" />
+    <ClInclude Include="..\platform\module\types\local_types.hpp" />
+    <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
+    <ClInclude Include="..\platform\native\window.hpp" />
+    <ClInclude Include="..\platform\native\controllers.hpp" />
+    <ClInclude Include="..\platform\native\controller_types.hpp" />
+    <ClInclude Include="..\platform\native\windows\gameinput_state.hpp" />
+    <ClCompile Include="..\platform\native\windows\controllers_windows.cpp" />
+    <ClCompile Include="..\platform\native\unsupported\controllers_unsupported.cpp" />
+    <ClCompile Include="..\platform\runtime\controller_input.cpp" />
+    <ClCompile Include="..\platform\runtime\controller_catalogue.cpp" />
+    <ClInclude Include="..\platform\native\windows\input_windows.hpp" />
+    <ClInclude Include="..\platform\native\desktop.hpp" />
+    <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
+    <ClCompile Include="..\platform\native\windows\input_windows.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
+    <ClCompile Include="..\platform\runtime\input_connection.cpp" />
+    <ClCompile Include="..\platform\runtime\input_mapper.cpp" />
+    <ClCompile Include="..\platform\runtime\desktop_input.cpp" />
+    <ClCompile Include="..\platform\runtime\input_configuration.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_input.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_configuration.cpp" />
+    <ClInclude Include="..\platform\runtime\input_connection.hpp" />
+    <ClInclude Include="..\platform\runtime\input_mapper.hpp" />
+    <ClInclude Include="..\platform\runtime\desktop_input.hpp" />
+    <ClInclude Include="..\platform\runtime\input_plan.hpp" />
+    <ClInclude Include="..\platform\runtime\input_storage.hpp" />
+    <ClInclude Include="..\platform\runtime\input_configuration.hpp" />
+    <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
+    <ClCompile Include="..\platform\runtime\window_record.cpp" />
+    <ClInclude Include="..\platform\runtime\window_record.hpp" />
+    <ClInclude Include="..\platform\runtime\input_acceptance.hpp" />
+    <ClInclude Include="..\platform\runtime\input_trace.hpp" />
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <ClCompile><PreprocessorDefinitions>MV_INPUT_ACCEPTANCE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\tests\input_host\platform_fixture.cpp" />
+    <ClInclude Include="..\tests\input_host\control.hpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="MorphicPolicy.targets" />
+  <Import Project="MorphicGameInput.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

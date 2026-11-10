@@ -68,7 +68,8 @@ in [direct POD connections](../modules/direct_pod_connections.md),
 and [controller acquisition](../modules/controller_input.md). Those records include
 later Windows desktop and USB controller acceptance without extending the earlier
 test counts above. Window modes and native ports remain later work; the combined
-[Host/consumer input pass](../modules/input_host_integration.md) is proposed for review.
+[Host/consumer input pass](../modules/input_host_integration.md) now records its
+own integrated pressure, retirement, hardware and software-path timing evidence.
 
 ## Message and ownership consolidation
 

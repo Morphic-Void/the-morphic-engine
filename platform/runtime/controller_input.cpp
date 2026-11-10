@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include "runtime/platform_runtime.hpp"
+#include "runtime/input_acceptance.hpp"
 #include "debug/macros.hpp"
 
 namespace platform::runtime
@@ -318,6 +319,10 @@ void CPlatformRuntime::progress_controllers(const std::uint64_t budget_ns) noexc
             continue;
         }
         SInputObservation observation;
+#if defined(MV_INPUT_ACCEPTANCE)
+        acceptance::controller_ingress(reading);
+        observation.trace = reading.trace;
+#endif
         observation.device = selected->token;
         observation.ordinal = reading.ordinal;
         observation.time_ns = reading.time_valid ? reading.time_ns : 0u;

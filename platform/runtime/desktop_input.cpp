@@ -217,6 +217,9 @@ bool CDesktopInput::advance(SMapperBudget& budget) noexcept
     const SDesktopTransaction& transaction = entry.transaction;
     SInputObservation observation;
     observation.device = m_device;
+#if defined(MV_INPUT_ACCEPTANCE)
+    observation.trace = transaction.trace;
+#endif
     observation.time_ns = std::max(m_time, transaction.time_ns);
     observation.suppressed = entry.suppressed;
     bool submit = entry.action_generation == state.action_generation;

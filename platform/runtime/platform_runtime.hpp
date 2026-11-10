@@ -69,6 +69,7 @@ public:
 private:
     friend struct SPlatformTestAccess;
     friend struct SPlatformInputTestAccess;
+    friend struct SInputAcceptanceAccess;
     struct SCompletion
     {
         services::ServiceReply reply;

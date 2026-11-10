@@ -182,7 +182,8 @@ concurrent stream stress case exercises 20,000 publication attempts with bounded
 merge/recovery. These synthetic cases do not establish hardware acceptance.
 Subsequent Windows evidence is recorded in [desktop acquisition](desktop_input.md#acceptance-record-9-november-2026)
 and [controller acquisition](controller_input.md#usb-physical-acceptance-10-november-2026).
-The proposed [real Host/consumer pass](input_host_integration.md) is awaiting review.
+The [real Host/consumer pass](input_host_integration.md) records the subsequent
+integrated lifecycle, pressure and timing evidence.
 
 Validation on 6 November 2026:
 
