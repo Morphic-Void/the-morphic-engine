@@ -166,7 +166,7 @@ void print_usage()
         "  --platform-input-native  Windows desktop native-message acceptance\n"
         "  --platform-input-interactive  30-second physical desktop observation\n"
         "  --platform-controller-native  Windows GameInput startup/pipe smoke\n"
-        "  --platform-controller-interactive  60-second multi-controller observation\n"
+        "  --platform-controller-interactive  120-second multi-controller observation\n"
         "  --log-tag=<value>\n"
         "               Add a 1-48 character disambiguation tag to test logs\n"
         "  --output-directory=<path>\n"

@@ -39,6 +39,9 @@ struct SControllerAdapter
     void (*dispatch)(SControllers&, const std::uint64_t) noexcept{};
     EControllerRead (*read)(SControllers&, const std::uint64_t, const bool, SControllerReading&) noexcept{};
     bool (*destroy)(SControllers&) noexcept{};
+    //  Synchronous aggregate eligibility changes, including loss and return
+    //  between pumps. An absent hook needs no native recovery fence.
+    void (*eligibility)(SControllers&, const bool) noexcept{};
 };
 
 [[nodiscard]] const SControllerAdapter& controller_adapter() noexcept;

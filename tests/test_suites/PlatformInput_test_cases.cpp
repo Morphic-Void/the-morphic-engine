@@ -201,13 +201,15 @@ struct SControllers
 {
     struct SDevice
     {
-        bool connected{}, history_lost{};
+        bool connected{}, history_lost{}, baseline_wait{};
         platform::native::SControllerInfo info;
         platform::native::SControllerReading latest, queued[16]{};
         std::uint32_t head{}, count{}, reads{};
         std::uint64_t ordinal{};
     } devices[k_device_capacity];
     bool available{ true };
+    bool eligible{ true }, delay_resume{};
+    std::uint32_t eligibility_calls{};
     static inline SControllers* current{};
     static bool initialise(platform::native::SControllers& source) noexcept
     {
@@ -217,6 +219,16 @@ struct SControllers
         return true;
     }
     static void dispatch(platform::native::SControllers& source, const std::uint64_t) noexcept { source.work_pending = false; }
+    static void eligibility(platform::native::SControllers& source, const bool eligible) noexcept
+    {
+        SControllers& self = *static_cast<SControllers*>(source.state);
+        self.eligible = eligible;
+        ++self.eligibility_calls;
+        if (eligible && self.delay_resume)
+        {
+            for (SDevice& device : self.devices) device.baseline_wait = device.connected;
+        }
+    }
     static platform::native::EControllerRead read(platform::native::SControllers& source,
         const std::uint64_t instance, const bool baseline, platform::native::SControllerReading& reading) noexcept
     {
@@ -235,6 +247,10 @@ struct SControllers
             }
             if (baseline)
             {
+                if (device.baseline_wait)
+                {
+                    return platform::native::EControllerRead::empty;
+                }
                 reading = device.latest;
                 device.head = device.count = 0u;
             }
@@ -253,7 +269,7 @@ struct SControllers
     static bool destroy(platform::native::SControllers& source) noexcept { source.state = nullptr; return true; }
     static const platform::native::SControllerAdapter& adapter() noexcept
     {
-        static const platform::native::SControllerAdapter result{ &initialise, &dispatch, &read, &destroy };
+        static const platform::native::SControllerAdapter result{ &initialise, &dispatch, &read, &destroy, &eligibility };
         return result;
     }
     void attach(platform::runtime::CPlatformRuntime& runtime, const std::uint32_t slot, const std::uint64_t instance) noexcept
@@ -1937,15 +1953,25 @@ void controller_parallel_recovery(TTestContext& ctx)
     TEST_EXPECT(ctx, (first.reader.snapshot().device == original_device));
     //  Both sources remain held throughout focus loss. The returning baseline
     //  must suppress them until a subsequent neutral report and fresh input.
+    fixture.controllers.delay_resume = true;
     fixture.runtime->input_focus(false);
     sample.time_ns = 100u;
     sample.buttons = 1u;
     sample.left_x = 0.8f;
     fixture.controllers.sample(0u, sample);
     fixture.controllers.sample(1u, sample);
-    fixture.step();
+    //  No pump separates loss and return: the adapter must still see both.
     fixture.runtime->input_focus(true);
+    TEST_EXPECT(ctx, (fixture.controllers.devices[0].baseline_wait && fixture.controllers.devices[1].baseline_wait));
+    for (unsigned step = 0u; step < 16u; ++step) fixture.step();
+    first.drain(fixture);
+    second.drain(fixture);
+    TEST_EXPECT(ctx, ((first.reader.snapshot().ingress_pending & k_actions) && (second.reader.snapshot().ingress_pending & k_actions)));
+    fixture.controllers.devices[0].baseline_wait = false;
     controller_settle(fixture, first);
+    second.drain(fixture);
+    TEST_EXPECT(ctx, (!(first.reader.snapshot().ingress_pending & k_actions) && (second.reader.snapshot().ingress_pending & k_actions)));
+    fixture.controllers.devices[1].baseline_wait = false;
     controller_settle(fixture, second);
     const unsigned before_first = first.records, before_second = second.records;
     sample.time_ns = 101u;
@@ -1978,6 +2004,28 @@ void controller_parallel_recovery(TTestContext& ctx)
         (second.reader.snapshot().controller_state == EControllerState::unavailable)));
 }
 
+void controller_eligibility_edges(TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    fixture.runtime->input_focus(false);
+    SCatalogue catalogue;
+    TEST_EXPECT(ctx, catalogue.acquire(fixture));
+    TEST_EXPECT(ctx, (!fixture.controllers.eligible && (fixture.controllers.eligibility_calls == 1u)));
+    fixture.runtime->input_focus(true);
+    fixture.runtime->input_focus(false);
+    fixture.runtime->input_focus(true);
+    TEST_EXPECT(ctx, (fixture.controllers.eligible && (fixture.controllers.eligibility_calls == 4u)));
+    fixture.runtime->enter_modal(false);
+    fixture.runtime->enter_modal(true);
+    fixture.runtime->input_focus(false);
+    fixture.runtime->leave_modal(true);
+    fixture.runtime->leave_modal(false);
+    TEST_EXPECT(ctx, (!fixture.controllers.eligible && (fixture.controllers.eligibility_calls == 5u)));
+    fixture.runtime->input_focus(true);
+    fixture.runtime->input_focus(true);
+    TEST_EXPECT(ctx, (fixture.controllers.eligible && (fixture.controllers.eligibility_calls == 6u)));
+}
+
 void controller_unavailable_and_catalogue_retirement(TTestContext& ctx)
 {
     SFixture fixture{ ctx };
@@ -1988,6 +2036,9 @@ void controller_unavailable_and_catalogue_retirement(TTestContext& ctx)
     SCatalogueSnapshot snapshot;
     TEST_EXPECT(ctx, (catalogue.view->state->read(snapshot) == EStateRead::success));
     TEST_EXPECT(ctx, ((snapshot.backend == EControllerBackend::unavailable) && !snapshot.count));
+    fixture.runtime->input_focus(false);
+    fixture.runtime->input_focus(true);
+    TEST_EXPECT(ctx, !fixture.controllers.eligibility_calls);
     const std::uint64_t unavailable = fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, 0u, 1u, 1u });
     fixture.step();
     TEST_EXPECT(ctx, (fixture.terminal(unavailable) == EServiceStatus::unavailable));
@@ -2118,9 +2169,10 @@ static void controller_native_acceptance(TTestContext& ctx, const bool interacti
     const HWND handle = reinterpret_cast<HWND>(SPlatformInputTestAccess::handle(*fixture.runtime));
     (void)SetForegroundWindow(handle);
     (void)SetFocus(handle);
-    std::printf("60-second observation: 1-4 select displayed pipe; C changes its context; U unassigns it;\n"
+    std::printf("120-second observation: 1-4 select displayed pipe; C changes its context; U unassigns it;\n"
         "R explicitly assigns available devices to unassigned pipes; Escape finishes. Move/release every control.\n"
-        "After disconnect/reconnect, press R to reassign. Alt+Tab tests held-state recovery.\n");
+        "After disconnect/reconnect, press R to reassign. Alt+Tab tests held-state recovery.\n"
+        "Display refresh targets 60 Hz; periodic console logging remains once per second.\n");
     struct SDisplay
     {
         std::uint32_t buttons{}, records{};
@@ -2131,8 +2183,12 @@ static void controller_native_acceptance(TTestContext& ctx, const bool interacti
     constexpr int keys[]{ '1', '2', '3', '4', 'C', 'U', 'R', VK_ESCAPE };
     bool held[sizeof(keys) / sizeof(keys[0])]{};
     std::uint32_t selected = 0u;
-    const ULONGLONG end = GetTickCount64() + 60000u;
-    ULONGLONG display_at = 0u;
+    const ULONGLONG end = GetTickCount64() + 120000u;
+    constexpr std::uint32_t k_display_hz = 60u;
+    const std::chrono::steady_clock::duration display_interval =
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds{ 1 }) / k_display_hz;
+    std::chrono::steady_clock::time_point display_at = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point log_at = display_at;
     while ((GetTickCount64() < end) && IsWindow(handle) && !fixture.runtime->cancelling())
     {
         fixture.step();
@@ -2213,10 +2269,11 @@ static void controller_native_acceptance(TTestContext& ctx, const bool interacti
                 }
             }
         }
-        if (GetTickCount64() >= display_at)
+        const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        const SInputSnapshot& snapshot = pipes[selected].reader.snapshot();
+        const SDisplay& values = display[selected];
+        if (now >= display_at)
         {
-            const SInputSnapshot& snapshot = pipes[selected].reader.snapshot();
-            const SDisplay& values = display[selected];
             wchar_t title[512]{};
             (void)std::swprintf(title, 512u,
                 L"Pad %u device %llu state %u context %u | buttons %04x L %.2f %.2f R %.2f %.2f T %.2f %.2f | records %u/%u/%u/%u",
@@ -2224,11 +2281,17 @@ static void controller_native_acceptance(TTestContext& ctx, const bool interacti
                 values.buttons, values.left.x, values.left.y, values.right.x, values.right.y, values.left_trigger, values.right_trigger,
                 display[0].records, display[1].records, display[2].records, display[3].records);
             (void)SetWindowTextW(handle, title);
+            //  Retain the cadence through small scheduling delays; skip missed refreshes.
+            display_at += display_interval;
+            if (display_at <= now) display_at = now + display_interval;
+        }
+        if (now >= log_at)
+        {
             std::printf("Pipe %u device=%llu time=%llu domain/epoch=%llu/%llu receipt=%llu records=%u\n", (selected + 1u),
                 static_cast<unsigned long long>(snapshot.device), static_cast<unsigned long long>(values.time),
                 static_cast<unsigned long long>(values.domain), static_cast<unsigned long long>(values.epoch),
                 static_cast<unsigned long long>(snapshot.receipt_awake_ns), values.records);
-            display_at = GetTickCount64() + 1000u;
+            log_at = now + std::chrono::seconds{ 1 };
         }
         Sleep(1u);
     }
@@ -2681,6 +2744,7 @@ void run_platform_input_tests(tests::TTestContext& ctx)
     controller_catalogue_and_claims(ctx);
     controller_source_history(ctx);
     controller_parallel_recovery(ctx);
+    controller_eligibility_edges(ctx);
     controller_unavailable_and_catalogue_retirement(ctx);
 }
 

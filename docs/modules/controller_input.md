@@ -134,6 +134,37 @@ callbacks. Shutdown unregisters callbacks before releasing queued references, de
 records, dispatcher and runtime, then releases the shared owner. Allocation and
 object lifetime use the existing containers without placement-new policy exceptions.
 
+An expired GameInput history cursor does not imply loss when it is still the
+device's current reading. On that error, compare the retained cursor with one
+current-reading query by interface identity. An identical reading means no new
+input; leave the ordinal and recovery generation unchanged. A distinct reading
+still requires history-loss recovery, even if its timestamp and values match.
+
+The app-local PC runtime is sideloaded. Microsoft documents that this deployment
+ignores `EnableBackgroundInput(true)` and has limited, device-dependent focus
+handling. Calling that method is therefore not proof that a current reading
+contains physical state while unfocused or immediately after returning.
+
+Freshness protection accepted 10 November 2026: on an aggregate focus/modal return,
+capture the GameInput source clock synchronously, including a loss and return
+between pumps. Each device must provide a reading strictly newer than that cutoff
+before its pending recovery baseline can complete. Older or equal-time readings
+are released without advancing the cursor, ordinal or recovery generation. The
+first accepted report establishes suppression; it does not publish actions. Each
+binding then rearms through its own neutral threshold, independently of other
+controls and pipes. Delayed discovery inherits the latest return cutoff. Clock
+rollback changes the source epoch and rebases still-pending cutoffs; retirement
+never waits for physical input.
+
+For an idle device that reports only changes, the first deliberate press after
+return may establish the baseline and require release/repress. No timeout, repeated
+read of the same snapshot, or neutral value bypasses the timestamp requirement. This
+guard excludes the observed cached pre-return neutral state; a timestamp alone
+cannot distinguish physical input from a synthetic report stamped after return.
+Native acceptance must therefore include actual held controls and movement after
+refocus. Startup order and a system-wide runtime installation are not prerequisites
+introduced by this change.
+
 Synthetic cases cover catalogue/claim races, distinct identical devices, all three
 selection policies, capacity, shared-budget fairness, time ties/resets, stale
 assignment/context requests, loss, held-state recovery, independent cancellation,
@@ -182,9 +213,12 @@ Build normally with the pinned dependency described in
 enumerates the catalogue and opens/retires four pipes through the public protocol.
 It accepts zero attached devices and prints backend status and any native error.
 
-`MorphicTests --platform-controller-interactive` opens a 60-second observation
-window. Initial acquisition selects available devices in discovery order; empty
-pipes stay unassigned. Keys 1–4 select the displayed pipe, C toggles its context,
+`MorphicTests --platform-controller-interactive` opens a 120-second observation
+window. Its title targets 60 Hz refresh independently of the once-per-second
+periodic console log; actual refresh depends on scheduling. Input acquisition and
+pipe draining continue between display updates. Initial acquisition selects
+available devices in discovery order; empty pipes stay unassigned. Keys 1–4
+select the displayed pipe, C toggles its context,
 U unassigns it, R explicitly assigns available devices to empty pipes, and Escape
 finishes. The title shows the selected device, context, standard buttons, both
 sticks and triggers, plus record counts for all pipes. The console reports source
@@ -216,10 +250,146 @@ allows delivery of the retained terminal reply on the following pump, and the
 corrected case passed in all three focused runs. Passing unrelated ordinary suites
 were not repeated after that test-only correction.
 
-Physical acceptance for the two Xbox controllers and PS5 remains pending; no
-controller model or wireless compatibility is inferred from the zero-device run.
+As of 9 November, physical acceptance for the two Xbox controllers and PS5 was
+pending; no controller model or wireless compatibility is inferred from the
+zero-device run.
+
+### CI follow-up: 10 November 2026
+
+The operator confirmed that all Windows and Linux CI jobs passed after rerunning
+the transient GitHub internal-server failures. This includes the Windows restore
+module-path fix in `1e91586`; the controller implementation is `ad7e498`.
+
+### USB physical acceptance: 10 November 2026
+
+Controller A is connected by USB and Windows identifies it as an Xbox One
+Controller (vendor `045E`, product `02EA`). Initial discovery completed after pipe
+acquisition; explicit R assignment selected device token 1 in pipe 1.
+
+The operator confirmed all 14 standard button masks and return to zero on release:
+A/B/X/Y, both shoulders, both stick clicks, four D-pad directions, Menu and View.
+Guide/Share are outside this mapping.
+After the history correction, the operator also confirmed both stick directions,
+return to centre, independent and simultaneous trigger travel, and return to zero.
+That physical pass completed with 93,753 harness checks and zero failures.
+The operator subsequently confirmed fresh A input after five seconds at neutral,
+and context changes while holding A, a stick and a trigger: each cleared, stayed
+suppressed while held, and reactivated only after neutral and fresh input. That
+pass completed with 93,020 harness checks and zero failures.
+
+One retry overflowed the acceptance fixture's 512-entry service-reply history.
+A later diagnostic captured repeated native-history recovery generations. An
+expired cursor could still be the latest reading; the adapter now distinguishes
+that idle case by reading identity instead of repeatedly cancelling input. The
+synthetic regression failed against the old implementation. After the correction,
+Windows Debug x64 and Win32 builds and focused input suites passed, each reporting
+46,166 checks with zero failures. The subsequent analog and idle/context passes
+did not reproduce the recovery storm.
+
+Initial focus recovery failed. With A held continuously and a stick
+off-centre across Alt+Tab, a native baseline returned all-zero controls with a
+source timestamp from focus loss. A later complete report included the still-held
+A button, which the mapper then treated as a new press. Slight stick movement can
+produce that report; a quiet return is not sufficient evidence of correct recovery.
+The operator initially saw the failure on the first cycle but not a repeated
+cycle, so acceptance must distinguish first and later cycles and include stick
+movement while A remains held after return.
+In the subsequent two-minute retry, the operator confirmed held-A reactivation on
+both first and later cycles while moving the stick after return. The harness
+completed with 182,351 checks and zero assertion failures; those checks do not
+establish correct physical focus recovery.
+
+The loaded runtime was the staged GameInput 4.0.306.0 DLL. Reapplying background
+input policy on discovery and establishing the Windows message queue before
+GameInput did not resolve the failure. Creating the window before GameInput
+initially appeared to work, but a traced repeat again captured the false neutral
+baseline and held-A reactivation, including on later focus cycles. That ordering
+is not accepted as a fix and does not change the window-independent contract.
+Temporary ordering changes and tracing were removed. The operator subsequently
+approved the conservative freshness guard and its possible first-press suppression.
+Windows Debug x64 and Win32 solution builds passed; their focused input suites each
+reported 46,278 checks with zero failures. The Linux Clang Debug build and focused
+suite passed with 46,191 checks and zero failures. Coverage includes pre-cutoff and
+equal-time snapshots, independent devices, delayed discovery, return between pumps,
+startup while ineligible, nested modal suppression, unavailable-backend transitions,
+clock rollback and retirement while freshness remains pending. Line-ending and
+diff checks passed, and read-only review found no remaining blocker.
+With the guard enabled, the operator confirmed both first and repeated focus
+cycles with A and a stick held throughout: moving the stick after return did not
+reactivate either held control, and neutral followed by fresh input worked. The
+physical pass completed with 92,183 harness checks and zero failures.
+
+The operator also confirmed U/R unassignment and reassignment while controls were
+held. R left them suppressed; releasing and pressing A again rearmed the button
+while the off-centre stick stayed suppressed. Centring and moving the stick then
+restored stick input. This confirms binding-local rearming rather than requiring
+the whole controller to become neutral at once. The two-minute retry completed
+with 181,975 checks and zero failures. The interactive controller harness now allows
+120 seconds for multi-step checks and still supports early exit with Escape.
+The operator confirmed USB disconnection while holding A cleared the pipe.
+Reconnection remained unassigned until R, which selected new device token 2 in
+place of token 1; fresh buttons, sticks and triggers then worked.
+
+Controller B is connected alone by USB and Windows identifies it as Xbox
+Controller (vendor `045E`, product `0B12`). The operator confirmed all 14 mapped
+buttons and return to zero, both stick directions and return to centre, and both
+triggers independently/together with return to zero.
+
+In a new harness/provider run with both Xbox controllers connected by USB, R
+assigned distinct device tokens 1 and 2 to pipes 1 and 2. The operator confirmed
+each controller's buttons, sticks and triggers affected only its own pipe. The
+isolation pass completed with 183,413 checks and zero failures.
+The following pass confirmed simultaneous stick input on one controller and button
+input on the other. It completed with 185,371 checks and zero failures. Context
+isolation was confirmed separately in the requested retry.
+In that retry, the operator confirmed changing pipe 1's context left pipe 2's
+context and held A unchanged; releasing and pressing A again continued to work on
+pipe 2. Context changes are therefore physically confirmed to remain local to the
+selected pipe.
+The operator confirmed disconnecting pipe 1's controller left pipe 2's assignment,
+context and held input intact. Reconnection stayed unassigned until explicit R,
+then received new token 3 and accepted fresh input.
+For shared-focus recovery, the operator used analogue sticks on both controllers,
+holding them across Alt+Tab and rearming them independently. Behavior appeared as
+expected, but coordinating both sticks with one hand and the keyboard with the
+other limited the precision of the physical check. Triggers were not used in this
+focus pass; the earlier trigger travel/neutral checks are separate evidence.
+
+The PS5 controller is connected alone by USB. Windows reports Wireless Controller
+with vendor `054C`, product `0CE6`; the native harness successfully assigns it to
+pipe 1. The operator confirmed all 14 standard button masks, including Options
+and Create, with return to zero; both stick directions and return to centre; and
+independent/simultaneous L2/R2 travel with return to zero.
+The operator subsequently confirmed held-Cross recovery through both C context
+change and Alt+Tab. After refocus, moving a stick while Cross remained held did
+not reactivate Cross; releasing and pressing Cross again restored normal input.
+
+With all three controllers connected by USB, the operator confirmed separate
+controller pipes, individual input isolation and simultaneous input from the PS5
+and an Xbox controller. Pipe 4 remained unassigned. Unplugging the PS5 left both
+Xbox pipes working; reconnecting it required explicit R assignment, received a
+new device token and restored working controls.
+
+The planned USB acceptance passes are complete, with the shared-focus observation
+qualified above. These physical results apply to the two identified Xbox models
+and the PS5 controller on this Windows host using the x64 Debug harness. Win32
+coverage includes builds, synthetic tests and zero-device native smoke; Linux
+coverage is builds and synthetic tests. Connected-controller physical acceptance
+is x64 only. Wireless operation was not tested; the PS5 device's Windows name does
+not imply a wireless connection.
+
+The operator noted apparent latency during acceptance. The controller title had
+shared the once-per-second console log timer. Its refresh now independently targets
+60 Hz while periodic logging stays at once per second. In the subsequent short
+responsiveness pass, the operator confirmed that button presses, stick movement and
+the trigger followed promptly in the display. This is a qualitative observation,
+not an end-to-end latency measurement. The updated x64 Debug harness built cleanly;
+read-only review and repository diff/line-ending checks passed.
 
 Native API references:
 [GameInput v4](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/gameinput-overview),
+[reading lifetime and identity](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-fundamentals),
+[background input policy](https://learn.microsoft.com/en-us/gaming/gdk/docs/reference/input/gameinput/interfaces/igameinput/methods/igameinput_enablebackgroundinput?view=gdk-2604),
+[sideloading limitations](https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/input/overviews/input-agility-redistributable?view=gdk-2604),
 [manual dispatch](https://learn.microsoft.com/en-us/gaming/gdk/docs/reference/input/gameinput/interfaces/igameinputdispatcher/methods/igameinputdispatcher_dispatch),
 [callback removal](https://learn.microsoft.com/en-us/gaming/gdk/docs/reference/input/gameinput/interfaces/igameinput/methods/igameinput_unregistercallback).

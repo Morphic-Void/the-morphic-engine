@@ -49,6 +49,8 @@ struct SGameInput
         GameInput::v4::IGameInputReading* cursor{};
         SControllerInfo info;
         std::uint64_t ordinal{};
+        std::uint64_t fresh_after{}; //  Native microseconds in info.clock_epoch.
+        bool freshness_pending{};
     };
     struct SEvent
     {
@@ -70,6 +72,8 @@ struct SGameInput
     SEvent events[k_events];
     std::uint32_t count{};
     std::uint64_t next_device{ 1u }, clock_epoch{ 1u }, last_clock{};
+    std::uint64_t resume_time{};
+    bool eligible{ true }, resumed{}, clock_reset{};
     bool overflow{}, rescan{}, ready{};
 };
 

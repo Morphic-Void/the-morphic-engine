@@ -28,6 +28,10 @@ void CPlatformRuntime::start_controllers() noexcept
     {
         controller_backend(EControllerBackend::unavailable, m_controllers.error);
     }
+    else if (m_controller_adapter.eligibility)
+    {
+        m_controller_adapter.eligibility(m_controllers, (m_input_focus && !m_modal_depth[0] && !m_modal_depth[1]));
+    }
 }
 
 void CPlatformRuntime::controller_backend(const EControllerBackend state, const std::uint32_t error) noexcept

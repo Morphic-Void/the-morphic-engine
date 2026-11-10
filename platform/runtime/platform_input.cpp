@@ -548,6 +548,10 @@ void CPlatformRuntime::input_eligibility() noexcept
     if (m_desktop_eligible != eligible)
     {
         m_desktop_eligible = eligible;
+        if (m_controllers.state && m_controller_adapter.eligibility)
+        {
+            m_controller_adapter.eligibility(m_controllers, eligible);
+        }
         m_desktop.cutover(k_desktop);
         if (!eligible) release_native_capture();
     }

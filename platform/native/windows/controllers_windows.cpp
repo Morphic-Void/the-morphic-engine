@@ -40,6 +40,8 @@ SGameInput::SDevice& SGameInput::SDevice::operator=(SDevice&& other) noexcept
         cursor = std::exchange(other.cursor, nullptr);
         info = std::exchange(other.info, SControllerInfo{});
         ordinal = std::exchange(other.ordinal, 0u);
+        fresh_after = std::exchange(other.fresh_after, 0u);
+        freshness_pending = std::exchange(other.freshness_pending, false);
     }
     return *this;
 }
@@ -162,6 +164,9 @@ static void events(SControllers& source, SGameInput& state) noexcept
             else
             {
                 SGameInput::SDevice device{ event.device };
+                //  Delayed discovery must not bypass an earlier focus return.
+                device.fresh_after = state.resume_time;
+                device.freshness_pending = state.resumed;
                 SControllerInfo& info = device.info;
                 info.device = state.next_device++;
                 info.clock_epoch = state.clock_epoch;
@@ -200,12 +205,13 @@ static void dispatch(SControllers& source, const std::uint64_t budget_ns) noexce
         return;
     }
     const std::uint64_t now_source = state->input->GetCurrentTimestamp();
-    if (now_source < state->last_clock)
+    if (state->clock_reset || (now_source < state->last_clock))
     {
         if (state->clock_epoch == UINT64_MAX) state->overflow = true;
         else
         {
             ++state->clock_epoch;
+            if (state->resumed) state->resume_time = now_source;
             for (std::int32_t slot = state->devices.first_live(); slot >= 0; slot = state->devices.next_live(slot))
             {
                 SGameInput::SDevice& device = *state->devices.get_slot(slot);
@@ -213,11 +219,13 @@ static void dispatch(SControllers& source, const std::uint64_t budget_ns) noexce
                 device.cursor = nullptr;
                 device.ordinal = 0u;
                 device.info.clock_epoch = state->clock_epoch;
+                if (device.freshness_pending) device.fresh_after = now_source;
                 source.runtime->controller_arrived(device.info);
             }
         }
     }
     state->last_clock = now_source;
+    state->clock_reset = false;
     for (std::uint32_t work = 0u; work < 64u; ++work)
     {
         std::uint64_t awake = 0u;
@@ -268,6 +276,30 @@ static void dispatch(SControllers& source, const std::uint64_t budget_ns) noexce
     }
 }
 
+static void eligibility(SControllers& source, const bool eligible) noexcept
+{
+    SGameInput* const state = static_cast<SGameInput*>(source.state);
+    if (!state || (state->eligible == eligible))
+    {
+        return;
+    }
+    state->eligible = eligible;
+    if (!eligible) return;
+    const std::uint64_t now = state->input->GetCurrentTimestamp();
+    //  Latch a rollback until dispatch can publish the new clock epoch. A
+    //  subsequent clock advance must not hide a reset observed in this callback.
+    state->clock_reset = state->clock_reset || (now < state->last_clock);
+    state->last_clock = now;
+    state->resume_time = now;
+    state->resumed = true;
+    for (std::int32_t slot = state->devices.first_live(); slot >= 0; slot = state->devices.next_live(slot))
+    {
+        SGameInput::SDevice& device = *state->devices.get_slot(slot);
+        device.fresh_after = now;
+        device.freshness_pending = true;
+    }
+}
+
 static EControllerRead read(SControllers& source, const std::uint64_t instance, const bool baseline, SControllerReading& result) noexcept
 {
     SGameInput* const state = static_cast<SGameInput*>(source.state);
@@ -277,8 +309,9 @@ static EControllerRead read(SControllers& source, const std::uint64_t instance, 
     }
     SGameInput::SDevice* const found = state->devices.get_slot(SGameInput::SDeviceKey{ instance });
     if (!found) return EControllerRead::disconnected;
+    if (state->clock_reset) return EControllerRead::empty;
     IGameInputReading* reading = nullptr;
-    const HRESULT status = (baseline || !found->cursor) ?
+    const HRESULT status = (baseline || found->freshness_pending || !found->cursor) ?
         state->input->GetCurrentReading(GameInputKindGamepad, found->device, &reading) :
         state->input->GetNextReading(found->cursor, GameInputKindGamepad, found->device, &reading);
     if (status == GAMEINPUT_E_READING_NOT_FOUND)
@@ -287,6 +320,23 @@ static EControllerRead read(SControllers& source, const std::uint64_t instance, 
     }
     if (status == GAMEINPUT_E_REFERENCE_READING_TOO_OLD)
     {
+        //  The latest reading remains available after its history expires.
+        //  Identity proves whether an idle device has produced anything unseen;
+        //  equal values or timestamps would not establish the same continuity.
+        IGameInputReading* current = nullptr;
+        const HRESULT current_status = state->input->GetCurrentReading(GameInputKindGamepad, found->device, &current);
+        const bool available = SUCCEEDED(current_status) && current;
+        const bool unchanged = available && (current == found->cursor);
+        if (current) current->Release();
+        if (unchanged) return EControllerRead::empty;
+        if (current_status == GAMEINPUT_E_DEVICE_DISCONNECTED)
+        {
+            return EControllerRead::disconnected;
+        }
+        if ((current_status != GAMEINPUT_E_READING_NOT_FOUND) && !available)
+        {
+            return EControllerRead::failed;
+        }
         return EControllerRead::history_lost;
     }
     if (status == GAMEINPUT_E_DEVICE_DISCONNECTED)
@@ -299,6 +349,13 @@ static EControllerRead read(SControllers& source, const std::uint64_t instance, 
     }
     GameInputGamepadState value{};
     const std::uint64_t microseconds = reading->GetTimestamp();
+    if (found->freshness_pending && (microseconds <= found->fresh_after))
+    {
+        //  A cached focus-loss neutral is not evidence of physical release.
+        //  Keep the ingress barrier, cursor and ordinal until a newer baseline.
+        reading->Release();
+        return EControllerRead::empty;
+    }
     if (!reading->GetGamepadState(&value) || (microseconds > (UINT64_MAX / 1000u)) || (found->ordinal == UINT64_MAX))
     {
         reading->Release();
@@ -323,12 +380,13 @@ static EControllerRead read(SControllers& source, const std::uint64_t instance, 
     result.right_trigger = value.rightTrigger;
     if (found->cursor) found->cursor->Release();
     found->cursor = reading;
+    found->freshness_pending = false;
     return EControllerRead::reading;
 }
 
 const SControllerAdapter& controller_adapter() noexcept
 {
-    static const SControllerAdapter adapter{ &initialise, &dispatch, &read, &destroy };
+    static const SControllerAdapter adapter{ &initialise, &dispatch, &read, &destroy, &eligibility };
     return adapter;
 }
 
