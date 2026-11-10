@@ -22,6 +22,10 @@ ideas, not the superseded filesystem implementation proposal.
 [Completed milestones](../project/completed_milestones.md) records delivered work.
 The sections below are deferred scope, not an implementation schedule.
 
+Platform/input status was reconciled on 10 November 2026 through `89ec227`.
+HID/Input work is parked at the user's request pending target-platform setup and
+a separately selected next step. Other sections retain their own checkpoint context.
+
 ## Diagnostics and developer tooling
 
 - The bundle follow-up debug-macro audit identified five production
@@ -76,13 +80,36 @@ are implemented through `f55d514`, using generic Host pumping, borrows,
 notifications and bounded modal maintenance. Linux currently has the portable
 shell with unsupported native creation, not a native window backend.
 
-Next review input connection lifetimes/transports together with direct POD
-connections between module service threads. Shared endpoint publication,
-notification and retirement must protect both instances; ownership transfers
-remain through Host. Concrete interfaces and threaded provider support require
-review before implementation. Configuration/mapping, native input, GameInput and
-window modes follow; native Linux, dialogs and rendering surfaces remain later work.
-Native thread primitives and thread creation
+The input and communication foundation is complete: [direct POD connections](../modules/direct_pod_connections.md)
+use Host-owned growable TQueue transports; [Host timed waiting](../modules/host_timed_wait.md)
+provides aggregate wake and an anchored 120 Hz cadence on Windows and the Linux
+shell. [Input connections](../modules/input_connections.md),
+[Host schema conditioning and incremental configuration installation](../modules/input_configuration_installation.md),
+explicit work budgets and [portable mapping](../modules/input_mapping.md) are implemented.
+[Windows desktop acquisition](../modules/desktop_input.md) and
+[GameInput acquisition](../modules/controller_input.md) provide the current V4
+input service, desktop input and up to four independent controller pipes.
+
+The [real Host/consumer pass](../modules/input_host_integration.md), committed in
+`89ec227`, covers normal lifecycle, independently scheduled consumers, pressure,
+recovery, retirement and software-path latency measurement. Windows x64 physical
+acceptance includes desktop input and two Xbox controllers plus a PS5 over USB.
+Linux coverage remains portable/synthetic; it does not qualify native acquisition.
+Win32 limits, hardware qualifications and timing methodology remain in the linked
+acceptance records.
+
+HID/Input is parked. Remaining native coverage includes Linux/SteamOS, Android and
+macOS and depends on additional setup and separately reviewed backend decisions.
+Wireless, dead-key/AltGr text and mixed-DPI qualification remain untested; IME,
+relative mouse mode and advanced controller features remain deferred. A real
+Executive/game consumer's update/consumption policy is future application work,
+not an unfinished transport mechanism. Its first integration is the milestone for
+the [deferred observation cleanup review](../modules/input_host_integration.md#deferred-observation-cleanup);
+retain current acceptance coverage until then.
+
+Window modes/shortcuts, multiple windows/output selection, dialogs, rendering
+surfaces and extensions remain separate work. A broader threaded routed-service
+provider adapter is not selected. Native thread primitives and thread creation
 remain below these modules; Host thread provisioning and TLS remain separate.
 Host ownership and worker authority are documented in the
 [asset](../assets/asynchronous_asset_services.md) and

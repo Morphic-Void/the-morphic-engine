@@ -1,19 +1,13 @@
 # Current scope
 
-6 November input update: [portable input connections](../modules/input_connections.md)
-now implement Platform-owned typed streams, the initial readiness/boundary exchange,
-ordered recovery and generic borrow retirement, with synthetic producers. Native
-input, production configuration installation and mapping remain subsequent work.
-This supersedes the historical input-transport deferrals below. General direct POD
-messaging already uses the implemented Host-owned TQueue transports.
+Platform/input status updated 10 November 2026. The current input stage is complete
+through `89ec227`, including Windows acquisition and real Host/consumer acceptance.
+HID/Input work is parked at the user's request pending further target-platform
+setup and a separately selected next step. The remaining coverage and deferred
+work are recorded below; no further input implementation is currently selected.
 
-6 November update: [Host timed waiting](../modules/host_timed_wait.md) is now
-implemented for Windows and the current Linux shell, following the direct POD
-transport work. The historical Host sleep/wake deferral below is superseded;
-native Linux, Android and macOS UI drivers remain later work.
-
-Updated 4 November 2026. The selected consolidation is complete, including
-the rendering DLL stub and Executive-controlled startup in `f91ded3`.
+Earlier foundation checkpoint, 4 November 2026: the selected consolidation is
+complete, including the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
 [development contract](../../development/README.md) and
@@ -24,7 +18,7 @@ executable-directory DLL discovery, queued per-root refresh and retained-asset
 cache associations. Both log roots and `test-output:` are excluded from inventory.
 The old deferred filesystem design is superseded in full.
 
-## Platform foundation complete; input and direct connections next
+## Platform foundation and input: current stage complete
 
 Host-pumped services, generic borrows/notifications, restriction accounting and
 bounded maintenance are committed through `078b595`. The on-demand Platform shell
@@ -34,51 +28,44 @@ and [implemented window contract](../modules/platform_first_window.md) for scope
 and checkpoint-specific validation limits. Audio tone acceptance is also delivered;
 its [validation record](../modules/audio_module_validation.md) is separate.
 
-The next design review covers input connection lifetimes/transports and direct
-module-service-thread-to-module-service-thread POD transports together. General
-direct messaging now has an agreed [Host-owned duplex architecture](../modules/platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging):
-two bounded SPSC pipes, one identity/lifetime, initiation by either participant,
-explicit receiving service-thread acceptance and readiness from both sides before
-activation.
-Ordinary traffic/wakes are direct; reciprocal requests for the same logical
-connection converge. Input keeps Platform-owned producer streams, with grouped
-desktop text/control and an independent controller connection.
+The subsequent input and communication stages are implemented:
 
-The logical key is the unordered exact-instance pair plus shared contract identity,
-formed from the canonical unordered pair of existing roles, with no separate
-protocol catalogue. Initially there is one connection per pair/contract and no
-extra channel ID. Version is a checked parameter; each establishment/lifetime gets
-a fresh nonreused Host token, separate from per-request correlations. The canonical design now fixes
-acceptance, reciprocal convergence and active/closing request outcomes.
+- [Direct POD connections](../modules/direct_pod_connections.md): Host-owned
+  growable TQueue transports, readiness, exact-instance ownership and safe retirement.
+- [Host timed waiting](../modules/host_timed_wait.md): aggregate wake and the
+  anchored 120 Hz cadence on Windows and the current Linux shell.
+- [Portable input connections](../modules/input_connections.md): typed Platform-owned
+  streams, readiness/boundaries, ordered recovery, designated readers and borrows.
+- [Configuration installation](../modules/input_configuration_installation.md):
+  Host schema conditioning, explicit work budgets, incremental Platform installation
+  and ownership through cancellation/retirement.
+- [Portable mapping](../modules/input_mapping.md): configuration evaluation,
+  connection integration and per-control neutral rearming.
+- [Windows desktop input](../modules/desktop_input.md) and
+  [GameInput controllers](../modules/controller_input.md): keyboard/text/pointer/
+  capture, device discovery and assignment, and up to four independent controller
+  pipes alongside the desktop connection. The current input service/endpoint is V4.
+- [Real Host/consumer integration](../modules/input_host_integration.md), committed
+  in `89ec227`: independently scheduled consumers, queue/work pressure, recovery,
+  retirement, latency instrumentation and recorded Windows Release baselines.
 
-The agreed [closing policy](../modules/platform_host_pumped_design.md#closing-cancellation-and-deferred-completion)
-targets known connection-dependent work for cancellation, with token checks when
-deferred completions return to the owning service thread. Token-only work can
-outlive the connection; endpoint/notification users must quiesce before Host reclaims
-the pipes and unread records. Graceful completion of operations happens while active.
+Windows physical acceptance covers desktop behaviour and two Xbox controllers plus
+a PS5 over USB on x64. Win32 and Linux evidence has its own limits in the linked
+records; Linux currently provides portable/synthetic coverage, not native desktop
+or controller acquisition. Software-path timing is not physical input-to-display
+latency. Wireless, dead-key/AltGr text and mixed-DPI qualification remain untested.
 
-The transitional [Framework project](../modules/platform_host_pumped_design.md#shared-framework-contracts),
-`MorphicFramework`, is implemented for Visual Studio and Linux CMake. Its first
-contents are Platform's public window contract and state publication, moved together
-with their namespace, layouts and behaviour preserved. Framework may use Core
-primitives; Core's dependency boundary and existing type registrations remain
-unchanged. Definitions still consumed by Core stay there until safely separable.
-Further moves require review; wider Core decomposition is separate work.
+Native Linux/SteamOS, Android and macOS input/UI integration awaits the required
+setup and later design/implementation decisions. IME, relative mouse mode and
+advanced controller features remain deferred. A first real Executive/game consumer
+would need its own consumption/update-boundary contract; that work is not selected
+by this closeout. The [observation cleanup review](../modules/input_host_integration.md#deferred-observation-cleanup)
+belongs at that integration milestone, with the current regression support retained.
 
-General direct records reuse the existing `CErasedPodMsg` carrier: 64 bytes, with
-a 16-byte header, 48-byte payload, type identity and `async_slot`. Direct admission
-must enforce SYSTEM identity and agreed contract/version/direction; the carrier
-alone does not. Concrete role/version representation, control layouts/APIs,
-capacities and admission APIs remain to design.
-Compare minimal Host-mediated connection control with a broader threaded provider
-adapter; the latter is not a prerequisite. Preserve both participant/notification
-lifetimes through quiescence and keep owning transfers through Host. No input or
-direct-transport code is implemented by the Framework extraction.
-
-Configuration/mapping, native keyboard/mouse input, GameInput/controller input and
-window modes remain subsequent Platform work. Rendering presentation, native
-Linux/SteamOS, extensions, multiple windows/output selection and Host sleep/wake
-remain deferred. See the [design status](../modules/platform_host_pumped_design.md).
+Window modes/shortcuts, rendering presentation, multiple windows/output selection
+and extensions remain separate Platform work. Framework contracts are implemented;
+wider Core decomposition and a broader threaded routed-service provider adapter
+remain separate decisions. See the [design status](../modules/platform_host_pumped_design.md).
 
 ## Bundle review and closeout
 
