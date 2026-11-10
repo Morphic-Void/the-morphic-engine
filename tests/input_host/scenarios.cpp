@@ -152,6 +152,7 @@ bool CConsumer::transitions()
         }
         SFeed change;
         change.kind = boundary;
+        const std::uint64_t cancellations = pipes[1].cancellations;
         if (!feed(change)) return false;
         if (boundary == EFeed::focus)
         {
@@ -163,11 +164,20 @@ bool CConsumer::transitions()
             if (!feed(change)) return false;
         }
         const std::uint64_t submitted = next_observation;
-        if (!until([&] { return (shared->consumed.load() >= submitted) && active(); }))
+        //  The adapter can consume the feed before the Platform publishes its boundary.
+        if (!until([&]
+            {
+                return (shared->consumed.load() >= submitted) && (pipes[1].cancellations > cancellations) && active();
+            }))
         {
+            MV_LOG(error, "Input Host: controller did not recover from boundary {}", static_cast<unsigned>(boundary));
             return false;
         }
-        if (pipes[1].values[k_south_action][0] != 0.0f) return false;
+        if (pipes[1].values[k_south_action][0] != 0.0f)
+        {
+            MV_LOG(error, "Input Host: controller still applied after boundary {}", static_cast<unsigned>(boundary));
+            return false;
+        }
         frame.device = 0u;
         frame.value = 1u;
         frame.left_x = 0.8f;
@@ -253,6 +263,7 @@ bool CConsumer::transitions()
     }
     if (!pipes[1].reader->cancel_application(k_actions))
     {
+        MV_LOG(error, "Input Host: could not cancel application on the full action ring");
         return false;
     }
     (void)pipes[1].reader->take_cancellation();
@@ -261,13 +272,15 @@ bool CConsumer::transitions()
     {
         return false;
     }
-    if ((pipes[1].view->state->read(state) != EStateRead::success) || !(state.pending & k_actions))
+    if (!until([&] { return pipes[1].view->state->read(state) == EStateRead::success; }) || !(state.pending & k_actions))
     {
+        MV_LOG(error, "Input Host: expected a pending action boundary with the action ring full");
         return false;
     }
     pause_mask = 0u;
     if (!until([&] { return active(); }) || !pipes[1].reader->resume_application(pipes[1].boundary, k_actions))
     {
+        MV_LOG(error, "Input Host: could not resume application after the blocked action boundary");
         return false;
     }
     frame.value = 0u;
@@ -381,8 +394,9 @@ bool CConsumer::shutdown_blocked()
         return false;
     }
     SInputSnapshot state;
-    if ((pipes[1].view->state->read(state) != EStateRead::success) || !(state.pending & k_actions))
+    if (!until([&] { return pipes[1].view->state->read(state) == EStateRead::success; }) || !(state.pending & k_actions))
     {
+        MV_LOG(error, "Input Host: expected a pending action boundary with the action ring full");
         return false;
     }
     pause_mask = (1u << k_pipe_count) - 1u;
