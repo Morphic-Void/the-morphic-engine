@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/direct_connection.hpp"
 
 namespace modules

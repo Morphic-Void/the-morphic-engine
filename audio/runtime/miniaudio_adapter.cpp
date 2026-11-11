@@ -9,7 +9,7 @@
 //  Pinned miniaudio implementation, compiled once into Audio only.
 
 #include "framework/communications/module_tests.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "miniaudio_adapter.hpp"
 #include "vendor_allocator.hpp"
 #include <new>

@@ -8,13 +8,14 @@
 //
 //  Rendering module identity, exported functions, and bootstrap entry point.
 
+#include "framework/system/system_ids.hpp"
 #include <cstdint>      //  std::uint32_t
 
 #include "module/binding/rendering_binding.hpp"
 
 #include "module/types/local_type_ids.hpp"
 #include "runtime/rendering_thread.hpp"
-#include "module/module_binding_context.hpp"
+#include "framework/module/module_binding_context.hpp"
 
 namespace rendering::module_binding
 {

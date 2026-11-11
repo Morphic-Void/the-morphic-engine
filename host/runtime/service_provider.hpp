@@ -11,7 +11,7 @@
 #pragma once
 
 #include "runtime/client_record.hpp"
-#include "services/service_protocol.hpp"
+#include "framework/services/service_protocol.hpp"
 
 namespace host
 {

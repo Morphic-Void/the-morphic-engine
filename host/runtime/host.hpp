@@ -17,8 +17,9 @@
 #ifndef HOST_HPP_INCLUDED
 #define HOST_HPP_INCLUDED
 
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include <cstddef>      //  std::size_t
 #include <cstdint>      //  std::int32_t, std::uint8_t
 
@@ -34,10 +35,10 @@
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/service.hpp"
-#include "module/bound_module.hpp"
+#include "host/module/bound_module.hpp"
 #include "executive/module/binding/executive_binding.hpp"
 #include "platform/system/performance_counter.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "host/threading/CThreadPackage.hpp"
 
 namespace host
 {

@@ -7,6 +7,7 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    18 Aug 26
 
+#include "framework/system/system_ids.hpp"
 #include "tests/environment/test_environment.hpp"
 
 #include <limits>
@@ -17,7 +18,7 @@ namespace
 {
 constexpr system_id_registry::STypeRegistration s_type_registrations[] =
 {
-#include "system/system_type_ids.def"
+#include "framework/system/system_type_ids.def"
 #define MV_SYSTEM_TYPE(name) { system_type_ids::name, system_type_ids::name##_index, #name, sizeof(#name) - 1u },
     MV_SYSTEM_TYPES(MV_SYSTEM_TYPE)
 #undef MV_SYSTEM_TYPE
@@ -28,7 +29,7 @@ constexpr system_id_registry::SMountPointRegistration s_mount_point_registration
 {
 #define MV_SYSTEM_MOUNT_POINT(name) { mount_point_ids::name, mount_point_ids::name##_index, #name, sizeof(#name) - 1u },
 #define MV_SYSTEM_MODULE(name, mount_point_name)
-#include "system/runtime_ids.def"
+#include "framework/system/runtime_ids.def"
 #undef MV_SYSTEM_MODULE
 #undef MV_SYSTEM_MOUNT_POINT
 };
@@ -36,7 +37,7 @@ constexpr system_id_registry::SMountPointRegistration s_mount_point_registration
 constexpr system_id_registry::SThreadRegistration s_thread_registrations[] =
 {
 #define MV_SYSTEM_THREAD(name) { thread_ids::name, thread_ids::name##_index, #name, sizeof(#name) - 1u },
-#include "system/thread_ids.def"
+#include "framework/system/thread_ids.def"
 #undef MV_SYSTEM_THREAD
 };
 
@@ -45,7 +46,7 @@ constexpr system_id_registry::SModuleRegistration s_module_registrations[] =
 #define MV_SYSTEM_MOUNT_POINT(name)
 #define MV_SYSTEM_MODULE(name, mount_point_name) \
     { module_ids::name, module_ids::name##_index, mount_point_ids::mount_point_name, #name, sizeof(#name) - 1u },
-#include "system/runtime_ids.def"
+#include "framework/system/runtime_ids.def"
 #undef MV_SYSTEM_MODULE
 #undef MV_SYSTEM_MOUNT_POINT
 };

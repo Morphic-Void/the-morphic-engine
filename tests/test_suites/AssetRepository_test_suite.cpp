@@ -7,13 +7,14 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
+#include "framework/system/system_ids.hpp"
 #include "tests/environment/local_type_ids.hpp"
 
 #include <cstdint>
 #include <type_traits>
 #include <utility>
 
-#include "assets/asset_repository.hpp"
+#include "host/assets/asset_repository.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "tests/test_suites/AssetRepository_test_suite.hpp"
 #include "tests/support/test_context.hpp"
@@ -33,12 +34,29 @@ void test_asset_id_contract(TTestContext& ctx)
     static_assert(std::is_trivially_copyable_v<CAssetId>);
     static_assert(std::is_standard_layout_v<CAssetId>);
     static_assert(sizeof(CAssetId) == sizeof(std::uint64_t));
+    static_assert(!std::is_convertible_v<std::uint64_t, CAssetId>);
+    static_assert(!std::is_convertible_v<CAssetId, std::uint64_t>);
 
     const CAssetId invalid;
     TEST_EXPECT(ctx, !invalid.is_valid());
     TEST_EXPECT(ctx, !static_cast<bool>(invalid));
     TEST_EXPECT(ctx, invalid.query_value() == 0u);
     TEST_EXPECT(ctx, invalid.relationship(CAssetId{}) == 0);
+
+    constexpr CAssetId first{ 1u };
+    constexpr CAssetId last{ UINT64_MAX };
+    static_assert(first.query_value() == 1u);
+    static_assert(last.query_value() == UINT64_MAX);
+    static_assert(first == CAssetId{ 1u });
+    static_assert(first != last);
+    static_assert(first.relationship(last) == -1);
+    static_assert(last.relationship(first) == 1);
+    static_assert(!CAssetId{ 0u }.is_valid());
+
+    CAssetRepository repository;
+    TEST_EXPECT(ctx, repository.initialise(4u, 4u));
+    TEST_EXPECT(ctx, (repository.resolve(first) == nullptr));
+    TEST_EXPECT(ctx, (repository.resolve(last) == nullptr));
 }
 
 void test_repository_identity_and_reuse(TTestContext& ctx)

@@ -9,11 +9,14 @@
 //
 //  Deterministic service/Host interleavings using the production pipes and helpers.
 
+#include "framework/threading/CThreadContext.hpp"
+#include "tests/support/thread_helpers.hpp"
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "framework/communications/direct_client.hpp"
 #include "host/runtime/direct_connections.hpp"
 #include "host/runtime/host_restrictions.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "tests/support/direct_connection_fixture.hpp"
@@ -498,7 +501,7 @@ struct SNativeState
 static std::uint32_t MV_STD_ABI_CALL terminal_worker(void* const data) noexcept
 {
     auto& resources = *static_cast<threading::CThreadResources*>(data);
-    auto& state = *static_cast<SNativeState*>(resources.config.prepare_context);
+    SNativeState& state = tests::TThreadFixtureState<SNativeState>::get();
     threading::CThreadContext context{ resources };
     context.startup(); context.mark_running();
     while (!state.terminal.load(std::memory_order_acquire))
@@ -524,7 +527,7 @@ static void native_join_retention(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, conversion.init());
     SNativeState state;
     threading::CThreadPackage first{ { thread_ids::executive, module_ids::executive,
-        platform::threading::EThreadPriority::Normal, &terminal_worker, nullptr, &state }, conversion };
+        platform::threading::EThreadPriority::Normal, &terminal_worker, &tests::TThreadFixtureState<SNativeState>::prepare, &state }, conversion };
     threading::CThreadPackage second{ { thread_ids::rendering, module_ids::rendering }, conversion };
     host::SClientRecord a{ module_ids::executive, 31u, &first }, b{ module_ids::rendering, 32u, &second };
     a.phase = b.phase = host::EClientPhase::ready;

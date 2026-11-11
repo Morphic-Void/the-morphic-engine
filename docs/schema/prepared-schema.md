@@ -1,9 +1,16 @@
 # Host prepared-schema conditioning
 
 Approved 6 November 2026. This is a nominated, platform-independent Host
-conditioning operation. Host workers execute Host/Core code; requests contain
+conditioning operation. Host workers execute Host/Foundation code; requests contain
 no module function, callback or arbitrary job. Batch runners and their inline
 fallback are unchanged.
+
+Schema data blocks include Foundation's neutral `foundation/assets/asset_id.hpp`
+for `CAssetId` provenance. Attaching an ID or copying a baked view does not
+acquire or pin repository backing; the caller must keep the backing alive.
+Public preparation requests and results live in
+`framework/assets/schema_messages.hpp`; the repository and conditioning
+orchestration remain Host-owned.
 
 ## Request and result
 

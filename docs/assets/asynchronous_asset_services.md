@@ -7,6 +7,18 @@ history and validation are in [completed milestones](../project/completed_milest
 
 ## Requests and ownership
 
+`CAssetId` is the neutral Foundation identity in `foundation/assets/asset_id.hpp`.
+Its explicit raw-value constructor preserves the 64-bit representation; a
+nonzero value alone does not register or resolve an asset, acquire its backing,
+or extend its lifetime. Repositories continue issuing monotonically increasing
+runtime IDs locally. `CAssetAcquisitionId` remains part of the separate public
+acquire/release protocol.
+
+The repository and backing roles live in `host/assets/asset_repository.hpp`;
+storage and private image-conditioning payloads also belong to Host. Public
+asset and schema protocols live under `framework/assets/`. Foundation bundle,
+document, schema and image-view utilities remain independent of those protocols.
+
 `SchemaPrepareRequest` is a nominated Host conditioner for retained raw UTF-8
 assets. It returns an already acquired, temporary immutable schema result,
 released through `AssetReleaseRequest`; its ownership, limits and worker
@@ -324,9 +336,9 @@ until process exit; see the module lifecycle notes for that fallback.
 
 ## Acceptance and source map
 
-- `core/assets/asset_messages.hpp`: public requests, results, retention and
+- `framework/assets/asset_messages.hpp`: public requests, results, retention and
   aggregate memory-attribution hooks.
-- `core/image/image_messages.hpp`: Host-understood TGA work and storage, supporting
+- `host/image/image_messages.hpp`: Host-understood TGA work and storage, supporting
   debug and diagnostic image flows.
 - `rendering/runtime/resource_requests.*`: Rendering-owned texture/shader requests,
   generic source acquisitions and releases; Host never receives typed results.

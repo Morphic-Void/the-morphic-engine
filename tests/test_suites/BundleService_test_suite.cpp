@@ -9,6 +9,8 @@
 //
 //  Controlled worker completions and retained-record bundle lifetimes.
 
+#include "framework/system/system_ids.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include <cstring>
 #include <vector>
 

@@ -15,11 +15,30 @@
 #include <cstdint>
 
 #include "platform/platform_defines.hpp"
+#include "foundation/system/system_ids.hpp"
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
 
 namespace tests
 {
+
+//  Fixture state is installed on the native thread by Host preparation. It is
+//  not part of Framework resources or the worker provisioning pointer.
+template<typename T>
+class TThreadFixtureState
+{
+public:
+    static bool MV_STD_ABI_CALL prepare(void* const state, const thread_ids::id_type, void* const) noexcept
+    {
+        s_state = static_cast<T*>(state);
+        return s_state != nullptr;
+    }
+
+    [[nodiscard]] static T& get() noexcept { return *s_state; }
+
+private:
+    static inline thread_local T* s_state{ nullptr };
+};
 
 //  Echo POD messages through the real worker transport, retaining its lifecycle and failure signals.
 [[nodiscard]] std::uint32_t MV_STD_ABI_CALL echo_pod_messages(void* data) noexcept;

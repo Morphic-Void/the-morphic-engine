@@ -9,9 +9,10 @@
 //
 //  Functional message helpers and the actual Executive preparation boundary.
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/test_suites/MessageHelpers_test_suite.hpp"
 
@@ -23,7 +24,7 @@
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
-#include "threading/messages/CErasedMessageTransports.hpp"
+#include "framework/threading/messages/CErasedMessageTransports.hpp"
 
 namespace message_helper_tests
 {

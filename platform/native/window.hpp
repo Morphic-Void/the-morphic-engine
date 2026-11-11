@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "services/service_protocol.hpp"
+#include "framework/services/service_protocol.hpp"
 #include "native/desktop.hpp"
 
 namespace platform::runtime { class CPlatformRuntime; }

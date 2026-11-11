@@ -10,10 +10,11 @@
 
 #pragma once
 
-#include "module/module_identity.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/module/module_identity.hpp"
 #include "system/system_type_registration.hpp"
 #include "threading/CNotification.hpp"
-#include "threading/messages/CErasedMessageTransports.hpp"
+#include "framework/threading/messages/CErasedMessageTransports.hpp"
 
 namespace connections
 {

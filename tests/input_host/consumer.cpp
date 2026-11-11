@@ -9,6 +9,7 @@
 //
 //  Independently scheduled input consumer using the real Host service protocol.
 
+#include "framework/system/system_ids.hpp"
 #include "tests/input_host/consumer.hpp"
 
 namespace input_host

@@ -35,10 +35,18 @@ and follows shared `.vcxitems` imports. It writes source manifests into the
 build directory. CMake watches the input project files and extractor so edits
 cause reconfiguration on the next build. No generated manifests are committed.
 
-`MorphicFramework` is a header-only interface target available to Host, modules,
-tests and pump fixtures. Its Visual Studio shared import contributes public header
-items and a configure dependency, with no additional compiled sources. Consumers
-use explicit `framework/...` includes; Core retains its separate dependency boundary.
+`MorphicFramework` is an interface target supplying the repository include root.
+Its Visual Studio shared import contributes public headers and common compiled
+implementation, including each binary's concrete SYSTEM owner-operation table.
+The source extractor includes that implementation once in each Host, module and
+fixture target; the interface target does not compile a second copy. Foundation and
+Framework state remain separate per binary, with hidden ELF symbols. Consumers
+use explicit `framework/...` includes.
+
+Foundation uses the `foundation/` directory and `MorphicFoundation` shared-item name.
+All Foundation and Framework implementations are contributed by those imports;
+Host-private module binding, filesystem image, thread ownership and configuration
+substitution are explicit sources only in Host and the test executable.
 
 The extractor handles unconditional source entries, relative paths, and the
 `MSBuildThisFileDirectory` and `ProjectDir` path prefixes used by this repository.
@@ -49,7 +57,7 @@ MSBuild logic or translate compiler settings, include paths, target types, or
 project dependencies; those are explicitly defined in CMake and must be reviewed
 when their Visual Studio equivalents change.
 
-Core sources are compiled into each executable/module, matching the existing
+Foundation sources are compiled into each executable/module, matching the existing
 Visual Studio layout. Linux symbols default to hidden visibility, with module
 entry points exported by the existing platform macros. Engine targets and
 SuiteUTF disable exceptions; the policy checker retains exception support.
@@ -70,7 +78,9 @@ and the Visual Studio projects.
 
 CTest also runs `MorphicPolicyIncludes`, exercising the policy checker's
 module-relative resolution, catalogue-name collisions, explicit cross-module
-paths, missing includes, and ambiguity diagnostics.
+paths, missing includes, and ambiguity diagnostics. It also rejects forbidden
+Foundation and Framework dependencies through relative, absolute, ambiguous and
+symbolic-link paths, including angle operands with system-header permissions.
 
 Debug and Release use the same engine build definitions as their Visual Studio
 counterparts. Debug enables development checks and information level 3;

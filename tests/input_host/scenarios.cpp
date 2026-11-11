@@ -9,6 +9,7 @@
 //
 //  Synthetic pressure/recovery cases and the interactive real Host observation pass.
 
+#include "framework/system/system_ids.hpp"
 #include "tests/input_host/consumer.hpp"
 
 namespace input_host

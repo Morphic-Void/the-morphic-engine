@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/direct_client.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "platform/threading/processor_relax.hpp"

@@ -3,6 +3,12 @@ License: MIT (see LICENSE file in repository root)
 
 # Module batch runners
 
+The shared batch client and work representation live in
+`framework/threading/CBatchWork.hpp`. Workers obtain their borrowed client through
+`framework/threading/CThreadContext.hpp`. The Host thread package owns that client,
+its return route and native execution; Foundation retains the generic transports,
+wait predicates and notification primitives.
+
 The Host owns a pool of threads for coarse work defined by a requesting engine
 module. The pool is independent of Host file I/O and conditioning workers.
 Requesting module threads publish directly to one shared 128-slot MPMC work

@@ -31,6 +31,11 @@ initialisation ownership. Those belong to the technical design.
 The pre-redesign implementation and usage inventory are recorded in
 `debug_system_audit.md`.
 
+`debug/macros.hpp` includes the lightweight `debug/reporting.hpp` surface.
+Callers that provision, configure or inspect a service include `debug/service.hpp`
+explicitly; ordinary reporting does not expose service administration or native
+thread state.
+
 ## Design model
 
 The interface keeps these concerns separate:

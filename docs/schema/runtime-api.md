@@ -207,7 +207,7 @@ destruction detaches and invalidates all links before releasing document state;
 subsequent client operations reject safely, and `release()` remains safe. Binding
 reassignment preflights the target, preserving the old link on rejection.
 
-`core/schema/resolved_types.hpp` provides `schema::CResolvedTypes` and
+`foundation/schema/resolved_types.hpp` provides `schema::CResolvedTypes` and
 `schema::generate_cpp`. Resolution consumes a validated `CLiveDocument` or
 `CBakedDocument`;
 it does not parse text, construct instances, or modify the backing document.
@@ -477,7 +477,7 @@ schema API.
 
 ## Internal value construction
 
-`core/schema/value_codec.hpp` exposes synchronous internal operations over a
+`foundation/schema/value_codec.hpp` exposes synchronous internal operations over a
 ready `CResolvedTypes` and a representation-neutral `detail::CDocumentRead`:
 
 ```cpp

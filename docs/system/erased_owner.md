@@ -26,7 +26,7 @@ remains outside the allocation it may release.
 
 ## Registration
 
-SYSTEM payload identity is declared in `system/system_type_ids.def` and
+SYSTEM payload identity is declared in `framework/system/system_type_ids.def` and
 associated with a C++ type through `MV_REGISTER_SYSTEM_TYPE`. LOCAL identity is
 declared in the defining component's local type list and associated through
 `MV_REGISTER_LOCAL_TYPE`.
@@ -47,14 +47,21 @@ storage-member case without duplicating operation logic.
 
 SYSTEM operation declarations are compiled into every component that may
 receive and destroy those payloads. A component separately generates the LOCAL
-entries for its own eligible types; common core sources never reference those
+entries for its own eligible types; common Foundation sources never reference those
 component-local C++ definitions. Valid type registration, erased-owner
 eligibility, and available runtime operations remain three distinct checks.
+
+Foundation's `foundation/system/erased_owner_operations.*` supplies the generic
+registry. Framework's `system/system_erased_owner_operations.*` supplies
+`system_operations_view()` and generates the concrete SYSTEM table from shared
+domain catalogues. Each executable/DLL compiles that Framework implementation
+separately, alongside its own Foundation state. Host shares immutable identity
+metadata, not executable operation tables.
 
 Texture and shader contracts are Rendering-local and have no SYSTEM erased-owner
 registrations. Generic Host asset messages carry opaque bytes, documents and
 read-only acquisitions. SYSTEM operation generation therefore has no Rendering,
-Basis Universal or DXC dependencies. Core TGA image contracts remain separate.
+Basis Universal or DXC dependencies. Foundation TGA image contracts remain separate.
 
 Eligible payloads must be nothrow default constructible, move constructible,
 move assignable, and destructible. They must also fit the memory-token stride
@@ -155,12 +162,16 @@ ownership and the surrounding communication structures provide the threading
 contract; the nominal owner is responsible for mutation.
 
 `add_hazard()`, `remove_hazard()`, and `has_hazard()` take strong mounting-point
-IDs. The bit position is the generated zero-based mounting-point index.
+IDs. The bit position is the decoded zero-based mounting-point index.
 `has_any_hazard()` provides the fast unload/destruction gate and
 `hazard_mask()` provides diagnostic detail.
 
-The build fails if the registered mounting-point count exceeds 32. The wider
-runtime ID encoding capacity does not enlarge this carrier field.
+Framework checks at compile time that its configured mounting-point catalogue
+fits Foundation's `mount_point_ids::ops::k_dependency_mask_capacity` (32).
+Each hazard operation rejects malformed IDs, decoded indices outside the mask,
+and IDs absent from the installed registry; rejected operations leave the mask
+unchanged. The wider runtime ID encoding capacity does not enlarge this field.
+Host decides when retirement or unloading is safe.
 
 Hazards describe module-lifetime dependency. They are not provisioning,
 visibility, access-rights, or ownership metadata.
@@ -184,10 +195,10 @@ preserving canonical emptiness.
 
 Registered payloads include byte and image storage, baked and live documents,
 and owning request envelopes. The catalogue in
-`core/system/system_erased_owner_payloads.def` aggregates domain fragments that
+`framework/system/system_erased_owner_payloads.def` aggregates domain fragments that
 select each payload's nested storage member. The same fragments generate owner
 eligibility beside the contract declarations. The internal definition aggregate
-`core/system/transported_types.hpp` is used by operation generation; ordinary
+`framework/system/transported_types.hpp` is used by operation generation; ordinary
 callers include their specific contract headers. Host-private file, image,
 document, filesystem and bundle owners instead use the Host/image LOCAL
 fragments. The Host and service-test catalogues separately generate their

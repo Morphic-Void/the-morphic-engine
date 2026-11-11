@@ -10,7 +10,7 @@
 
 #pragma once
 #include "framework/communications/module_tests.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "tone_test.hpp"
 #include "platform/threading/wait_deadline.hpp"
 #include "threading/CWaitPredicate.hpp"

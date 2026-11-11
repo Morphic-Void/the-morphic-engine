@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "services/service_protocol.hpp"
+#include "framework/services/service_protocol.hpp"
 #include "runtime/service_provider.hpp"
 #include "runtime/service_borrows.hpp"
 

@@ -13,16 +13,16 @@
 #ifndef HOST_PAYLOADS_HPP_INCLUDED
 #define HOST_PAYLOADS_HPP_INCLUDED
 
-#include "system/storage_type_bindings.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include <cstddef>
 #include <cstdint>
 
-#include "assets/asset_messages.hpp"
-#include "assets/asset_storage.hpp"
-#include "assets/schema_messages.hpp"
-#include "filesystem/filesystem_image.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "host/assets/asset_storage.hpp"
+#include "framework/assets/schema_messages.hpp"
+#include "host/filesystem/filesystem_image.hpp"
 
 //==============================================================================
 //  File I/O: borrowed Host inputs and worker completions

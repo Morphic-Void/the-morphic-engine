@@ -14,7 +14,7 @@
 #define HOST_LOCAL_TYPES_HPP_INCLUDED
 
 #include "runtime/host_payloads.hpp"
-#include "image/image_messages.hpp"
+#include "host/image/image_messages.hpp"
 
 namespace host
 {

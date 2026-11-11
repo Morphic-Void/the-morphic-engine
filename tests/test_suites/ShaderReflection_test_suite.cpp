@@ -9,6 +9,8 @@
 //  First-stage adapter, independent result lifetime and failure publication.
 
 #include "tests/test_suites/ShaderReflection_test_suite.hpp"
+#include "debug/service.hpp"
+#include "framework/system/system_ids.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/document_helpers.hpp"
@@ -2687,7 +2689,7 @@ static void arena_breadcrumbs(tests::TTestContext& ctx, const shader::CShaderCom
     TEST_EXPECT(ctx, service.configure_log_paths(events.c_str(), direct.c_str()));
     TEST_EXPECT(ctx, service.open_logs());
     TEST_EXPECT(ctx, debug_system::install_service(&service));
-    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.start({ thread_ids::debug_service, "debug_service" }));
     service.publish_configuration(0u);
     TEST_EXPECT(ctx, !service.informational_event_enabled(debug_system::EEventLevel::info));
     {

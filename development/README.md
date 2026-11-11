@@ -10,10 +10,13 @@ filesystem layout.  The later platform resolver will bind the same identifiers
 to installed content, per-user data, Android assets or other appropriate
 backends.
 
-The image implementation lives in `core/filesystem/filesystem_image.hpp/.cpp`,
-above the native operations in `core/platform/filesystem/`. The Host owns the
-live image and its scheduling; ownership does not make the reusable image code
-part of the platform adapter.
+The image implementation lives in `host/filesystem/filesystem_image.hpp/.cpp`,
+above the native operations in `foundation/platform/filesystem/`. Host owns the live
+image, root policy and scheduling. Generic logical-path validation remains in
+`foundation/filesystem/logical_path.hpp`; reserved `native:` recognition lives in
+`host/filesystem/mount_rules.hpp`. Configuration placeholder expansion lives in
+`host/config/module_extension.*`, while native module filename construction
+remains in `foundation/platform/module/binding.*`.
 
 ## Roots
 

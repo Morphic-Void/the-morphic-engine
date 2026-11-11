@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 
 namespace module_lifecycle_tests
 {

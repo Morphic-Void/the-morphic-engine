@@ -11,7 +11,7 @@
 #pragma once
 
 #include "framework/platform/input.hpp"
-#include "module/host_eligible_budget.hpp"
+#include "framework/module/host_eligible_budget.hpp"
 #include "runtime/input_mapper.hpp"
 
 namespace platform::runtime

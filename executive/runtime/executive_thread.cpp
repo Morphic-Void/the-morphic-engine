@@ -8,12 +8,13 @@
 //
 //  Executive thread and asynchronous asset-service acceptance exercise.
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "framework/communications/direct_client.hpp"
-#include "system/storage_type_bindings.hpp"
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 #include <cstdint>      //  std::int32_t, std::uint32_t, std::uint64_t
 #include <cstring>      //  std::strcmp
@@ -22,7 +23,7 @@
 #include "runtime/executive_thread.hpp"
 #include "runtime/request_preparation.hpp"
 #include "runtime/module_test_watchdog.hpp"
-#include "module/module_binding_context.hpp"
+#include "framework/module/module_binding_context.hpp"
 
 #include "debug/macros.hpp"
 #include "image/codec/tga.hpp"
@@ -33,8 +34,8 @@
 #include "platform/module/binding.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "system/system_id_registry.hpp"
-#include "assets/asset_messages.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include "tests/support/host_test_paths.hpp"
 
 namespace executive

@@ -1,0 +1,254 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <ItemsProjectGuid>{a250136d-15bb-4a6c-a3bb-29c92a92e205}</ItemsProjectGuid>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\foundation;$(MSBuildThisFileDirectory)..\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ProjectCapability Include="SourceItemsFromImports" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\internal\bundle_builder_io.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\filesystem\logical_path.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\algo\validate_permutations.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\bit_ops.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\bit_utils.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\spatial_codes.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\TBitField.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\buddy_index.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\TBuddyAllocator.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\TBuddyAllocatorChain.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\CTrackedAllocator.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\THybridAllocator.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\BumpBuffer.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\ByteBuffers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\containers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\slots\SlotsRankMap.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\slots\TOrderedSlotManager.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\slots\TUnorderedSlotManager.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\StringBuffers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TInstance.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TProcessLifetime.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TOrderedCollection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodFifo.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodOrderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodUnorderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodVector.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TVector.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TOrderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TUnorderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TUnorderedCollection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document_format.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\data_model_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_translation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_findings.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_parser.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_structure.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_text_lex.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_writer.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\prepared_schema.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_admission.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_query.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\resolved_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_conversion.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\record_index.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\type_compatibility.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_merge.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_document_validation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_storage_validation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_construction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reconstruction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_copy.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_codec.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_work_budget.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\instance_selection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\integer_notation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_remap.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\unused_storage.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_wrappers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_data_block.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_construction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_format.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document_node.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\event_arguments.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\log_path.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\macros.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\reporting.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\service.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\image\codec\tga.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\image\image_view.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_policies.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_token.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_view.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\awake_clock.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CNotification.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\async_state.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_operations.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_transfer.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_transport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_pod.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_transport_admission.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_ids.cpp.inl" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_ids.hpp.inl" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_registry.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_id_registry.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_ids.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_type_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TStaticLookup.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\type_id_binding_category.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\type_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CCountingSemaphore.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CParkingGate.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CThreadControlState.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CWaitPredicate.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\threading.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TBulkTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TMpmcTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TOwningTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TQueueTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\transports.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TRingTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\text\text_diagnostics.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\text\text_linter.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\text\utf8_string.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\types\atomic_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\types\fp16data_t.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_baking.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_promotion.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_parser.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_structure.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_text_lex.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_writer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_declarations.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_output.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\prepared_schema.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema_runtime.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_admission.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_query.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\resolved_types.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\type_compatibility.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_merge.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_document_validation.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_construction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reconstruction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_copy.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_codec.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\instance_selection.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_remap.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\unused_storage.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_wrappers.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_data_block.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_construction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_format.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances_edit.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances_translation.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\event_arguments.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\log_path.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\reporting.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\service.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\image\codec\tga.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\image\image_view.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_operations.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_transport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_transport_admission.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_registry.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\system_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\system_ids.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\threading\CCountingSemaphore.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\threading\CParkingGate.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\threading\CWaitPredicate.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\text\text_linter.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\text\utf8_string.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\types\fp16data_t.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\file.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\directory.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\directory.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\file.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\internal\file_utils.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\internal\file_utils.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\log.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\log.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\module\binding.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\module\binding.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\path\native_path.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\path\native_path.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\platform_defines.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\debugger.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\debugger.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\performance_counter.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\performance_counter.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_priority.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_priority.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_id.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_id.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\exclusive_lock.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\exclusive_lock.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\hw_thread_count.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\hw_thread_count.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\native_thread_id.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\native_thread_id.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\platform_threading.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\processor_relax.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\processor_relax.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_lifetime.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_lifetime.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_naming.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_naming.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_priority.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_priority.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word_semaphore.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word_semaphore.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\owner_wait.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_deadline.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_deadline_math.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word_internal.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\owner_wait.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\windows_include.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\.gitignore" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\asset_id.hpp" />
+  </ItemGroup>
+</Project>

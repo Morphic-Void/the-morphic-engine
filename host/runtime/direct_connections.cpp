@@ -9,7 +9,7 @@
 //  Connection establishment, FIFO publication boundaries and two-sided retirement.
 
 #include "runtime/direct_connections.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace host
 {

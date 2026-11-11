@@ -3,15 +3,50 @@
   File:    MorphicFramework.vcxitems.filters
   Date:    04 Nov 26
 
-  Groups shared Framework contract headers by responsibility in Visual Studio.
+  Groups shared Framework contracts and implementation by responsibility in Visual Studio.
 -->
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Framework"><UniqueIdentifier>{0b714662-b391-405f-bfbf-0da8bd53320a}</UniqueIdentifier></Filter>
     <Filter Include="Framework\communications"><UniqueIdentifier>{d45813be-570c-4820-ae8f-8dd070d7af4c}</UniqueIdentifier></Filter>
     <Filter Include="Framework\platform"><UniqueIdentifier>{b1dfd0ec-f54f-4ecd-9ae4-a067594d5521}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\system"><UniqueIdentifier>{0ad97f58-97e5-4641-84f9-ee6446037b85}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\assets"><UniqueIdentifier>{a9c2dcae-64ae-4edb-93a8-901447ea105f}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\module"><UniqueIdentifier>{40297595-6bc8-4d66-bfbc-48841e2e3447}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\filesystem"><UniqueIdentifier>{5a6794a8-84e3-4c5c-8cf0-3ad420d62fc5}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\threading"><UniqueIdentifier>{72bf57e3-ba28-4229-8236-2d0326ebb470}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\services"><UniqueIdentifier>{4ef66b47-6937-4598-b1aa-84979f1a1a8d}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\threading\messages"><UniqueIdentifier>{f8273d17-3f5f-4e1f-8947-ca72f831fae8}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\threading.hpp"><Filter>Framework\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\messages.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\message_helpers.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\message_errors.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\byte_view_payloads.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\SErasedMsgHeader.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedPodMsg.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedOwnerMsg.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedMessageTransports.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CBatchWork.hpp"><Filter>Framework\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_protocol.hpp"><Filter>Framework\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_notifications.hpp"><Filter>Framework\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow_client.hpp"><Filter>Framework\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow.hpp"><Filter>Framework\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\service_provider.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_messages.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_identity.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding_context.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_pump.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_execution_context.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_messages.hpp"><Filter>Framework\filesystem</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\schema_messages.hpp"><Filter>Framework\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\asset_messages.hpp"><Filter>Framework\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.hpp"><Filter>Framework\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadResources.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
@@ -21,5 +56,36 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp"><Filter>Framework\communications</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\module_tests.hpp"><Filter>Framework\communications</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\runtime_ids.def">
+      <Filter>Framework\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\thread_ids.def">
+      <Filter>Framework\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_type_ids.def">
+      <Filter>Framework\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\storage_type_bindings.hpp"><Filter>Framework\system</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\transported_types.hpp">
+      <Filter>Framework\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_payloads.def">
+      <Filter>Framework\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\asset_owner_payloads.def"><Filter>Framework\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_owner_payloads.def"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_owner_payloads.def"><Filter>Framework\filesystem</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_ids.hpp"><Filter>Framework\system</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_operations.hpp"><Filter>Framework\system</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedPodMsgTransport.cpp"><Filter>Framework\threading\messages</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedOwnerMsgTransport.cpp"><Filter>Framework\threading\messages</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow_client.cpp"><Filter>Framework\services</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding_context.cpp"><Filter>Framework\module</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.cpp"><Filter>Framework\module</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.cpp"><Filter>Framework\module</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.cpp"><Filter>Framework\threading</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_operations.cpp"><Filter>Framework\system</Filter></ClCompile>
   </ItemGroup>
 </Project>

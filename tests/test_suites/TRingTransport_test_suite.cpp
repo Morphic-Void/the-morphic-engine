@@ -9,6 +9,7 @@
 //
 //  Standalone test suite for threading::transports::TRing<T>.
 
+#include "framework/system/system_ids.hpp"
 #include <cstdint>
 #include <limits>
 #include <new>

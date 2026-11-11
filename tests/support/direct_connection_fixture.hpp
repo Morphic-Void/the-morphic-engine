@@ -15,6 +15,7 @@
 #error This fixture requires the MorphicTests Host runtime seams.
 #endif
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/direct_client.hpp"
 #include "host/runtime/direct_connections.hpp"
 #include "host/runtime/host_restrictions.hpp"
@@ -32,7 +33,7 @@ struct SDirectConnectionTestAccess
         {
             return false;
         }
-        resources.created = true;
+        package.m_created = true;
         resources.host_execution = &execution;
         resources.control_state.mark_running();
         return true;

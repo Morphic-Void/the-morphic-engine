@@ -9,11 +9,12 @@
 //
 //  Portable routing, retained prefixes, exact requester lifetime and reply admission.
 
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/module/module_messages.hpp"
 #include "host/runtime/service_router.hpp"
 #include "tests/test_suites/HostPump_test_suite.hpp"
 #include "tests/support/test_context.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace
 {

@@ -10,8 +10,16 @@ Date:   28 Jul 2026
 
 ## Scope
 
-`debug/service.hpp` and `debug/service.cpp` provide the first bounded
-implementation checkpoint for the replacement debug system.
+`debug/reporting.hpp` provides bounded reporting declarations, enums and typed
+argument encoding without exposing the complete service class, transport or
+native thread state. `debug/macros.hpp` includes that reporting surface.
+`debug/service.hpp` and `debug/service.cpp` provide Foundation service
+administration, shared state, transport and native writer mechanics.
+
+`debug/reporting.cpp` owns each binary's installed pointer and compiled
+reporting bridge. Typed reports encode their fixed-size arguments before the
+bridge; the same service handles queued, immediate and fallback delivery.
+There is no second dispatch state or transport.
 
 The service substrate now directly underpins the replacement public macros in
 `debug/macros.hpp`. The legacy facade and placeholder implementation were
@@ -62,7 +70,17 @@ succeeds only when both logs are open. If the direct log cannot be opened, an ev
 opened by the same call is closed again; a log which was already open is left
 unchanged.
 
-`start()` requires both logs already open. Provisioning must not run concurrently
+`start(configuration)` requires both logs already open. Host supplies an
+`SWriterThreadConfiguration` with the assigned abstract thread ID and optional
+native name. The service validates the ID structure and bounded printable ASCII
+name, then copies the value before native launch. The name has room for fifteen
+characters and a terminator; an empty name skips native naming. Invalid input
+leaves the service unstarted and its open logs available for another attempt.
+The writer uses the copied identity directly, without a configured catalogue or
+registry lookup. Abstract registry lookup remains available for formatting
+producer names in log records.
+
+Provisioning must not run concurrently
 with reporting. Reporting and writer startup never open or reopen files;
 direct writes fail when the direct log is closed, including after `stop()`.
 This prevents low-level diagnostics from recursively allocating through the
@@ -78,10 +96,10 @@ selected service object.
 
 ## Provisioning
 
-Each linked module contains one pointer in its own `service.cpp`:
+Each linked module contains one pointer in its own `reporting.cpp`:
 
 ```cpp
-CDebugServiceState* s_service;
+static CDebugServiceState* s_service;
 ```
 
 The module-local interface is:
@@ -97,9 +115,13 @@ exposes reporting work. Removal occurs after that work and its threads have
 quiesced. The pointer is intentionally non-atomic because concurrent
 installation, replacement, or removal is outside the lifetime contract.
 
-DLL export names, ABI versioning, executable callback boundaries, and combined
-installation of debug, identity, and memory provisioning remain deferred until
-module loading is implemented.
+Module binding installs this pointer together with identity, erased-operation
+and memory provisioning for each participating binary. Host retains the service
+through producer quiescence, writer drain/join and removal of those pointers.
+Reporting before installation or after uninstall returns failure without
+accessing a service. After writer stop, closed transport and logs retain their
+existing failure results. Panic retains its debugger output and fail-fast path
+even when no service is installed.
 
 ## Shared Words
 

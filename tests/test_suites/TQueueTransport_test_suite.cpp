@@ -9,6 +9,7 @@
 //
 //  Standalone test suite for threading::transports::TQueue<T>.
 
+#include "framework/system/system_ids.hpp"
 #include <array>
 #include <string>
 #include <utility>

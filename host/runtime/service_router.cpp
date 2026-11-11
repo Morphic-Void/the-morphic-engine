@@ -8,9 +8,9 @@
 //
 //  Correlated operations and independent provider-owned resource borrows.
 
-#include "services/service_protocol.hpp"
+#include "framework/services/service_protocol.hpp"
 #include "runtime/service_router.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace host
 {

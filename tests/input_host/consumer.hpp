@@ -11,9 +11,10 @@
 
 #pragma once
 
-#include "system/storage_type_bindings.hpp"
-#include "module/module_messages.hpp"
-#include "module/module_binding_context.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/module/module_binding_context.hpp"
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/input_schema.hpp"
@@ -21,10 +22,10 @@
 #include "tests/input_host/schema.hpp"
 #include "framework/platform/input_reader.hpp"
 #include "framework/platform/controllers.hpp"
-#include "services/service_borrow_client.hpp"
-#include "assets/asset_messages.hpp"
-#include "threading/CThreadPackage.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/services/service_borrow_client.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "containers/TInstance.hpp"
 #include "debug/macros.hpp"
 #include <cstdlib>

@@ -16,7 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "assets/asset_repository.hpp"
+#include "foundation/assets/asset_id.hpp"
 #include "containers/ByteBuffers.hpp"
 #include "texture/texture_data.hpp"
 

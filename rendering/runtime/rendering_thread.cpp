@@ -8,10 +8,11 @@
 //
 //  Rendering module thread and asynchronous texture conditioning.
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "framework/communications/direct_client.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 #include "runtime/rendering_thread.hpp"
 #include "runtime/basis_codec.hpp"
@@ -21,9 +22,9 @@
 
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/macros.hpp"
-#include "module/module_binding_context.hpp"
+#include "framework/module/module_binding_context.hpp"
 #include "texture/texture_requests.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 
 #include <utility>
 
@@ -48,14 +49,14 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     context.startup();
     connections::CClient connection{ context, module_ids::rendering,
         modules::test_connections::policies, modules::test_connections::policy_count };
-    if (!connection.register_service() || (resources.batch_client == nullptr) || !basis_codec::initialise())
+    if (!connection.register_service() || (context.batch_client() == nullptr) || !basis_codec::initialise())
     {
         context.mark_failed(1u);
         return 1u;
     }
-    CResourceRequests requests{ *resources.batch_client, { &context, [](void* const value, const threading::CErasedPodMsg& message) noexcept {
+    CResourceRequests requests{ *context.batch_client(), { &context, [](void* const value, const threading::CErasedPodMsg& message) noexcept {
         return static_cast<threading::CThreadContext*>(value)->post(message); } } };
-    CTextureFlowTests tests{ context, resources.config.worker_module_id, requests, connection };
+    CTextureFlowTests tests{ context, context.module_id(), requests, connection };
     if (!requests.initialise())
     {
         basis_codec::shutdown();
@@ -71,7 +72,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     bool failed = false;
     for (;;)
     {
-        const std::uint32_t epoch = resources.wait_predicate.get_word();
+        const std::uint32_t epoch = context.observe_epoch();
         connection.clear_notifications();
         context.advance_heartbeat();
         if (context.exit_requested())
@@ -81,7 +82,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         }
         bool progressed = false;
         threading::SBatchResponse response;
-        for (unsigned count = 0u; (count < 32u) && resources.batch_client->receive(response); ++count)
+        for (unsigned count = 0u; (count < 32u) && context.batch_client()->receive(response); ++count)
         {
             progressed = true;
             const bool completed = requests.complete(response);
@@ -162,7 +163,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
             if (context.exit_requested())
             {
                 //  Remain visibly Exiting while queued/running jobs drain.
-                (void)resources.wait_predicate.wait_until_not_equal(resources.parking_ticket, epoch);
+                (void)context.wait_for_new_epoch_preserving_state(epoch);
             }
             else
             {

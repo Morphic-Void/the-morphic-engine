@@ -39,7 +39,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared">
-    <Import Project="MorphicCore.vcxitems" Label="Shared" />
+    <Import Project="MorphicFoundation.vcxitems" Label="Shared" />
     <Import Project="MorphicFramework.vcxitems" Label="Shared" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets">
@@ -91,6 +91,10 @@
     <ClCompile><PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\host\config\module_extension.cpp" />
+    <ClCompile Include="..\host\module\bound_module.cpp" />
+    <ClCompile Include="..\host\filesystem\filesystem_image.cpp" />
+    <ClCompile Include="..\host\threading\CThreadPackage.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleBuilder_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\Bundle_test_suite.cpp" />
     <ClCompile Include="..\tests\main\MorphicTests.cpp" />
@@ -130,6 +134,15 @@
     <ClCompile Include="..\rendering\runtime\shader_compiler.cpp">
       <AdditionalIncludeDirectories>$(ProjectDir)..\build\dependencies\dxc\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <ClInclude Include="..\host\filesystem\mount_rules.hpp" />
+    <ClInclude Include="..\host\config\module_extension.hpp" />
+    <ClInclude Include="..\host\assets\asset_repository.hpp" />
+    <ClInclude Include="..\host\module\bound_module.hpp" />
+    <ClInclude Include="..\host\image\image_owner_payloads.def" />
+    <ClInclude Include="..\host\image\image_messages.hpp" />
+    <ClInclude Include="..\host\filesystem\filesystem_image.hpp" />
+    <ClInclude Include="..\host\assets\asset_storage.hpp" />
+    <ClInclude Include="..\host\threading\CThreadPackage.hpp" />
     <ClInclude Include="..\tests\test_suites\ShaderBatch_cases.hpp" />
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
     <ClCompile Include="..\host\runtime\client_record.cpp" />

@@ -21,6 +21,11 @@ The existing `MorphicPolicy.targets` integration builds and runs `MorphicPolicyV
 before compilation of consuming projects. Policy errors fail the build;
 the workflow does not bypass them. Test failures also fail the job.
 
+Foundation (`MorphicFoundation`) and Framework shared implementations are compiled once
+inside each participating executable or fixture DLL. Host-private module,
+filesystem-image and thread owners are explicit Host/test sources. The shared
+imports preserve this layout across both architectures and configurations.
+
 The solution platform named `x86` maps to project platform `Win32`, so its test
 executable is loaded from `build/bin/Win32/<configuration>`. The x64 jobs use
 `build/bin/x64/<configuration>`. Tests run from the repository root and write

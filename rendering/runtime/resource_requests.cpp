@@ -9,7 +9,7 @@
 //  Coordinate Rendering-owned resource requests and generic Host acquisitions.
 
 #include "runtime/resource_requests.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace rendering
 {

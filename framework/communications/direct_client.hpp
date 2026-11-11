@@ -11,8 +11,8 @@
 #pragma once
 
 #include "direct_connection.hpp"
-#include "threading/CThreadPackage.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace connections
 {

@@ -9,9 +9,11 @@
 //
 //  Actual Host lifetime retention, bounded probes and installed subscriptions.
 
+#include "framework/threading/CThreadContext.hpp"
+#include "framework/system/system_ids.hpp"
 #include "host/runtime/host.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
@@ -27,12 +29,12 @@ struct SThreadPackageTestAccess
     static void reject_create(CThreadPackage& package) noexcept { package.m_test_reject_create = true; }
     static bool retained(const CThreadPackage& package) noexcept
     {
-        return package.m_resources.thread.is_valid() && package.m_resources.wait_predicate.has_control() &&
+        return package.m_thread.is_valid() && package.m_resources.wait_predicate.has_control() &&
             package.m_host_pinned && (package.m_notification_pins == 1u) && (package.m_resources.host_execution == package.m_host_execution);
     }
     static bool rolled_back(const CThreadPackage& package) noexcept
     {
-        return !package.m_resources.thread.is_valid() && !package.m_resources.wait_predicate.has_control() &&
+        return !package.m_thread.is_valid() && !package.m_resources.wait_predicate.has_control() &&
             !package.m_host_pinned && !package.m_notification_pins && !package.m_resources.host_execution;
     }
 };
@@ -74,7 +76,7 @@ struct SHostMaintenanceTestAccess
     static std::uint32_t MV_STD_ABI_CALL completion_worker(void* const data) noexcept
     {
         auto& resources = *static_cast<threading::CThreadResources*>(data);
-        auto& frame = *static_cast<SInvalidFrame*>(resources.config.prepare_context);
+        SInvalidFrame& frame = tests::TThreadFixtureState<SInvalidFrame>::get();
         threading::CThreadContext context{ resources };
         context.startup();
         context.mark_running();
@@ -172,7 +174,7 @@ struct SHostMaintenanceTestAccess
         frame.completion = CErasedOwner::create<FilesystemScanResult>();
         s_invalid_frame = &frame;
         const threading::ThreadConfig worker{ thread_ids::bg_file_io, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, &completion_worker, nullptr, &frame };
+            platform::threading::EThreadPriority::Normal, &completion_worker, &tests::TThreadFixtureState<SInvalidFrame>::prepare, &frame };
         runtime.m_worker_count = 1u;
         runtime.m_worker_slots[0] = runtime.m_thread_packages.emplace(worker, runtime.m_perf_count_conversion);
         TEST_EXPECT(ctx, (runtime.worker_package(0u) && runtime.worker_package(0u)->startup()));
@@ -537,7 +539,7 @@ struct SHostMaintenanceTestAccess
     static std::uint32_t MV_STD_ABI_CALL subscriber(void* const data) noexcept
     {
         auto& resources = *static_cast<threading::CThreadResources*>(data);
-        auto& state = *static_cast<SSubscriber*>(resources.config.prepare_context);
+        SSubscriber& state = tests::TThreadFixtureState<SSubscriber>::get();
         threading::CThreadContext context{ resources };
         context.startup();
         context.mark_running();
@@ -617,7 +619,7 @@ struct SHostMaintenanceTestAccess
         TEST_EXPECT(ctx, (runtime.m_perf_count_conversion.init() && runtime.m_thread_packages.initialise()));
         SSubscriber state;
         const threading::ThreadConfig config{ thread_ids::executive, module_ids::executive,
-            platform::threading::EThreadPriority::Normal, &subscriber, nullptr, &state };
+            platform::threading::EThreadPriority::Normal, &subscriber, &tests::TThreadFixtureState<SSubscriber>::prepare, &state };
         const auto index = module_ids::executive_index.raw_value();
         const auto slot = runtime.m_thread_packages.emplace(config, runtime.m_perf_count_conversion);
         auto* package = runtime.m_thread_packages.get_object(slot);

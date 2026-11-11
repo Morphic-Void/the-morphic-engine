@@ -10,10 +10,11 @@
 //  Real generic Host asset service connected to Rendering-local resource calls.
 
 #pragma once
+#include "framework/system/system_ids.hpp"
 #include "tests/support/rendering_service_fixture.hpp"
 #include "host/runtime/asset_service.hpp"
 #include "tests/support/host_client_fixture.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace texture_batch_tests
 {

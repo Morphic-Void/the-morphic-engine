@@ -8,9 +8,12 @@
 //
 //  Deterministic clear/publication ordering and pinned package teardown.
 
+#include "tests/support/thread_helpers.hpp"
+#include "framework/system/system_ids.hpp"
 #include <thread>
-#include "threading/CThreadPackage.hpp"
-#include "threading/messages/message_errors.hpp"
+#include "host/threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "framework/threading/messages/message_errors.hpp"
 #include "tests/support/test_context.hpp"
 
 namespace
@@ -108,7 +111,7 @@ struct SProbe
 std::uint32_t MV_STD_ABI_CALL waiting_consumer(void* data) noexcept
 {
     auto& resources = *static_cast<threading::CThreadResources*>(data);
-    auto& probe = *static_cast<SProbe*>(resources.config.prepare_context);
+    SProbe& probe = tests::TThreadFixtureState<SProbe>::get();
     threading::CThreadContext context{ resources };
     context.startup();
     context.mark_running();
@@ -133,7 +136,7 @@ void pinned_package(TTestContext& ctx)
     TEST_EXPECT(ctx, conversion.init());
     SProbe probe;
     threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &waiting_consumer, nullptr, &probe };
+        platform::threading::EThreadPriority::Normal, &waiting_consumer, &tests::TThreadFixtureState<SProbe>::prepare, &probe };
     threading::CThreadPackage package{ config, conversion };
     if (!package.startup()) { TEST_EXPECT(ctx, false); return; }
     threading::CNotification notification;

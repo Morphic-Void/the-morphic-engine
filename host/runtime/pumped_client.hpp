@@ -10,11 +10,12 @@
 
 #pragma once
 
-#include "services/service_protocol.hpp"
-#include "module/bound_module.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/services/service_protocol.hpp"
+#include "host/module/bound_module.hpp"
 #include "runtime/service_router.hpp"
 #include "runtime/host_maintenance.hpp"
-#include "module/host_eligible_budget.hpp"
+#include "framework/module/host_eligible_budget.hpp"
 #include "threading/transports/TRingTransport.hpp"
 
 namespace host

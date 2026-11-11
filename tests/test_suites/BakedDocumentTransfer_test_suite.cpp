@@ -7,6 +7,7 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    8 Sep 26
 
+#include "framework/system/system_ids.hpp"
 #include "tests/test_suites/BakedDocumentTransfer_test_suite.hpp"
 
 #include <cstring>
@@ -16,15 +17,15 @@
 #include <utility>
 #include <vector>
 
-#include "assets/asset_repository.hpp"
+#include "host/assets/asset_repository.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/live_document.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "tests/environment/test_paths.hpp"
-#include "threading/messages/CErasedMessageTransports.hpp"
+#include "framework/threading/messages/CErasedMessageTransports.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/byte_helpers.hpp"
 #include "tests/support/test_context.hpp"

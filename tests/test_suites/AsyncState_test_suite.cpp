@@ -7,7 +7,8 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
-#include "threading/messages/message_errors.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/threading/messages/message_errors.hpp"
 #include "tests/environment/local_type_ids.hpp"
 
 #include <cstdint>

@@ -9,9 +9,20 @@ System type identities are the deliberate cross-component identity category.
 Any C++ type used by a shared ABI, function query, erased payload, owner,
 message, transport, or another component boundary requires a host-authored
 system ID. Component-confined erased storage may instead use local identity.
-`system/system_type_ids.def` is the sole canonical system definition list.
+`framework/system/system_type_ids.def` is the sole canonical system definition list.
 `MV_REGISTER_SYSTEM_TYPE` binds a C++ type to an existing system ID; it does
 not author an ID or a name.
+
+Foundation's `foundation/system/system_ids.hpp` defines only abstract strong IDs,
+categories, layouts, capacities and encoding helpers. Include
+`framework/system/system_ids.hpp` explicitly for Morphic's named identities
+and configured counts. Framework owns `runtime_ids.def`, `thread_ids.def` and
+`system_type_ids.def`; Host retains the canonical immutable name tables in
+`host/system/system_id_definitions.cpp`. Generic registry installation,
+validation and lookup remain in Foundation and accept supplied registry data.
+
+Concrete buffer/string bindings are in `framework/system/storage_type_bindings.hpp`.
+Foundation containers and generic registration headers do not import those bindings.
 
 Local type identities belong to one binary component. They may identify a
 structure, class, enum, or tag type, but they cannot cross a module boundary.
@@ -124,11 +135,11 @@ assertions. Names come from stringified identifier tokens and contain at most
 15 bytes plus a terminator. Their complete 16-byte values are constructed at
 compile time, terminated, and zero-filled.
 
-The repeated declaration and definition bodies live in Core's
+The repeated declaration and definition bodies live in Foundation's
 `local_type_ids.hpp.inl` and `local_type_ids.cpp.inl`. Identical component
 wrappers include their adjacent `local_types.hpp`, `local_type_ids.def`, and
-`erased_owner_payloads.def` files before invoking those Core bodies. The
-catalogs expose list macros consumed by Core, so no component path or
+`erased_owner_payloads.def` files before invoking those Foundation bodies. The
+catalogs expose list macros consumed by Foundation, so no component path or
 component-specific configuration macro enters the shared machinery. IDs,
 payload eligibility, query functions, and static tables remain instantiated
 separately in each binary.
@@ -142,7 +153,7 @@ registration.
 Host file, TGA, document-conditioning, bundle-preparation, module-work and
 filesystem-scan protocols belong to its LOCAL table, together with their private
 retained owners. Public asset, bundle, module, filesystem and generic test
-requests retain SYSTEM identity. Their shared contracts live in Core. Texture
+requests retain SYSTEM identity. Their shared contracts live in Framework. Texture
 and shader contracts live entirely in Rendering and have no transport identity;
 generic acquire/release messages protect their Host-owned source bytes or bundles.
 `TErasedPod` and

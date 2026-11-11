@@ -32,13 +32,13 @@ module to perform Executive's special self-transition are rejected.
 
 ## Service protocol and execution capabilities
 
-`core/services/service_protocol.hpp` owns the execution-independent service
+`framework/services/service_protocol.hpp` owns the execution-independent service
 messages, tokens, contract identity and dispatch context in `services`, together
 with their SYSTEM registrations. Exact module instance identity lives in
-`core/module/module_identity.hpp` in `modules`. SYSTEM IDs and the 48-byte
+`framework/module/module_identity.hpp` in `modules`. SYSTEM IDs and the 48-byte
 request/reply layouts are unchanged by this separation.
 
-`core/module/service_provider.hpp` defines `modules::SServiceProviderV1`, queried
+`foundation/module/service_provider.hpp` defines `modules::SServiceProviderV1`, queried
 through the optional `morphic_module_service_provider_v1` export. It takes the
 caller's descriptor capacity and returns an advertisement with size/version,
 zero flags and at most sixteen distinct nonzero contract numbers with nonzero
@@ -75,7 +75,7 @@ contains bounded service/message batches and a time budget; native event and
 observation limits belong to the provider. These same-process capability
 descriptors require matching headers and coordinated Host/module rebuilds.
 
-The former `core/system/service_messages.hpp` umbrella is split into module
+The former `foundation/system/service_messages.hpp` umbrella is split into module
 messages in `modules`, logical filesystem messages in `filesystem`, transport
 fallback in `threading`, and common storage type bindings under `system`.
 Each message header owns its registrations and owning-payload eligibility.

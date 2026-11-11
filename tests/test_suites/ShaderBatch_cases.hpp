@@ -14,6 +14,7 @@
 #ifndef TESTS_TEST_SUITES_SHADERBATCH_CASES_HPP_INCLUDED
 #define TESTS_TEST_SUITES_SHADERBATCH_CASES_HPP_INCLUDED
 
+#include "framework/system/system_ids.hpp"
 #include "assets/internal/bundle_builder_io.hpp"
 #include "rendering/shader/shader_requests.hpp"
 #include "rendering/runtime/shader_compiler.hpp"

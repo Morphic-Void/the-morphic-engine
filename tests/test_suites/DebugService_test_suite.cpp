@@ -7,6 +7,7 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    28 Jul 26
 
+#include "framework/system/system_ids.hpp"
 #include <cstdio>
 #include <cstddef>
 #include <cstdint>
@@ -36,6 +37,33 @@ namespace debug_system
 
 struct SDebugServiceTestAccess
 {
+    struct SWriterProbe
+    {
+        CDebugServiceState* service = nullptr;
+        thread_ids::id_type observed_thread_id{};
+        std::uint32_t result = 0u;
+    };
+
+    static void configure_writer(CDebugServiceState& service, const SWriterThreadConfiguration& configuration) noexcept
+    {
+        service.m_writer_configuration = configuration;
+    }
+
+    [[nodiscard]] static const SWriterThreadConfiguration& writer_configuration(const CDebugServiceState& service) noexcept
+    {
+        return service.m_writer_configuration;
+    }
+
+    static std::uint32_t MV_STD_ABI_CALL probe_writer_entry(void* const user_data) noexcept
+    {
+        SWriterProbe& probe = *static_cast<SWriterProbe*>(user_data);
+        //  An unopened log exits after attribution, without entering the drain
+        //  loop. Observe the real writer entry on a disposable native thread.
+        probe.result = CDebugServiceState::writer_thread_entry(probe.service);
+        probe.observed_thread_id = system_context::get_ambient_thread_id();
+        return probe.result;
+    }
+
     [[nodiscard]] static bool write_event(
         CDebugServiceState& service, const SEvent& event) noexcept
     {
@@ -881,6 +909,9 @@ void test_provisioning_and_shared_words(TTestContext& ctx)
 
     debug_system::CDebugServiceState* const service = owner.operator->();
     TEST_EXPECT(ctx, debug_system::get_service() == nullptr);
+    TEST_EXPECT(ctx, !(debug_system::submit_event<debug_system::EEventLevel::info,
+        debug_system::EEventType::event>({}, "before installation {}", std::uint32_t{ 1u })));
+    TEST_EXPECT(ctx, !debug_system::report_immediate(debug_system::EEventLevel::error, {}, "before installation"));
     TEST_EXPECT(ctx, !debug_system::install_service(nullptr));
     TEST_EXPECT(ctx, debug_system::install_service(service));
     TEST_EXPECT(ctx, debug_system::get_service() == service);
@@ -973,6 +1004,33 @@ void test_provisioning_and_shared_words(TTestContext& ctx)
 
     TEST_EXPECT(ctx, debug_system::uninstall_service(service));
     TEST_EXPECT(ctx, debug_system::get_service() == nullptr);
+    TEST_EXPECT(ctx, !(debug_system::submit_event<debug_system::EEventLevel::info,
+        debug_system::EEventType::event>({}, "after uninstall {}", std::uint32_t{ 2u })));
+}
+
+void test_supplied_writer_attribution(TTestContext& ctx)
+{
+    TInstance<debug_system::CDebugServiceState> owner =
+        TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(ctx, owner.is_ready());
+    if (!owner) return;
+
+    //  Foundation accepts a structurally valid identity without a configured
+    //  catalogue entry. Attribution must use that identity, not debug_service.
+    const thread_ids::id_type supplied_id = thread_ids::ops::make_id(
+        thread_ids::ops::make_index(thread_ids::ops::k_capacity - 1u));
+    TEST_EXPECT(ctx, supplied_id != thread_ids::debug_service);
+    TEST_EXPECT(ctx, system_id_registry::lookup_thread_name(supplied_id) == nullptr);
+    debug_system::SDebugServiceTestAccess::configure_writer(*owner, { supplied_id, {} });
+    debug_system::SDebugServiceTestAccess::SWriterProbe probe{ owner.operator->() };
+    platform::threading::CThread thread;
+    const bool started = thread.create(&debug_system::SDebugServiceTestAccess::probe_writer_entry, &probe);
+    TEST_EXPECT(ctx, started);
+    if (!started) return;
+    TEST_EXPECT(ctx, thread.join_and_close());
+    TEST_EXPECT(ctx, probe.result == 2u);
+    TEST_EXPECT(ctx, probe.observed_thread_id == supplied_id);
+    TEST_EXPECT(ctx, owner->thread_state() == debug_system::EServiceThreadState::failed);
 }
 
 void test_writer_and_direct_paths(TTestContext& ctx)
@@ -1004,7 +1062,7 @@ void test_writer_and_direct_paths(TTestContext& ctx)
         std::strcmp(service->direct_log_path(), direct_path) == 0);
     TEST_EXPECT(ctx, service->open_logs());
     TEST_EXPECT(ctx, debug_system::install_service(service));
-    TEST_EXPECT(ctx, service->start());
+    TEST_EXPECT(ctx, service->start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx,
         service->thread_state() ==
         debug_system::EServiceThreadState::running);
@@ -1261,11 +1319,31 @@ void test_explicit_log_opening(TTestContext& ctx)
     debug_system::CDebugServiceState* const service = owner.operator->();
     TEST_EXPECT(ctx,
         service->configure_log_paths(event_path, direct_path));
-    TEST_EXPECT(ctx, !service->start());
+    TEST_EXPECT(ctx, !service->start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service->thread_state() == debug_system::EServiceThreadState::empty);
     TEST_EXPECT(ctx, service->open_logs());
     TEST_EXPECT(ctx, debug_system::install_service(service));
-    TEST_EXPECT(ctx, service->start());
+    TEST_EXPECT(ctx, !service->start({}));
+    TEST_EXPECT(ctx, !service->start({ thread_ids::id_type{ ~std::uint64_t{ 0u } }, "invalid" }));
+    debug_system::SWriterThreadConfiguration invalid_name{ thread_ids::debug_service, {} };
+    std::memset(invalid_name.name, 'x', sizeof(invalid_name.name));
+    TEST_EXPECT(ctx, !service->start(invalid_name));
+    invalid_name.name[0] = '\n';
+    invalid_name.name[1] = 0;
+    TEST_EXPECT(ctx, !service->start(invalid_name));
+    TEST_EXPECT(ctx, service->thread_state() == debug_system::EServiceThreadState::empty);
+    TEST_EXPECT(ctx, !service->retains_execution());
+
+    debug_system::SWriterThreadConfiguration configuration{ thread_ids::debug_service, "supplied-writer" };
+    TEST_EXPECT(ctx, service->start(configuration));
+    configuration.thread_id = {};
+    configuration.name[0] = 0;
+    const debug_system::SWriterThreadConfiguration& copied =
+        debug_system::SDebugServiceTestAccess::writer_configuration(*service);
+    TEST_EXPECT(ctx, copied.thread_id == thread_ids::debug_service);
+    TEST_EXPECT(ctx, std::strcmp(copied.name, "supplied-writer") == 0);
+    TEST_EXPECT(ctx, !service->start({ thread_ids::debug_service, "second-writer" }));
+    TEST_EXPECT(ctx, std::strcmp(copied.name, "supplied-writer") == 0);
 
     char oversized[debug_system::k_event_format_capacity + 32u];
     std::memset(oversized, 'y', sizeof(oversized) - 1u);
@@ -1273,6 +1351,10 @@ void test_explicit_log_opening(TTestContext& ctx)
     TEST_EXPECT(ctx, debug_system::submit_text(oversized));
 
     TEST_EXPECT(ctx, service->stop());
+    TEST_EXPECT(ctx, !(debug_system::submit_event<debug_system::EEventLevel::info,
+        debug_system::EEventType::event>({}, "after writer stop {}", std::uint32_t{ 3u })));
+    TEST_EXPECT(ctx, !debug_system::report_immediate(debug_system::EEventLevel::error, {}, "after writer stop"));
+    TEST_EXPECT(ctx, !service->retains_execution());
     TEST_EXPECT(ctx, debug_system::uninstall_service(service));
     TEST_EXPECT(ctx, tests::file_contains(direct_path, "[0000000001] "));
 }
@@ -1298,7 +1380,7 @@ void test_filename_and_capacity_boundaries(TTestContext& ctx)
     debug_system::CDebugServiceState* const service = owner.operator->();
     TEST_EXPECT(ctx, service->configure_log_paths(event_path, direct_path));
     TEST_EXPECT(ctx, service->open_logs());
-    TEST_EXPECT(ctx, service->start());
+    TEST_EXPECT(ctx, service->start({ thread_ids::debug_service, "debug_service" }));
 
     debug_system::EBreakpointOverride breakpoint_override =
         debug_system::EBreakpointOverride::disabled;
@@ -1469,7 +1551,7 @@ void test_queued_and_direct_equivalence(TTestContext& ctx)
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, 778u },
         "full %s", "report fallback"));
-    TEST_EXPECT(ctx, service->start());
+    TEST_EXPECT(ctx, service->start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service->stop());
     constexpr const char* reconstructed =
         "[info:event] [DebugService_test_suite.cpp:777] equivalence 42";
@@ -1533,7 +1615,7 @@ void test_assert_report(TTestContext& ctx)
     TEST_EXPECT(ctx, evaluations == 2u);
     TEST_EXPECT(ctx, !service.breakpoint_pause_requested());
     TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
-    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service.stop());
 
     char expected[160]{};
@@ -1630,7 +1712,7 @@ void test_log_policy_and_delivery(TTestContext& ctx)
     MV_LOG_RICH(error, "policy full rich %u", 7u);
     TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
     previous_size = log_size(ctx, direct_path.c_str());
-    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service.stop());
     TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy immediate warning 3"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy immediate error 4"));
@@ -1726,7 +1808,7 @@ void test_immediate_control_and_limits(TTestContext& ctx)
     MV_LOG_RICH_IMMEDIATE(warning, "%s", oversized);
     MV_LOG_RICH_IMMEDIATE(error, "%s", "");
     TEST_EXPECT(ctx, log_size(ctx, event_path.c_str()) == 0u);
-    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service.stop());
     TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "critical event immediate"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "control error immediate"));
@@ -1827,7 +1909,7 @@ void test_malformed_event_overlays(TTestContext& ctx)
     TEST_EXPECT(ctx,
         debug_system::SDebugServiceTestAccess::write_event(*service, malformed));
 
-    TEST_EXPECT(ctx, service->start());
+    TEST_EXPECT(ctx, service->start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service->stop());
     TEST_EXPECT(ctx, tests::file_contains(event_path, "[0000000001]"));
     TEST_EXPECT(ctx, tests::file_contains(event_path, "abc"));
@@ -1855,6 +1937,7 @@ int run_debug_service_tests()
     debug_service_tests::test_argument_formatting(ctx);
     debug_service_tests::test_system_id_name_registry(ctx);
     debug_service_tests::test_provisioning_and_shared_words(ctx);
+    debug_service_tests::test_supplied_writer_attribution(ctx);
     debug_service_tests::test_writer_and_direct_paths(ctx);
     debug_service_tests::test_explicit_log_opening(ctx);
     debug_service_tests::test_filename_and_capacity_boundaries(ctx);

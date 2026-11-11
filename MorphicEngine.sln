@@ -22,7 +22,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicTests", "visual_stud
 		{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31} = {6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicCore", "visual_studio\MorphicCore.vcxitems", "{A250136D-15BB-4A6C-A3BB-29C92A92E205}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicFoundation", "visual_studio\MorphicFoundation.vcxitems", "{A250136D-15BB-4A6C-A3BB-29C92A92E205}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicFramework", "visual_studio\MorphicFramework.vcxitems", "{093DF26D-776A-4556-91E0-16DC0EC4AE94}"
 EndProject
@@ -63,6 +63,151 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicAudio", "visual_studio\MorphicAudio.vcxproj", "{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicPlatform", "visual_studio\MorphicPlatform.vcxproj", "{E22D10ED-6477-491E-9C46-BAC294341461}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Start Here", "Start Here", "{AC8BBCBC-84BD-5E0A-A969-92B30296118B}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+		AGENTS.md = AGENTS.md
+		CODE_OF_CONDUCT.md = CODE_OF_CONDUCT.md
+		LICENSE.txt = LICENSE.txt
+		THIRD_PARTY_LICENSES.md = THIRD_PARTY_LICENSES.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Docs", "Docs", "{7AF023C4-3013-B9A5-3FBF-F7DD4B582158}"
+	ProjectSection(SolutionItems) = preProject
+		docs\README.md = docs\README.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "architecture", "architecture", "{A1440ED4-93DE-4C9E-BC15-49167E863FA8}"
+	ProjectSection(SolutionItems) = preProject
+		docs\architecture\architectural-principles.md = docs\architecture\architectural-principles.md
+		docs\architecture\codebase-ethos-primer.md = docs\architecture\codebase-ethos-primer.md
+		docs\architecture\codebase-model.md = docs\architecture\codebase-model.md
+		docs\architecture\engineering-aphorisms.md = docs\architecture\engineering-aphorisms.md
+		docs\architecture\engineering-principles.md = docs\architecture\engineering-principles.md
+		docs\architecture\origins.md = docs\architecture\origins.md
+		docs\architecture\why_morphic_engine.md = docs\architecture\why_morphic_engine.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "assets", "assets", "{A09F97A3-E95E-4773-AE43-F6DA3EE12607}"
+	ProjectSection(SolutionItems) = preProject
+		docs\assets\asynchronous_asset_services.md = docs\assets\asynchronous_asset_services.md
+		docs\assets\bundle_specification.md = docs\assets\bundle_specification.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "modules", "modules", "{81C52EC1-8117-4E30-812A-C8A8C42DC3AC}"
+	ProjectSection(SolutionItems) = preProject
+		docs\modules\asynchronous_module_lifecycle.md = docs\modules\asynchronous_module_lifecycle.md
+		docs\modules\batch_runners.md = docs\modules\batch_runners.md
+		docs\modules\texture_codec.md = docs\modules\texture_codec.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "image", "image", "{9D85204B-EFE3-4623-A619-C2A46ADFB2CF}"
+	ProjectSection(SolutionItems) = preProject
+		docs\image\image_view.md = docs\image\image_view.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backlog", "backlog", "{ACB9D1D1-FCDA-EF05-9AEB-A066F8537D31}"
+	ProjectSection(SolutionItems) = preProject
+		docs\backlog\consolidation_deferred_design.md = docs\backlog\consolidation_deferred_design.md
+		docs\backlog\filesystem_asset_mapping.md = docs\backlog\filesystem_asset_mapping.md
+		docs\backlog\current_scope_backlog.md = docs\backlog\current_scope_backlog.md
+		docs\backlog\engine_backlog.md = docs\backlog\engine_backlog.md
+		docs\backlog\schema_follow_on.md = docs\backlog\schema_follow_on.md
+		docs\backlog\testing_framework_consolidation.md = docs\backlog\testing_framework_consolidation.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "containers", "containers", "{126AEA5E-4235-1656-C710-B9DD2F447707}"
+	ProjectSection(SolutionItems) = preProject
+		docs\containers\BumpBuffer.md = docs\containers\BumpBuffer.md
+		docs\containers\ByteBuffers.md = docs\containers\ByteBuffers.md
+		docs\containers\StringBuffers.md = docs\containers\StringBuffers.md
+		docs\containers\TOrderedCollection.md = docs\containers\TOrderedCollection.md
+		docs\containers\TPodFifo.md = docs\containers\TPodFifo.md
+		docs\containers\TPodVector.md = docs\containers\TPodVector.md
+		docs\containers\TVector.md = docs\containers\TVector.md
+		docs\containers\MovableSlots.md = docs\containers\MovableSlots.md
+		docs\containers\TUnorderedCollection.md = docs\containers\TUnorderedCollection.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "slots", "slots", "{C001F1CB-F352-AF39-2D43-2D28A9BC93CE}"
+	ProjectSection(SolutionItems) = preProject
+		docs\slots\TOrderedSlotManager.md = docs\slots\TOrderedSlotManager.md
+		docs\slots\TUnorderedSlotManager.md = docs\slots\TUnorderedSlotManager.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "data_model", "data_model", "{0C62E5AA-8DE9-4232-B7BC-AB183C86EF4B}"
+	ProjectSection(SolutionItems) = preProject
+		docs\data_model\README.md = docs\data_model\README.md
+		docs\data_model\document_parsing.md = docs\data_model\document_parsing.md
+		docs\data_model\document_text_format.md = docs\data_model\document_text_format.md
+		docs\data_model\data_model_design_notes.md = docs\data_model\data_model_design_notes.md
+		docs\data_model\revised_data_model.md = docs\data_model\revised_data_model.md
+		docs\data_model\baked_document_format.md = docs\data_model\baked_document_format.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "debug", "debug", "{5E343B5F-3444-9B99-D58E-BFFDC569B4D1}"
+	ProjectSection(SolutionItems) = preProject
+		docs\debug\debug_service_substrate.md = docs\debug\debug_service_substrate.md
+		docs\debug\debug_system_audit.md = docs\debug\debug_system_audit.md
+		docs\debug\debug_system_interface.md = docs\debug\debug_system_interface.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "memory", "memory", "{7F89650B-1985-E5B3-5EB0-1C91FF06EF89}"
+	ProjectSection(SolutionItems) = preProject
+		docs\memory\memory_subsystem.md = docs\memory\memory_subsystem.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "project", "project", "{04696BBF-1B73-F05A-EFC7-676AB4A64635}"
+	ProjectSection(SolutionItems) = preProject
+		docs\project\attribution_policy.md = docs\project\attribution_policy.md
+		docs\project\completed_milestones.md = docs\project\completed_milestones.md
+		docs\project\future_work_notes.md = docs\project\future_work_notes.md
+		docs\project\bootstrap_configuration.md = docs\project\bootstrap_configuration.md
+		docs\project\building_and_testing.md = docs\project\building_and_testing.md
+		docs\project\linux_ci.md = docs\project\linux_ci.md
+		docs\project\policy_validator.md = docs\project\policy_validator.md
+		docs\project\windows_ci.md = docs\project\windows_ci.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "system", "system", "{001BAEAA-14DD-C7EA-B743-3F1BF233CA14}"
+	ProjectSection(SolutionItems) = preProject
+		docs\system\erased_owner.md = docs\system\erased_owner.md
+		docs\system\module_bootstrap.md = docs\system\module_bootstrap.md
+		docs\system\type_identity.md = docs\system\type_identity.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "threading", "threading", "{9AE8026C-8D44-6456-DE6C-910BA48DF268}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "transports", "transports", "{AAC8B5EE-83D3-BDD2-A853-BAB152E2265F}"
+	ProjectSection(SolutionItems) = preProject
+		docs\threading\transports\TMpmcTransport.md = docs\threading\transports\TMpmcTransport.md
+		docs\threading\transports\TOwningTransport.md = docs\threading\transports\TOwningTransport.md
+		docs\threading\transports\TQueueTransport.md = docs\threading\transports\TQueueTransport.md
+		docs\threading\transports\TRingTransport.md = docs\threading\transports\TRingTransport.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Logs", "Logs", "{A17A171A-1DE9-CF11-1420-E3C7E7A5F866}"
+	ProjectSection(SolutionItems) = preProject
+		development\logical-roots\logs\.gitkeep = development\logical-roots\logs\.gitkeep
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "schema", "schema", "{ADD2F474-9480-46D6-8107-5B0D3D6DA5AA}"
+	ProjectSection(SolutionItems) = preProject
+		docs\schema\persistence-and-aggregation.md = docs\schema\persistence-and-aggregation.md
+		docs\schema\specification.md = docs\schema\specification.md
+		docs\schema\validation.md = docs\schema\validation.md
+		docs\schema\README.md = docs\schema\README.md
+		docs\schema\runtime-api.md = docs\schema\runtime-api.md
+		docs\schema\schema-example-notes.md = docs\schema\schema-example-notes.md
+		docs\schema\header-survey.md = docs\schema\header-survey.md
+		docs\schema\schema-example.json = docs\schema\schema-example.json
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "development", "development", "{1C19EABD-B22B-5ED9-8990-DC9F4039B171}"
+	ProjectSection(SolutionItems) = preProject
+		development\README.md = development\README.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -180,24 +325,40 @@ Global
 		{B665F890-8A20-4F5C-958B-475BFFB1FDEA} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{D289D623-38CD-4C40-8F7A-CC32C9215351} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{8F0EBD7C-1250-488D-BC80-AD7D41A21C96} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{A1440ED4-93DE-4C9E-BC15-49167E863FA8} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{A09F97A3-E95E-4773-AE43-F6DA3EE12607} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{81C52EC1-8117-4E30-812A-C8A8C42DC3AC} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{9D85204B-EFE3-4623-A619-C2A46ADFB2CF} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{ACB9D1D1-FCDA-EF05-9AEB-A066F8537D31} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{126AEA5E-4235-1656-C710-B9DD2F447707} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{C001F1CB-F352-AF39-2D43-2D28A9BC93CE} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{0C62E5AA-8DE9-4232-B7BC-AB183C86EF4B} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{5E343B5F-3444-9B99-D58E-BFFDC569B4D1} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{7F89650B-1985-E5B3-5EB0-1C91FF06EF89} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{04696BBF-1B73-F05A-EFC7-676AB4A64635} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{001BAEAA-14DD-C7EA-B743-3F1BF233CA14} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{9AE8026C-8D44-6456-DE6C-910BA48DF268} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{AAC8B5EE-83D3-BDD2-A853-BAB152E2265F} = {9AE8026C-8D44-6456-DE6C-910BA48DF268}
+		{ADD2F474-9480-46D6-8107-5B0D3D6DA5AA} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
+		{1C19EABD-B22B-5ED9-8990-DC9F4039B171} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {6412ED91-C516-41EB-ABE6-FCD1B4D2E855}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
 		visual_studio\MorphicFramework.vcxitems*{093df26d-776a-4556-91e0-16dc0ec4ae94}*SharedItemsImports = 9
-		visual_studio\MorphicCore.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
+		visual_studio\MorphicFoundation.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
 		visual_studio\MorphicFramework.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
-		visual_studio\MorphicCore.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
+		visual_studio\MorphicFoundation.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
 		visual_studio\MorphicFramework.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
-		visual_studio\MorphicCore.vcxitems*{a250136d-15bb-4a6c-a3bb-29c92a92e205}*SharedItemsImports = 9
-		visual_studio\MorphicCore.vcxitems*{d5b6be43-4a70-4c3a-be6d-59d50bc71a24}*SharedItemsImports = 4
+		visual_studio\MorphicFoundation.vcxitems*{a250136d-15bb-4a6c-a3bb-29c92a92e205}*SharedItemsImports = 9
+		visual_studio\MorphicFoundation.vcxitems*{d5b6be43-4a70-4c3a-be6d-59d50bc71a24}*SharedItemsImports = 4
 		visual_studio\MorphicFramework.vcxitems*{d5b6be43-4a70-4c3a-be6d-59d50bc71a24}*SharedItemsImports = 4
-		visual_studio\MorphicCore.vcxitems*{e22d10ed-6477-491e-9c46-bac294341461}*SharedItemsImports = 4
+		visual_studio\MorphicFoundation.vcxitems*{e22d10ed-6477-491e-9c46-bac294341461}*SharedItemsImports = 4
 		visual_studio\MorphicFramework.vcxitems*{e22d10ed-6477-491e-9c46-bac294341461}*SharedItemsImports = 4
-		visual_studio\MorphicCore.vcxitems*{efb8a2f1-cdec-4e22-933e-590558d7f314}*SharedItemsImports = 4
+		visual_studio\MorphicFoundation.vcxitems*{efb8a2f1-cdec-4e22-933e-590558d7f314}*SharedItemsImports = 4
 		visual_studio\MorphicFramework.vcxitems*{efb8a2f1-cdec-4e22-933e-590558d7f314}*SharedItemsImports = 4
-		visual_studio\MorphicCore.vcxitems*{f31015e2-91f6-4f90-bb5e-14a06c61d1ad}*SharedItemsImports = 4
+		visual_studio\MorphicFoundation.vcxitems*{f31015e2-91f6-4f90-bb5e-14a06c61d1ad}*SharedItemsImports = 4
 		visual_studio\MorphicFramework.vcxitems*{f31015e2-91f6-4f90-bb5e-14a06c61d1ad}*SharedItemsImports = 4
 	EndGlobalSection
 EndGlobal

@@ -14,7 +14,7 @@
 #include "window.hpp"
 #include "threading/transports/TRingTransport.hpp"
 #include "platform/threading/owner_wait.hpp"
-#include "assets/asset_repository.hpp"
+#include "foundation/assets/asset_id.hpp"
 
 namespace platform::input
 {

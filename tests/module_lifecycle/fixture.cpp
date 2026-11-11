@@ -9,9 +9,10 @@
 //
 //  Real DLL fixtures for the Host's asynchronous module lifecycle.
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "tests/module_lifecycle/direct_service.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include <atomic>
 #include <cstdlib>
@@ -22,12 +23,12 @@
 
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/module_lifecycle/bundle_cases.hpp"
-#include "module/module_binding_context.hpp"
+#include "framework/module/module_binding_context.hpp"
 #include "memory/memory_context.hpp"
 #include "system/system_context.hpp"
-#include "assets/asset_messages.hpp"
-#include "threading/CThreadPackage.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "debug/macros.hpp"
 
 namespace module_lifecycle_tests

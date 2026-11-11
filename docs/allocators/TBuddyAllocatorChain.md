@@ -7,7 +7,7 @@ Date:    07 Nov 26
 
 # TBuddyAllocatorChain<TWord>
 
-[`TBuddyAllocatorChain.hpp`](../../core/allocators/TBuddyAllocatorChain.hpp)
+[`TBuddyAllocatorChain.hpp`](../../foundation/allocators/TBuddyAllocatorChain.hpp)
 owns a homogeneous collection of [buddy managers](TBuddyAllocator.md) in
 `TVector<TBuddyAllocator<TWord>>`. Aliases `CBuddyAllocatorChain32` and
 `CBuddyAllocatorChain64` select the packed word width. The vector is the chain's

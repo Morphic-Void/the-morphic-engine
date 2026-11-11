@@ -10,7 +10,7 @@
 
 #include <cstring>
 #include "runtime/service_borrows.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace host
 {

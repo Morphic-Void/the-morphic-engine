@@ -1,0 +1,833 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Foundation\src\services"><UniqueIdentifier>{88d3d7ef-3531-4c82-9011-35a1221edb36}</UniqueIdentifier></Filter>
+    <Filter Include="Foundation\include\services">
+      <UniqueIdentifier>{85459908-f72c-42f9-a1f0-134e9b8f888b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation">
+      <UniqueIdentifier>{70ea1983-c983-deac-c1b6-1805aea3d436}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include">
+      <UniqueIdentifier>{1aa455e9-f1ee-40a0-a725-181d0a3228e8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\allocators">
+      <UniqueIdentifier>{b07cafda-0fe8-42b7-95b6-fb6878256db1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\algo">
+      <UniqueIdentifier>{1b739e0d-5a58-85a1-332e-5a647cd74fba}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\assets">
+      <UniqueIdentifier>{9b4a4a17-f204-e49d-bdbc-a4e486a671b0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\assets\internal">
+      <UniqueIdentifier>{b5e3f360-9cd2-4545-bed4-e5939eaabc62}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\bit_utils">
+      <UniqueIdentifier>{4e11bf0b-6435-133b-9368-e2f3247a5d59}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\containers">
+      <UniqueIdentifier>{3fbacb47-55cf-2961-509a-a5637009cc94}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\slots">
+      <UniqueIdentifier>{ed689644-ed46-0d45-476d-81d715ad6fb0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\data_model">
+      <UniqueIdentifier>{834a4147-6f18-43e1-aa74-3a8ad0daed25}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\debug">
+      <UniqueIdentifier>{d581e920-1518-fd05-9ce8-a1c03b2524c9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\filesystem">
+      <UniqueIdentifier>{f57cd056-e389-427b-a503-658786d15f66}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\image">
+      <UniqueIdentifier>{e8403f33-fab0-43d8-9d8b-229dc8d7a917}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\image\codec">
+      <UniqueIdentifier>{74aa4b25-a0b2-f444-aedb-bfb59e02b083}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\memory">
+      <UniqueIdentifier>{41167c5c-9705-9596-1421-8c795605816f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\module">
+      <UniqueIdentifier>{0be6dcf9-31d1-cef2-6bc7-c39de9edcd61}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform">
+      <UniqueIdentifier>{f36afd28-cc18-3d90-903f-ef51ba3dd4e4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform\filesystem">
+      <UniqueIdentifier>{a2520f46-eca1-66f4-2c18-4d13fc0a7822}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform\filesystem\internal">
+      <UniqueIdentifier>{3cafd774-3925-f303-a9e6-de855c80d143}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform\module">
+      <UniqueIdentifier>{d8409034-a9f1-e077-1480-8b92923ce358}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform\path">
+      <UniqueIdentifier>{4f7bbc84-f126-c2fc-0cec-9a01c82bde9a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform\system">
+      <UniqueIdentifier>{177aa22b-8df8-eea0-2534-9d9875ffaf6c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\platform\threading">
+      <UniqueIdentifier>{1e933135-4d4a-62a4-20e2-dfb904ac4d90}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\schema">
+      <UniqueIdentifier>{7b2dde74-a370-4a7f-b328-423905add558}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\system">
+      <UniqueIdentifier>{49fcf4fe-c368-53e1-74e2-e8413def862a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\threading">
+      <UniqueIdentifier>{59a2094b-18c2-1566-ca58-7165bd1dd062}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\threading\messages">
+      <UniqueIdentifier>{37289a1a-f4ee-ee95-02c0-8e6e31dca248}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\threading\transports">
+      <UniqueIdentifier>{b67d7b99-c024-af0b-b5a9-30bff759d272}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\text">
+      <UniqueIdentifier>{2f4e5aa1-63b5-4174-b5f1-15d82d70a6d2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\include\types">
+      <UniqueIdentifier>{8cc4803c-c149-c117-2381-902d8f8db5b6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src">
+      <UniqueIdentifier>{07f791e4-bcbb-46aa-b229-8f303450a089}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\assets">
+      <UniqueIdentifier>{c51238c9-4413-4da3-80d3-dc905dbb9b10}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\debug">
+      <UniqueIdentifier>{f7add353-7037-1907-3fe9-78cda87ff7e6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\data_model">
+      <UniqueIdentifier>{77ec940a-6393-49c4-8cb9-36fd907cf65e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\filesystem">
+      <UniqueIdentifier>{7459d8e2-fad5-45eb-9d80-998ce05f86cb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\image">
+      <UniqueIdentifier>{820fbd0f-1f89-4472-b601-bb355730b034}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\image\codec">
+      <UniqueIdentifier>{74604472-1dff-d667-61e0-274514f57ec6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\memory">
+      <UniqueIdentifier>{3a8612a4-a0fc-58d5-128d-92bd50baf1e2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\module">
+      <UniqueIdentifier>{978ddc24-0325-e5df-db14-fc29d29fbb3e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform">
+      <UniqueIdentifier>{07ec3fcc-b873-45df-b6c6-6bf930b2d8f6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform\filesystem">
+      <UniqueIdentifier>{73873f20-1b20-1198-f232-6db327086136}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform\filesystem\internal">
+      <UniqueIdentifier>{533a2d6f-7a8a-12f7-b7c2-27dc97247c79}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform\module">
+      <UniqueIdentifier>{c1676cf2-5d6d-c7e2-ccb6-a45184800c78}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform\path">
+      <UniqueIdentifier>{5102cf33-3a72-760e-7771-b095d29e8a30}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform\system">
+      <UniqueIdentifier>{12c7c04e-d120-22ef-b8ab-e01ea41e21d2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\platform\threading">
+      <UniqueIdentifier>{dfd48378-0088-07e9-ca0e-dc3d3d314f7d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\schema">
+      <UniqueIdentifier>{b0d0c1d4-d3b1-4b3d-b6e1-2169ed69c7a7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\system">
+      <UniqueIdentifier>{3c6ddc2f-3cd8-ed4a-fe58-d5a01a96f631}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\threading">
+      <UniqueIdentifier>{f336948a-e801-c87f-30e5-0d0fc0c28c86}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\threading\messages">
+      <UniqueIdentifier>{8c826f53-8c4a-a693-8cd9-35d80dc72616}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\text">
+      <UniqueIdentifier>{b917c6a3-8f23-48f9-9a1c-6c2e3a3c90e1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Foundation\src\types">
+      <UniqueIdentifier>{2756db4c-76c3-a2b1-589d-bd9132fd932c}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\internal\bundle_builder_io.hpp"><Filter>Foundation\include\assets\internal</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.hpp"><Filter>Foundation\include\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\filesystem\logical_path.hpp"><Filter>Foundation\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle.hpp"><Filter>Foundation\include\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\algo\validate_permutations.hpp">
+      <Filter>Foundation\include\algo</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\bit_ops.hpp">
+      <Filter>Foundation\include\bit_utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\bit_utils.hpp">
+      <Filter>Foundation\include\bit_utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\spatial_codes.hpp">
+      <Filter>Foundation\include\bit_utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\bit_utils\TBitField.hpp">
+      <Filter>Foundation\include\bit_utils</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\buddy_index.hpp">
+      <Filter>Foundation\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\TBuddyAllocator.hpp">
+      <Filter>Foundation\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\TBuddyAllocatorChain.hpp">
+      <Filter>Foundation\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\CTrackedAllocator.hpp">
+      <Filter>Foundation\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\allocators\THybridAllocator.hpp">
+      <Filter>Foundation\include\allocators</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\BumpBuffer.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\ByteBuffers.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\containers.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\slots\SlotsRankMap.hpp">
+      <Filter>Foundation\include\slots</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\slots\TOrderedSlotManager.hpp">
+      <Filter>Foundation\include\slots</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\slots\TUnorderedSlotManager.hpp">
+      <Filter>Foundation\include\slots</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\StringBuffers.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TInstance.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TProcessLifetime.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TOrderedCollection.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodFifo.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodOrderedSlots.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodUnorderedSlots.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TPodVector.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TVector.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TOrderedSlots.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TUnorderedSlots.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TUnorderedCollection.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document_format.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\data_model_types.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_translation.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_findings.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_parser.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_structure.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_text_lex.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_writer.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\event_arguments.hpp">
+      <Filter>Foundation\include\debug</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\log_path.hpp">
+      <Filter>Foundation\include\debug</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\macros.hpp">
+      <Filter>Foundation\include\debug</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\reporting.hpp">
+      <Filter>Foundation\include\debug</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\service.hpp">
+      <Filter>Foundation\include\debug</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\image\codec\tga.hpp">
+      <Filter>Foundation\include\image\codec</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\image\image_view.hpp">
+      <Filter>Foundation\include\image</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_context.hpp">
+      <Filter>Foundation\include\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_policies.hpp">
+      <Filter>Foundation\include\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_token.hpp">
+      <Filter>Foundation\include\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_view.hpp">
+      <Filter>Foundation\include\memory</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\awake_clock.hpp"><Filter>Foundation\include\platform\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CNotification.hpp"><Filter>Foundation\include\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\file.hpp">
+      <Filter>Foundation\include\platform\filesystem</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\directory.hpp">
+      <Filter>Foundation\include\platform\filesystem</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\internal\file_utils.hpp">
+      <Filter>Foundation\include\platform\filesystem\internal</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\log.hpp">
+      <Filter>Foundation\include\platform\filesystem</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\module\binding.hpp">
+      <Filter>Foundation\include\platform\module</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\path\native_path.hpp">
+      <Filter>Foundation\include\platform\path</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\platform_defines.hpp">
+      <Filter>Foundation\include\platform</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\debugger.hpp">
+      <Filter>Foundation\include\platform\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\performance_counter.hpp">
+      <Filter>Foundation\include\platform\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_priority.hpp">
+      <Filter>Foundation\include\platform\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_id.hpp">
+      <Filter>Foundation\include\platform\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\exclusive_lock.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\hw_thread_count.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\native_thread_id.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\platform_threading.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\processor_relax.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_lifetime.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_naming.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_priority.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word_semaphore.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_deadline.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_deadline_math.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word_internal.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\owner_wait.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word.hpp">
+      <Filter>Foundation\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\platform\windows_include.hpp">
+      <Filter>Foundation\include\platform</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\async_state.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_operations.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_registration.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_transfer.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_transport.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_pod.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_transport_admission.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_registration.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_ids.cpp.inl">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_ids.hpp.inl">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_registry.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_context.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_id_registry.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_ids.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\system_type_registration.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\containers\TStaticLookup.hpp">
+      <Filter>Foundation\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\type_id_binding_category.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\system\type_registration.hpp">
+      <Filter>Foundation\include\system</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CCountingSemaphore.hpp">
+      <Filter>Foundation\include\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CParkingGate.hpp">
+      <Filter>Foundation\include\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CThreadControlState.hpp">
+      <Filter>Foundation\include\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CWaitPredicate.hpp">
+      <Filter>Foundation\include\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\threading.hpp">
+      <Filter>Foundation\include\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TBulkTransport.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TMpmcTransport.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TOwningTransport.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TQueueTransport.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\transports.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TRingTransport.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\text\text_diagnostics.hpp">
+      <Filter>Foundation\include\text</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\text\text_linter.hpp">
+      <Filter>Foundation\include\text</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\text\utf8_string.hpp">
+      <Filter>Foundation\include\text</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\types\atomic_types.hpp">
+      <Filter>Foundation\include\types</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\types\fp16data_t.hpp">
+      <Filter>Foundation\include\types</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document_node.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.cpp"><Filter>Foundation\src\assets</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle.cpp"><Filter>Foundation\src\assets</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_baking.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_promotion.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_parser.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_structure.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_text_lex.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_writer.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\event_arguments.cpp">
+      <Filter>Foundation\src\debug</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\log_path.cpp">
+      <Filter>Foundation\src\debug</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\reporting.cpp">
+      <Filter>Foundation\src\debug</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\debug\service.cpp">
+      <Filter>Foundation\src\debug</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\image\codec\tga.cpp">
+      <Filter>Foundation\src\image\codec</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\image\image_view.cpp">
+      <Filter>Foundation\src\image</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\memory\memory_context.cpp">
+      <Filter>Foundation\src\memory</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\file.cpp">
+      <Filter>Foundation\src\platform\filesystem</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\directory.cpp">
+      <Filter>Foundation\src\platform\filesystem</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\internal\file_utils.cpp">
+      <Filter>Foundation\src\platform\filesystem\internal</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\filesystem\log.cpp">
+      <Filter>Foundation\src\platform\filesystem</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\module\binding.cpp">
+      <Filter>Foundation\src\platform\module</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\path\native_path.cpp">
+      <Filter>Foundation\src\platform\path</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\debugger.cpp">
+      <Filter>Foundation\src\platform\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\performance_counter.cpp">
+      <Filter>Foundation\src\platform\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_priority.cpp">
+      <Filter>Foundation\src\platform\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\system\process_id.cpp">
+      <Filter>Foundation\src\platform\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\exclusive_lock.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\hw_thread_count.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\native_thread_id.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\processor_relax.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_lifetime.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_naming.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\thread_priority.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word_semaphore.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\owner_wait.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\platform\threading\wait_word.cpp">
+      <Filter>Foundation\src\platform\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_operations.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner_transport.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_owner.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\erased_transport_admission.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\local_type_registry.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\system_context.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\system\system_ids.cpp">
+      <Filter>Foundation\src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\threading\CCountingSemaphore.cpp">
+      <Filter>Foundation\src\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\threading\CParkingGate.cpp">
+      <Filter>Foundation\src\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\threading\CWaitPredicate.cpp">
+      <Filter>Foundation\src\threading</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\text\text_linter.cpp">
+      <Filter>Foundation\src\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\text\utf8_string.cpp">
+      <Filter>Foundation\src\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\types\fp16data_t.cpp">
+      <Filter>Foundation\src\types</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\.gitignore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\prepared_schema.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_admission.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_query.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_data_block.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_construction.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_format.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\resolved_types.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_conversion.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\record_index.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\type_compatibility.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_merge.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_document_validation.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_storage_validation.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_construction.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reconstruction.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_copy.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_codec.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_work_budget.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\instance_selection.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\integer_notation.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_remap.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\unused_storage.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_wrappers.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\prepared_schema.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema_runtime.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_admission.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_query.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_data_block.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_construction.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_format.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\resolved_types.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\type_compatibility.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_merge.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_document_validation.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_construction.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reconstruction.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_copy.cpp">
+      <Filter>Foundation\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\value_codec.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\instance_selection.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_remap.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\unused_storage.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_wrappers.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances_edit.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances_translation.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_declarations.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_output.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\asset_id.hpp"><Filter>Foundation\include\assets</Filter></ClInclude>
+  </ItemGroup>
+</Project>

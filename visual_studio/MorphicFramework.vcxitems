@@ -3,8 +3,8 @@
   File:    MorphicFramework.vcxitems
   Date:    04 Nov 26
 
-  Shares public component contracts with Host, modules and fixtures without
-  compiling implementation sources or importing Core's shared source items.
+  Shares component contracts and common implementation with Host, modules and
+  fixtures. Each binary compiles these sources and imports Foundation separately.
 -->
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Label="Globals">
@@ -21,6 +21,34 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\threading.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\message_helpers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\message_errors.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\byte_view_payloads.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\SErasedMsgHeader.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedPodMsg.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedOwnerMsg.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedMessageTransports.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CBatchWork.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_protocol.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_notifications.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow_client.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\service_provider.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_identity.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_pump.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_execution_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\schema_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\asset_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadResources.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp" />
@@ -30,5 +58,26 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\module_tests.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window_state.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\runtime_ids.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\thread_ids.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_type_ids.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\storage_type_bindings.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\transported_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\asset_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_ids.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_operations.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedPodMsgTransport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedOwnerMsgTransport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow_client.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_operations.cpp" />
   </ItemGroup>
 </Project>

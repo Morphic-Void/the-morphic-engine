@@ -7,6 +7,8 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    7 Oct 26
 
+#include "tests/support/thread_helpers.hpp"
+#include "framework/system/system_ids.hpp"
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -15,8 +17,9 @@
 #include "host/runtime/worker_policy.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "platform/threading/thread_lifetime.hpp"
-#include "threading/CBatchWork.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CBatchWork.hpp"
+#include "host/threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include "tests/test_suites/HostWorkers_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 
@@ -359,7 +362,7 @@ struct SBatchShutdownController
 std::uint32_t MV_STD_ABI_CALL batch_shutdown_requester(void* const data) noexcept
 {
     auto& resources = *static_cast<threading::CThreadResources*>(data);
-    auto& fixture = *static_cast<SBatchShutdownFixture*>(resources.config.prepare_context);
+    SBatchShutdownFixture& fixture = tests::TThreadFixtureState<SBatchShutdownFixture>::get();
     threading::CThreadContext context(resources);
     context.startup();
     context.mark_running();
@@ -387,7 +390,7 @@ void test_batch_shutdown_waits_for_publisher(TTestContext& ctx)
     TEST_EXPECT(ctx, conversion.init());
     SBatchShutdownFixture fixture;
     const threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &batch_shutdown_requester, nullptr, &fixture };
+        platform::threading::EThreadPriority::Normal, &batch_shutdown_requester, &tests::TThreadFixtureState<SBatchShutdownFixture>::prepare, &fixture };
     threading::CThreadPackage package(config, conversion);
     TEST_EXPECT(ctx, package.install_batch_client(shared, module_ids::executable, &shared));
     const bool started = package.startup();

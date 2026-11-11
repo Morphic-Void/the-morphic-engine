@@ -8,13 +8,14 @@
 //
 //  The service owns all device operations; idle loading never opens a device.
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "framework/communications/direct_client.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "audio_thread.hpp"
 #include "miniaudio_adapter.hpp"
-#include "module/module_binding_context.hpp"
+#include "framework/module/module_binding_context.hpp"
 
 namespace audio
 {
@@ -60,7 +61,7 @@ std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& 
     MV_LOG(info, "Audio: Running (device closed)");
     for (;;)
     {
-        const auto epoch = resources.wait_predicate.get_word();
+        const std::uint32_t epoch = context.observe_epoch();
         connection.clear_notifications();
         context.advance_heartbeat();
         bool progressed = false;

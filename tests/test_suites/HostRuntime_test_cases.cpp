@@ -8,8 +8,12 @@
 //
 //  Faults at actual Host admission, native worker publication and clock boundaries.
 
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "tests/support/thread_helpers.hpp"
+#include "framework/system/system_ids.hpp"
+#include "debug/service.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include <atomic>
 #include "host/runtime/host.hpp"
 #include "host/runtime/host_payloads.hpp"
@@ -49,11 +53,11 @@ struct SHostRuntimeTestAccess
     static std::uint32_t MV_STD_ABI_CALL worker(void* data) noexcept
     {
         auto& resources = *static_cast<threading::CThreadResources*>(data);
-        auto& state = *static_cast<SWorkers*>(resources.config.prepare_context);
+        SWorkers& state = tests::TThreadFixtureState<SWorkers>::get();
         threading::CThreadContext context{resources};
         context.startup();
         context.mark_running();
-        if (resources.config.thread_id == thread_ids::bg_conditioning)
+        if (context.thread_id() == thread_ids::bg_conditioning)
         {
             (void)wait([&] { return state.fail.load(std::memory_order_acquire) || context.exit_requested(); });
             context.mark_failed(71u);
@@ -117,7 +121,7 @@ struct SHostRuntimeTestAccess
         for (unsigned index = 0u; index < 2u; ++index)
         {
             const threading::ThreadConfig config{ids[index], module_ids::executable,
-                platform::threading::EThreadPriority::Normal, &worker, nullptr, &state};
+                platform::threading::EThreadPriority::Normal, &worker, &tests::TThreadFixtureState<SWorkers>::prepare, &state};
             runtime.m_worker_slots[index] = runtime.m_thread_packages.emplace(config, runtime.m_perf_count_conversion);
             TEST_EXPECT(ctx, runtime.worker_package(index) != nullptr && runtime.worker_package(index)->startup());
         }
@@ -147,7 +151,7 @@ struct SHostRuntimeTestAccess
             TEST_EXPECT(ctx, owner.is_ready());
             auto& service = *owner;
             TEST_EXPECT(ctx, service.configure_log_paths(path.c_str(), direct.c_str()) && service.open_logs());
-            TEST_EXPECT(ctx, debug_system::install_service(&service) && service.start());
+            TEST_EXPECT(ctx, debug_system::install_service(&service) && service.start({ thread_ids::debug_service, "debug_service" }));
             for (unsigned failure = 1u; failure <= 2u; ++failure)
             {
                 CHost runtime{ allocator };

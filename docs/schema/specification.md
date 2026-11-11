@@ -67,7 +67,7 @@ capabilities are recorded in the [runtime API](runtime-api.md).
 The remapper automatically matches direct members by name and type.
 It does not search recursively or infer conversions.
 
-Schema implementation code belongs in `core/schema/`.
+Schema implementation code belongs in `foundation/schema/`.
 
 ## Authoring, resolution, and data
 
@@ -778,7 +778,7 @@ documents, are JSON booleans rather than numeric 0/1.  This normalisation is
 schema-aware and does not change the general document model's numeric values.
 
 `f16` uses the existing IEEE-754 binary16 transport type
-[`fp16data_t`](../../core/types/fp16data_t.hpp), including in generated C++
+[`fp16data_t`](../../foundation/types/fp16data_t.hpp), including in generated C++
 declarations.  Conversions reuse its existing machinery rather than introduce
 a schema-specific implementation.  Note that its default conversion can clamp
 infinities to finite values.  This is existing transport-type behaviour to

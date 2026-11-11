@@ -17,8 +17,25 @@
     <Filter Include="Development"><UniqueIdentifier>{57bf483a-c3e0-265f-ce3b-9c55911f9092}</UniqueIdentifier></Filter>
     <Filter Include="Development\logical-roots"><UniqueIdentifier>{37c259ba-8f0e-9226-44e5-06738d5db527}</UniqueIdentifier></Filter>
     <Filter Include="Development\logical-roots\dev-source"><UniqueIdentifier>{deca212c-d1b7-e6c9-469e-05dc744d7170}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\threading"><UniqueIdentifier>{7dd81387-3217-417d-9f12-76166c92a2b3}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\threading"><UniqueIdentifier>{971304a8-8789-4b52-9b13-6fd46500cf23}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\assets"><UniqueIdentifier>{a8c3a370-e6d9-4e56-81ba-37b2a34517f9}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\filesystem"><UniqueIdentifier>{4d8024e7-26cb-4d0b-8b0b-49c0bb704434}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\filesystem"><UniqueIdentifier>{4a6b4e40-4616-4674-9c53-f2619ce189ba}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\image"><UniqueIdentifier>{52e8e5b6-54f6-4c4b-b40d-9d5245ff588b}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\config"><UniqueIdentifier>{b77fb653-5f78-40a2-83eb-09b0d4fbb0f6}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\config"><UniqueIdentifier>{ccc6be11-6f4f-4118-8de1-abee29c0e5a7}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\host\filesystem\mount_rules.hpp"><Filter>Host\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="..\host\config\module_extension.hpp"><Filter>Host\include\config</Filter></ClInclude>
+    <ClInclude Include="..\host\assets\asset_repository.hpp"><Filter>Host\include\assets</Filter></ClInclude>
+    <ClInclude Include="..\host\module\bound_module.hpp"><Filter>Host\include\module</Filter></ClInclude>
+    <ClInclude Include="..\host\image\image_owner_payloads.def"><Filter>Host\include\image</Filter></ClInclude>
+    <ClInclude Include="..\host\image\image_messages.hpp"><Filter>Host\include\image</Filter></ClInclude>
+    <ClInclude Include="..\host\filesystem\filesystem_image.hpp"><Filter>Host\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="..\host\assets\asset_storage.hpp"><Filter>Host\include\assets</Filter></ClInclude>
+    <ClInclude Include="..\host\threading\CThreadPackage.hpp"><Filter>Host\include\threading</Filter></ClInclude>
     <ClInclude Include="..\host\module\types\erased_owner_payloads.def"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\host\module\types\local_type_ids.def"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\host\module\types\local_type_ids.hpp"><Filter>Host\include\module\types</Filter></ClInclude>
@@ -46,6 +63,10 @@
     <ClInclude Include="..\host\system\system_id_definitions.hpp"><Filter>Host\include\system</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\host\config\module_extension.cpp"><Filter>Host\src\config</Filter></ClCompile>
+    <ClCompile Include="..\host\module\bound_module.cpp"><Filter>Host\src\module</Filter></ClCompile>
+    <ClCompile Include="..\host\filesystem\filesystem_image.cpp"><Filter>Host\src\filesystem</Filter></ClCompile>
+    <ClCompile Include="..\host\threading\CThreadPackage.cpp"><Filter>Host\src\threading</Filter></ClCompile>
     <ClCompile Include="..\host\entry\MorphicEngine.cpp"><Filter>Host\src\entry</Filter></ClCompile>
     <ClCompile Include="..\host\entry\bootstrap_config.cpp"><Filter>Host\src\entry</Filter></ClCompile>
     <ClCompile Include="..\host\module\types\local_type_ids.cpp"><Filter>Host\src\module\types</Filter></ClCompile>

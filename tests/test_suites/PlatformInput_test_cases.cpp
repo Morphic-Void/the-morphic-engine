@@ -9,6 +9,7 @@
 //
 //  Synthetic input records through real routing, notifications and borrow cleanup.
 
+#include "framework/system/system_ids.hpp"
 #include <cstring>
 #include <cstdio>
 #include <cwchar>
@@ -16,11 +17,12 @@
 #include <chrono>
 #include "platform/runtime/platform_runtime.hpp"
 #include "framework/platform/input_reader.hpp"
+#include "host/assets/asset_repository.hpp"
 #include "host/runtime/service_router.hpp"
 #include "host/runtime/host_restrictions.hpp"
 #include "tests/support/test_context.hpp"
-#include "threading/messages/message_helpers.hpp"
-#include "services/service_borrow_client.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
+#include "framework/services/service_borrow_client.hpp"
 #include "tests/support/input_schema.hpp"
 #if MV_PLATFORM_WINDOWS
 #include "platform/windows_include.hpp"

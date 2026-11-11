@@ -31,7 +31,7 @@ game or platform, and it will never be a complete game engine or a complete
 game by itself.
 
 Morphic Engine is still in active development and has not reached version 1.0.
-Its current implementation includes Core memory, container, transport, and
+Its current implementation includes Foundation memory, container, transport, and
 document systems; image utilities; a development filesystem image; and
 Host-managed asynchronous asset and DLL services. Rendering, audio, and
 editor-support infrastructure remain in development. Editor support means the

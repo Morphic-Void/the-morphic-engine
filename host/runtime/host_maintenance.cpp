@@ -8,10 +8,11 @@
 //
 
 
+#include "framework/system/system_ids.hpp"
 #include "runtime/host.hpp"
 #include "runtime/host_payloads.hpp"
-#include "module/module_messages.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 
 namespace host
 {

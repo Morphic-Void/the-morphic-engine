@@ -11,6 +11,7 @@
 //  uses the cross-component message transport. Real DLL flows are tested separately.
 
 #pragma once
+#include "framework/system/system_ids.hpp"
 #include <vector>
 #include "rendering/runtime/resource_requests.hpp"
 #include "rendering/runtime/basis_codec.hpp"

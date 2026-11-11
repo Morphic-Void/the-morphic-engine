@@ -13,6 +13,7 @@
 #ifndef RENDERING_BINDING_HPP_INCLUDED
 #define RENDERING_BINDING_HPP_INCLUDED
 
+#include "framework/system/system_ids.hpp"
 #include "platform/threading/thread_lifetime.hpp"
 #include "system/system_type_registration.hpp"
 

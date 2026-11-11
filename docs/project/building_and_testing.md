@@ -14,6 +14,15 @@ External projects remain under `external/`. Build outputs remain under
 `build/`, and the Host's Visual Studio debugger working directory is the
 repository root.
 
+Foundation uses the `foundation/` directory and `MorphicFoundation`
+shared items. It contains reusable mechanisms and abstract identities.
+`MorphicFramework` supplies configured catalogues, shared contracts and common
+participation implementation. Each executable and DLL imports both shared-item
+files and compiles their sources once, preserving binary-local registry and
+reporting state. Host-private repository, filesystem image, native module and
+thread ownership live under `host/`; only Host and the tests compile those subjects.
+The policy validator enforces the Foundation and Framework include boundaries.
+
 ## Shader compiler dependency
 
 Before building, run `python tools/acquire_dxc.py` on Windows or
@@ -59,7 +68,7 @@ in the [controller contract](../modules/controller_input.md#running-the-harness)
 
 ## Test executable
 
-`MorphicTests` is the standalone Core test executable. It is built by default
+`MorphicTests` is the standalone engine test executable. It is built by default
 with `MorphicEngine.sln`; running `MorphicEngine.exe` does not run it. Invoke
 `MorphicTests.exe -t1` for the ordinary suites, `-t2` for the moderate harness
 work (the default), or `-t3` for the full expensive modes. Test data and log

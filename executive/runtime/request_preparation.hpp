@@ -13,10 +13,10 @@
 #ifndef EXECUTIVE_REQUEST_PREPARATION_HPP_INCLUDED
 #define EXECUTIVE_REQUEST_PREPARATION_HPP_INCLUDED
 
-#include "module/module_messages.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "debug/macros.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace executive::request_preparation
 {

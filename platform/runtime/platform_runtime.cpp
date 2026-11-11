@@ -12,9 +12,9 @@
 #include <cstring>
 #include "runtime/platform_runtime.hpp"
 #include "runtime/input_acceptance.hpp"
-#include "threading/messages/CErasedPodMsg.hpp"
-#include "threading/messages/message_helpers.hpp"
-#include "module/module_messages.hpp"
+#include "framework/threading/messages/CErasedPodMsg.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
+#include "framework/module/module_messages.hpp"
 #include "debug/macros.hpp"
 
 namespace platform::runtime

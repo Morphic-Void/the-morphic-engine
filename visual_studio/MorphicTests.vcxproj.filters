@@ -33,6 +33,10 @@
     <Filter Include="Rendering services"><UniqueIdentifier>{adc11984-59ef-52e9-842e-76b559aad135}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\host\config\module_extension.cpp" />
+    <ClCompile Include="..\host\module\bound_module.cpp" />
+    <ClCompile Include="..\host\filesystem\filesystem_image.cpp" />
+    <ClCompile Include="..\host\threading\CThreadPackage.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleBuilder_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\Bundle_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\main\MorphicTests.cpp"><Filter>Tests\main</Filter></ClCompile>
@@ -133,6 +137,15 @@
     <ClCompile Include="..\tests\test_suites\TextLinter_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\host\filesystem\mount_rules.hpp" />
+    <ClInclude Include="..\host\config\module_extension.hpp" />
+    <ClInclude Include="..\host\assets\asset_repository.hpp" />
+    <ClInclude Include="..\host\module\bound_module.hpp" />
+    <ClInclude Include="..\host\image\image_owner_payloads.def" />
+    <ClInclude Include="..\host\image\image_messages.hpp" />
+    <ClInclude Include="..\host\filesystem\filesystem_image.hpp" />
+    <ClInclude Include="..\host\assets\asset_storage.hpp" />
+    <ClInclude Include="..\host\threading\CThreadPackage.hpp" />
     <ClInclude Include="..\tests\test_suites\BundleBuilder_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\Bundle_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\environment\erased_owner_payloads.def"><Filter>Tests\environment</Filter></ClInclude>

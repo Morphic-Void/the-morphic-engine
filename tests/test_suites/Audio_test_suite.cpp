@@ -9,8 +9,11 @@
 //
 //  Hardware-free signal, allocation, budget and real service-thread exercises.
 
+#include "framework/threading/CThreadContext.hpp"
+#include "tests/support/thread_helpers.hpp"
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -21,7 +24,7 @@
 #include "audio/runtime/audio_thread.hpp"
 #include "audio/runtime/miniaudio_adapter.hpp"
 #include "audio/runtime/vendor_allocator.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -363,7 +366,7 @@ template<typename F> bool await(const F predicate)
 std::uint32_t MV_STD_ABI_CALL fake_service(void* const data) noexcept
 {
     auto& resources = *static_cast<threading::CThreadResources*>(data);
-    auto& output = *static_cast<FakeOutput*>(resources.config.prepare_context);
+    FakeOutput& output = tests::TThreadFixtureState<FakeOutput>::get();
     tests::TModuleIdScope module_scope{ module_ids::audio };
     if (output.reject_delivery)
     {
@@ -379,7 +382,7 @@ void service_tests(TTestContext& ctx)
     TEST_EXPECT(ctx, conversion.init());
     tests::SDirectHostFixture host;
     host.data_capacity = 32u;
-    threading::ThreadConfig config{ thread_ids::audio, module_ids::audio, EThreadPriority::Normal, &fake_service, nullptr, &output };
+    threading::ThreadConfig config{ thread_ids::audio, module_ids::audio, EThreadPriority::Normal, &fake_service, &tests::TThreadFixtureState<FakeOutput>::prepare, &output };
     threading::CThreadPackage package{ config, conversion };
     host::SClientRecord worker{ module_ids::audio, 101u, &package };
     tests::SDirectPeerFixture executive{ host, conversion, module_ids::executive, 102u,

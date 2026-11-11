@@ -7,6 +7,8 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    18 Aug 26
 
+#include "framework/system/system_erased_owner_operations.hpp"
+#include "framework/system/system_ids.hpp"
 #include "tests/environment/test_environment.hpp"
 
 #include <cstddef>

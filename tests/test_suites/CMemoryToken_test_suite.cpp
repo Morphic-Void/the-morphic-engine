@@ -7,6 +7,8 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    13 Jul 26
 
+#include "framework/system/system_ids.hpp"
+#include "debug/service.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -914,7 +916,7 @@ void test_closed_logs(TTestContext& ctx)
     {
         tests::TMemoryContextScope scope{&context};
         TEST_EXPECT(ctx, debug_system::install_service(&service));
-        TEST_EXPECT(ctx, !service.start());
+        TEST_EXPECT(ctx, !service.start({ thread_ids::debug_service, "debug_service" }));
         for (std::uint32_t i = 0u; i < debug_system::CEventTransport::k_capacity; ++i)
         {
             TEST_EXPECT(ctx, service.submit_text("Fill unopened service"));
@@ -935,7 +937,7 @@ void test_closed_logs(TTestContext& ctx)
         //  Explicit provisioning can still fail for an actual allocator failure.
         TEST_EXPECT(ctx, !service.open_logs());
         TEST_EXPECT(ctx, fixture.allocations != 0u);
-        TEST_EXPECT(ctx, !service.start());
+        TEST_EXPECT(ctx, !service.start({ thread_ids::debug_service, "debug_service" }));
     }
     for (const std::string* path : {&event_path, &direct_path})
     {
@@ -987,7 +989,7 @@ void run(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.allocations == allocations);
     TEST_EXPECT(ctx, fixture.deallocations == deallocations);
     TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
-    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.start({ thread_ids::debug_service, "debug_service" }));
     TEST_EXPECT(ctx, service.stop());
     TEST_EXPECT(ctx, debug_system::uninstall_service(&service));
     std::FILE* const concurrent_log = open_test_log(event_path);

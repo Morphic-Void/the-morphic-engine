@@ -58,7 +58,8 @@ target_compile_options(SuiteUTF PRIVATE -fno-exceptions)
 target_compile_definitions(SuiteUTF PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
 set_target_properties(SuiteUTF PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 
-# Header-only public contracts; the shared VS import contains no compiled sources.
+# Framework sources come from each target's shared VS imports, exactly once.
+# This interface target only supplies the public include root.
 add_library(MorphicFramework INTERFACE)
 target_include_directories(MorphicFramework INTERFACE "${CMAKE_SOURCE_DIR}")
 
@@ -87,13 +88,13 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAud
     else()
         add_executable(${target} ${target_sources})
     endif()
-    target_include_directories(${target} PRIVATE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/core")
+    target_include_directories(${target} PRIVATE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/foundation")
     target_compile_definitions(${target} PRIVATE
         "$<$<CONFIG:Debug>:_DEBUG;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=1;MV_COMPILED_INFORMATION_LEVEL=3>"
         "$<$<CONFIG:Release>:MV_DEVELOPMENT_BUILD=0;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=1>")
     target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>")
     target_link_libraries(${target} PRIVATE MorphicFramework SuiteUTF Threads::Threads ${CMAKE_DL_LIBS})
-    # Core is compiled separately into each executable/module, as in Visual Studio.
+    # Foundation and Framework are compiled separately into each binary, as in Visual Studio.
     # Hidden symbols preserve module-local runtime state on ELF platforms.
     set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
     add_dependencies(${target} MorphicPolicyCheck)

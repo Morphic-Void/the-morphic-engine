@@ -17,10 +17,10 @@
 
 #include <cstdint>
 
-#include "assets/asset_repository.hpp"
+#include "host/assets/asset_repository.hpp"
 
 #include "host/runtime/host_payloads.hpp"
-#include "image/image_messages.hpp"
+#include "host/image/image_messages.hpp"
 
 namespace test_environment
 {

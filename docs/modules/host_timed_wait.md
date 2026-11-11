@@ -38,6 +38,12 @@ proof that a particular operation completed or expired.
 
 ## Aggregate wake and lifetime
 
+Foundation's `foundation/platform/threading/` and `foundation/threading/` contain native wake,
+wait and control primitives. Framework's worker context and shared resources
+borrow the owner wake and Host execution view. `host/threading/CThreadPackage.*`
+owns native execution and the shared-resource lifetime; publication of a terminal
+worker state does not transfer or end that ownership.
+
 One stable, non-owning endpoint accepts signals from all Host-relevant producers:
 Host-bound POD/owner publication, initial thread readiness, termination/failure,
 batch completion/quiescence, pumped-client notification, capacity returned to

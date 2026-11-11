@@ -12,7 +12,7 @@
 
 #include "framework/communications/direct_connection.hpp"
 #include "containers/TUnorderedCollection.hpp"
-#include "module/host_eligible_budget.hpp"
+#include "framework/module/host_eligible_budget.hpp"
 #include "runtime/client_record.hpp"
 
 namespace host

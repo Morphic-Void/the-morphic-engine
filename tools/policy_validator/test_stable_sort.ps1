@@ -19,12 +19,12 @@ $encoding = [Text.UTF8Encoding]::new($false)
 
 try {
     [void][IO.Directory]::CreateDirectory((Join-Path $fixtureRoot 'policy'))
-    [void][IO.Directory]::CreateDirectory((Join-Path $fixtureRoot 'core'))
+    [void][IO.Directory]::CreateDirectory((Join-Path $fixtureRoot 'foundation'))
     [void][IO.Directory]::CreateDirectory((Join-Path $fixtureRoot 'tools'))
     [IO.File]::WriteAllText((Join-Path $fixtureRoot 'MorphicEngine.sln'), '', $encoding)
     [IO.File]::WriteAllText((Join-Path $fixtureRoot 'policy/morphic_policy.cfg'), @'
 version|1
-scan|core|engine
+scan|foundation|engine
 include|algorithm|all|any|*|engine-wide
 project|Fixture.vcxproj|engine
 '@, $encoding)
@@ -77,7 +77,7 @@ void ordinary_sort();
     )
 
     foreach ($case in $cases) {
-        [IO.File]::WriteAllText((Join-Path $fixtureRoot 'core/fixture.cpp'), $case.Source, $encoding)
+        [IO.File]::WriteAllText((Join-Path $fixtureRoot 'foundation/fixture.cpp'), $case.Source, $encoding)
         $output = & $validator --root $fixtureRoot --no-report 2>&1
         $exitCode = $LASTEXITCODE
         $text = $output -join "`n"

@@ -16,11 +16,11 @@
 #include "runtime/input_configuration.hpp"
 #include "runtime/desktop_input.hpp"
 #include "native/controllers.hpp"
-#include "assets/schema_messages.hpp"
+#include "framework/assets/schema_messages.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
-#include "module/host_pump.hpp"
-#include "threading/messages/CErasedPodMsg.hpp"
+#include "framework/module/host_pump.hpp"
+#include "framework/threading/messages/CErasedPodMsg.hpp"
 
 namespace platform::runtime
 {

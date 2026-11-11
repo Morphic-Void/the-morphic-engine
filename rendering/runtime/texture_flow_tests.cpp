@@ -9,8 +9,8 @@
 //  Rendering exercises its local services; Host only retains opaque source bytes.
 
 #include "framework/communications/module_tests.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "runtime/texture_flow_tests.hpp"
 
 #include <cstring>

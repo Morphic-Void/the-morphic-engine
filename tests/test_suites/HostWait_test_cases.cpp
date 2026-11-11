@@ -9,14 +9,15 @@
 //
 //  Controlled publication interleavings and native/portable Host wait behaviour.
 
+#include "framework/system/system_ids.hpp"
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include "tests/test_suites/HostWait_test_cases.hpp"
 #include "platform/threading/owner_wait.hpp"
 #include "host/runtime/host_cadence.hpp"
-#include "threading/CThreadPackage.hpp"
-#include "threading/messages/message_errors.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "framework/threading/messages/message_errors.hpp"
 #include "debug/service.hpp"
 #include "platform/platform_defines.hpp"
 
@@ -204,8 +205,8 @@ void adapters(TTestContext& ctx)
 
     platform::system::CPerfCountConversion conversion;
     TEST_EXPECT(ctx, conversion.init());
-    const threading::ThreadConfig config{ thread_ids::executive, module_ids::executable };
-    threading::CThreadResources resources(config, conversion);
+    threading::CThreadResources resources(module_ids::executable, module_ids::executable,
+        thread_ids::executive, conversion);
     resources.owner_wake = owner.endpoint();
     TEST_EXPECT(ctx, resources.worker_to_host_msgs.initialise_growable(0u));
     TEST_EXPECT(ctx, resources.host_to_worker_msgs.initialise_growable(0u));

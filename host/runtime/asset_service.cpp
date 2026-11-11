@@ -8,7 +8,9 @@
 //
 //  Compose file I/O and conditioning without transferring assets to clients.
 
-#include "threading/messages/message_helpers.hpp"
+#include "host/filesystem/mount_rules.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 #include <local_type_ids.hpp>
 
@@ -19,7 +21,7 @@
 
 #include "runtime/asset_service.hpp"
 #include "debug/macros.hpp"
-#include "image/image_messages.hpp"
+#include "host/image/image_messages.hpp"
 #include "filesystem/logical_path.hpp"
 #include "platform/platform_defines.hpp"
 
@@ -72,7 +74,7 @@ bool CAssetService::initialise() noexcept
 EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
 {
     if ((m_filesystem == nullptr) || !m_filesystem->document().is_ready() || (root.length() < 2u) ||
-        logical_path::is_native_mount(root) ||
+        host::mount_rules::is_native_mount(root) ||
         (root.cstring()[root.length() - 1u] != ':') ||
         !logical_path::valid_component(CStringView{ root.cstring(), root.length() - 1u })) return EAssetStatus::invalid_request;
     if (m_filesystem->root_state(root.cstring()) != filesystem_image::ERootState::missing) return EAssetStatus::busy;
@@ -902,7 +904,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, SClientRecord& 
             return;
         }
         if ((load->file.length() >= 7u) &&
-            logical_path::is_native_mount(CStringView{ operation.file, 7u }))
+            host::mount_rules::is_native_mount(CStringView{ operation.file, 7u }))
         {
             const CStringView native{ operation.file + 7u, load->file.length() - 7u };
             if (!absolute_native_file(native))

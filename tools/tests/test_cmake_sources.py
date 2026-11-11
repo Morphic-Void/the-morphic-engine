@@ -59,6 +59,26 @@ class SourceManifestTests(unittest.TestCase):
         self.assertEqual(sources, [self.root / "source.cpp"])
         self.assertEqual(projects, [project, core, framework])
 
+    def test_compiled_framework_shared_import_is_included_once(self):
+        core = self.project(
+            '<ItemGroup><ClCompile Include="$(MSBuildThisFileDirectory)..\\source.cpp" /></ItemGroup>',
+            "vs/core.vcxitems",
+        )
+        (self.root / "participation.cpp").touch()
+        framework = self.project(
+            '<ItemGroup><ClCompile Include="$(MSBuildThisFileDirectory)..\\participation.cpp" /></ItemGroup>',
+            "vs/framework.vcxitems",
+        )
+        project = self.project(
+            '<ImportGroup Label="Shared"><Import Project="core.vcxitems" Label="Shared" />'
+            '<Import Project="framework.vcxitems" Label="Shared" />'
+            '<Import Project="framework.vcxitems" Label="Shared" /></ImportGroup>',
+            "vs/app.vcxproj",
+        )
+        sources, projects = collect_sources(project, self.root)
+        self.assertEqual(sources, [self.root / "source.cpp", self.root / "participation.cpp"])
+        self.assertEqual(projects, [project, core, framework])
+
     def test_unsupported_source_selection_fails(self):
         cases = [
             '<ItemGroup Condition="false"><ClCompile Include="source.cpp" /></ItemGroup>',

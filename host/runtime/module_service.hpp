@@ -13,11 +13,12 @@
 #ifndef HOST_MODULE_SERVICE_HPP_INCLUDED
 #define HOST_MODULE_SERVICE_HPP_INCLUDED
 
-#include "system/storage_type_bindings.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/module/module_messages.hpp"
 #include "containers/TInstance.hpp"
-#include "filesystem/filesystem_image.hpp"
-#include "module/bound_module.hpp"
+#include "host/filesystem/filesystem_image.hpp"
+#include "host/module/bound_module.hpp"
 #include "runtime/client_record.hpp"
 
 namespace host

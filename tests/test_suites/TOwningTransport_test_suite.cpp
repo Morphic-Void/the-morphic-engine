@@ -9,6 +9,7 @@
 //
 //  Standalone test suite for threading::transports::TOwning<T>.
 
+#include "framework/system/system_ids.hpp"
 #include <cstdint>
 #include <string>
 #include <utility>

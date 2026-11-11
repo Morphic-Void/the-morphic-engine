@@ -12,7 +12,7 @@
 #pragma once
 
 #include "window_state.hpp"
-#include "services/service_notifications.hpp"
+#include "framework/services/service_notifications.hpp"
 
 namespace platform::windows
 {

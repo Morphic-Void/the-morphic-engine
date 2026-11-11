@@ -10,7 +10,8 @@
 
 #pragma once
 #include "audio_run.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
+#include "platform/threading/thread_lifetime.hpp"
 
 namespace audio
 {

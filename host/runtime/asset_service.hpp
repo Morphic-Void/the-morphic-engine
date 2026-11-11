@@ -15,9 +15,9 @@
 
 #include <local_type_ids.hpp>
 
-#include "assets/asset_repository.hpp"
+#include "host/assets/asset_repository.hpp"
 #include "containers/TUnorderedCollection.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "runtime/host_payloads.hpp"
 #include "runtime/client_record.hpp"
 

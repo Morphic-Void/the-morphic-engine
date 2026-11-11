@@ -9,6 +9,7 @@
 //
 //  Real worker requests, deterministic admission interleavings and persistence.
 
+#include "framework/system/system_ids.hpp"
 #include <cstdio>
 #include <cstring>
 #include <filesystem>

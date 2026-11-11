@@ -7,7 +7,7 @@ Date:    07 Nov 26
 
 # TBuddyAllocator<TWord>
 
-[`TBuddyAllocator.hpp`](../../core/allocators/TBuddyAllocator.hpp) provides a
+[`TBuddyAllocator.hpp`](../../foundation/allocators/TBuddyAllocator.hpp) provides a
 move-only owner of one buddy-managed payload. `TWord` must be `std::uint32_t` or
 `std::uint64_t`; the corresponding aliases are `CBuddyAllocator32` and
 `CBuddyAllocator64`. Both work on 32-bit and 64-bit hosts.

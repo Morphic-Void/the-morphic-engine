@@ -8,6 +8,7 @@
 //
 //  Exact-instance execution state, reply admission and bounded inbox delivery.
 
+#include "framework/system/system_ids.hpp"
 #include <algorithm>
 #include <cstring>
 

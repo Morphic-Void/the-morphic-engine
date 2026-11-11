@@ -9,9 +9,10 @@
 //
 //  Public bundle persistence, closure, batch borrowing and replacement cases.
 
-#include "system/storage_type_bindings.hpp"
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include <atomic>
 #include <cstdlib>
@@ -24,7 +25,7 @@
 #include "debug/macros.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/threading/processor_relax.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "tests/support/host_test_paths.hpp"
 
 namespace module_lifecycle_tests

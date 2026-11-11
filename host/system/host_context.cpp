@@ -16,6 +16,8 @@
 //  - No exceptions.
 //  - Allocation uses nothrow new[].
 
+#include "framework/system/system_erased_owner_operations.hpp"
+#include "framework/system/system_ids.hpp"
 #include <cstddef>      //  std::size_t
 #include <new>          //  std::nothrow, aligned operator new[]/delete[]
 
@@ -29,7 +31,7 @@
 #include "system/erased_owner_operations.hpp"
 #include "system/system_context.hpp"
 #include "system/system_id_registry.hpp"
-#include "system/system_ids.hpp"
+#include "foundation/system/system_ids.hpp"
 
 namespace host
 {

@@ -11,9 +11,9 @@
 #pragma once
 
 #include <atomic>
-#include "services/service_protocol.hpp"
-#include "module/module_identity.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/services/service_protocol.hpp"
+#include "framework/module/module_identity.hpp"
+#include "host/threading/CThreadPackage.hpp"
 
 namespace host
 {

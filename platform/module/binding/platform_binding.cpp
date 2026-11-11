@@ -9,9 +9,10 @@
 //  Exposes Platform module binding, service discovery and Host-pumped lifecycle
 //  entry points, and owns the runtime instance through activation and shutdown.
 
+#include "framework/system/system_ids.hpp"
 #include "module/types/local_type_ids.hpp"
-#include "module/module_binding_context.hpp"
-#include "module/service_provider.hpp"
+#include "framework/module/module_binding_context.hpp"
+#include "framework/module/service_provider.hpp"
 #include "runtime/platform_runtime.hpp"
 #include "runtime/input_acceptance.hpp"
 #include "containers/TInstance.hpp"

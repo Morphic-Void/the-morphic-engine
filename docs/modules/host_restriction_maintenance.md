@@ -30,17 +30,17 @@ Public boundaries:
 
 | Header / namespace | Responsibility |
 | --- | --- |
-| `core/platform/threading/awake_clock.hpp`, `platform::threading` | Checked observation of the existing awake clock, without a Host dependency. |
-| `core/module/host_restriction.hpp`, `modules` | Restriction reason/scope identities, atomic publication layout, non-owning snapshot reader and local snapshot value. |
-| `core/module/host_eligible_budget.hpp`, `modules` | A budget measured in Host-eligible awake time; depends on the clock and restriction reader. |
-| `core/module/host_execution_context.hpp`, `modules` | Immutable, non-owning exact-client restriction subscription and permitted Host stop signalling endpoint. |
-| `core/module/host_pump.hpp`, `modules` | Authenticated restriction enter/leave and bounded maintenance callbacks, with their results. |
+| `foundation/platform/threading/awake_clock.hpp`, `platform::threading` | Checked observation of the existing awake clock, without a Host dependency. |
+| `framework/module/host_restriction.hpp`, `modules` | Restriction reason/scope identities, atomic publication layout, non-owning snapshot reader and local snapshot value. |
+| `framework/module/host_eligible_budget.hpp`, `modules` | A budget measured in Host-eligible awake time; depends on the clock and restriction reader. |
+| `framework/module/host_execution_context.hpp`, `modules` | Immutable, non-owning exact-client restriction subscription and permitted Host stop signalling endpoint. |
+| `framework/module/host_pump.hpp`, `modules` | Authenticated restriction enter/leave and bounded maintenance callbacks, with their results. |
 | `host/runtime/host_restrictions.hpp/.cpp`, `host` | Sole writer, bounded scope ledger and publication/fanout policy. |
 | `host/runtime/host_maintenance.hpp/.cpp`, `host` | Invocation guard, deferred ingress, fairness cursors and safe-boundary replay. |
 
 These are execution facilities. They introduce no service route, synthetic
 Platform borrow or provider advertisement. Existing service protocols stay in
-`core/services/`; notification ownership remains in `threading::CNotification`.
+`framework/services/`; notification ownership remains in `threading::CNotification`.
 Use the current complete pump interface with coordinated Host/module rebuilds.
 Do not retain an older layout, add a compatibility adapter or silently substitute
 ordinary awake timing when the restriction interface is absent.
@@ -174,7 +174,7 @@ from that frozen block. Generation exhaustion prevents a new clock lifetime.
 
 Expose the following observation using the same platform clock source as the
 existing `CWaitDeadline` implementation in
-[wait_word.cpp](../../core/platform/threading/wait_word.cpp):
+[wait_word.cpp](../../foundation/platform/threading/wait_word.cpp):
 
 ```cpp
 [[nodiscard]] WaitError query_awake_nanoseconds(std::uint64_t& value) noexcept;

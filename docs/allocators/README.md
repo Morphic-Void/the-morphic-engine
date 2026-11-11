@@ -7,7 +7,7 @@ Date:    07 Nov 26
 
 # Allocators
 
-The headers in `core/allocators/` provide owned allocation of raw byte storage,
+The headers in `foundation/allocators/` provide owned allocation of raw byte storage,
 checked individual frees and collective reclamation. These references describe
 the implemented system.
 

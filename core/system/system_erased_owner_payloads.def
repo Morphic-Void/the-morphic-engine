@@ -1,7 +1,0 @@
-//  Built-in SYSTEM erased-owner payload catalogue.
-//  Define MV_ERASED_OWNER_PAYLOAD and MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE.
-//  The same domain fragments generate eligibility and owner operations.
-
-#include "assets/asset_owner_payloads.def"
-#include "module/module_owner_payloads.def"
-#include "filesystem/filesystem_owner_payloads.def"

@@ -7,15 +7,16 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
-#include "system/storage_type_bindings.hpp"
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include <type_traits>
 
 #include "debug/event_arguments.hpp"
 #include "tests/environment/local_type_ids.hpp"
 #include "tests/environment/test_environment.hpp"
-#include "module/module_binding.hpp"
+#include "framework/module/module_binding.hpp"
 #include "system/local_type_registry.hpp"
 #include "system/erased_transport_admission.hpp"
 #include "system/system_context.hpp"
@@ -343,6 +344,31 @@ void test_local_names_and_lookup(TTestContext& ctx)
     TEST_EXPECT(ctx, local_type_registry::find_type(&corrupt_view, corrupt.id) == nullptr);
 }
 
+void test_independent_mount_registry(TTestContext& ctx)
+{
+    //  Generic identity/registry rules accept supplied catalogues independently
+    //  of Morphic's configured count. Owner masks have a separate capacity.
+    constexpr std::uint32_t count = mount_point_ids::ops::k_dependency_mask_capacity + 1u;
+    static_assert(mount_point_ids::k_count < count);
+    system_id_registry::SMountPointRegistration registrations[count]{};
+    for (std::uint32_t ordinal = 0u; ordinal < count; ++ordinal)
+    {
+        const mount_point_ids::index_type index = mount_point_ids::ops::make_index(ordinal);
+        registrations[ordinal] = { mount_point_ids::ops::make_id(index), index, "abstract-mount", 14u };
+    }
+    system_id_registry::SSystemRegistryView view{};
+    view.mount_points = registrations;
+    view.mount_point_count = count;
+    TEST_EXPECT(ctx, system_id_registry::validate_view(view));
+    const mount_point_ids::id_type last = registrations[count - 1u].id;
+    TEST_EXPECT(ctx, (system_id_registry::find_mount_point(&view, last) == &registrations[count - 1u]));
+    TEST_EXPECT(ctx, (system_id_registry::find_mount_point(last) == nullptr));
+
+    registrations[count - 1u].index = mount_point_ids::ops::make_index(0u);
+    TEST_EXPECT(ctx, !system_id_registry::validate_view(view));
+    TEST_EXPECT(ctx, (system_id_registry::find_mount_point(&view, last) == nullptr));
+}
+
 void test_system_authority(TTestContext& ctx)
 {
     TEST_EXPECT(ctx, system_id_registry::view_is_installed());
@@ -395,5 +421,6 @@ int run_system_type_identity_tests()
     identity_tests::test_advertised_identity_negotiation(ctx);
     identity_tests::test_local_names_and_lookup(ctx);
     identity_tests::test_system_authority(ctx);
+    identity_tests::test_independent_mount_registry(ctx);
     return ctx.report("SystemTypeIdentity");
 }

@@ -10,14 +10,15 @@
 //  Tests window protocols and lifetimes through real Host routing with a simulated
 //  native adapter, plus explicitly invoked Windows geometry and modal acceptance.
 
+#include "framework/system/system_ids.hpp"
 #include "platform/runtime/platform_runtime.hpp"
 #include "host/runtime/service_router.hpp"
 #include "host/runtime/host_restrictions.hpp"
 #include "host/runtime/host.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "containers/TInstance.hpp"
 #include <cstring>
 #include <cstdio>

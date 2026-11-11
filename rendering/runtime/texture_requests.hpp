@@ -15,7 +15,7 @@
 #include "texture/texture_requests.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "containers/TInstance.hpp"
-#include "threading/CBatchWork.hpp"
+#include "framework/threading/CBatchWork.hpp"
 
 namespace rendering
 {

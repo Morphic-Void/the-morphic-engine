@@ -9,7 +9,7 @@
 //  Temporary schema result admission, acquired publication and worker retirement.
 
 #include "runtime/asset_service.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace host
 {

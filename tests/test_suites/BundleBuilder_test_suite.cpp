@@ -9,6 +9,7 @@
 //
 //  Deterministic construction, direct I/O, filtering and failure preservation.
 
+#include "framework/system/system_ids.hpp"
 #include "tests/test_suites/BundleBuilder_test_suite.hpp"
 
 #include <algorithm>

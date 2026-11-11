@@ -37,7 +37,7 @@ and [text round trips](document_text_format.md) for the limits of text preservat
 
 Include the header for the operation being used:
 
-| Header in `core/data_model/` | Responsibility |
+| Header in `foundation/data_model/` | Responsibility |
 | --- | --- |
 | `live_document.hpp` | Live document ownership, queries and mutation. |
 | `baked_document.hpp` | Checked baked views, fixed-layout editing and block ownership. |

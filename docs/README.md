@@ -6,6 +6,22 @@ or that work has been authorised.
 
 ## Implemented systems
 
+Foundation's reusable mechanisms live in `foundation/`: abstract identity,
+containers, memory, diagnostics, generic transports, documents, schemas, bundle
+formats and native platform facilities. `framework/` contains the configured
+catalogues, shared messages and common module/worker participation code. Host
+owns native module/thread instances, repositories, mounts and scheduling.
+The [build layout](project/building_and_testing.md#visual-studio-layout) and
+[include policy](project/policy_validator.md#central-policy) preserve those
+boundaries and each binary's separate runtime state.
+
+The 11 November separation and approved rename reconcile all 272 original Core
+inventory rows: retained mechanisms now use `foundation/` and `MorphicFoundation`,
+participation contracts use `framework/`, and operational owners use `host/`.
+The original [reconfiguration plan](backlog/core_foundation_reconfiguration.md)
+retains its source paths as a historical inventory. ABI/export names and catalogue
+ordering are unchanged by this source-layout reconfiguration.
+
 - [Memory and attribution](memory/memory_subsystem.md), with individual
   [container references](containers/ByteBuffers.md) alongside it.
 - [Container memory contexts](containers/memory_contexts.md): explicit construction,

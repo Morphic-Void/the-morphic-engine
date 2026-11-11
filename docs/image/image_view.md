@@ -8,7 +8,7 @@ Date:   19 Sep 2026
 
 # Image view
 
-`image::CImageView` in `core/image/image_view.hpp` is a development utility for
+`image::CImageView` in `foundation/image/image_view.hpp` is a development utility for
 experiments and markup of captured textures. It borrows a rectangular buffer;
 it does not allocate storage or participate in the rendering system. The owner
 must keep that storage alive and unchanged in shape for every use of the view.

@@ -11,8 +11,8 @@
 #pragma once
 
 #include "containers/TUnorderedCollection.hpp"
-#include "services/service_borrow.hpp"
-#include "services/service_notifications.hpp"
+#include "framework/services/service_borrow.hpp"
+#include "framework/services/service_notifications.hpp"
 #include "runtime/client_record.hpp"
 
 namespace host

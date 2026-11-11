@@ -8,8 +8,9 @@
 //
 //  Host admission, notification and storage for worker-owned binding transitions.
 
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 #include <local_type_ids.hpp>
 

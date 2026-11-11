@@ -9,7 +9,7 @@
 //  Awake-time budgets persist through message wakeups and periodic checks.
 
 #include "framework/communications/module_tests.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "audio_run.hpp"
 #include "debug/macros.hpp"
 

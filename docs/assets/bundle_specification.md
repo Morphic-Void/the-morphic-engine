@@ -237,13 +237,13 @@ then rechecks the reservation and installs only the prepared subtree. It does
 not revalidate complete bytes or bake/promote the whole filesystem image for
 bundle publication. Failure releases unpublished state and the root reservation.
 
-Use the existing [filesystem file API](../../core/platform/filesystem/file.hpp):
+Use the existing [filesystem file API](../../foundation/platform/filesystem/file.hpp):
 `queryFileSize()` distinguishes an empty source from failure, and `loadFileInto()`
 reads a complete non-empty file into an exact caller-owned range without writing
 padding. Any query or read failure discards the unpublished construction,
 including any partially written content.
 
-The [builder API](../../core/assets/bundle_builder.hpp),
+The [builder API](../../foundation/assets/bundle_builder.hpp),
 `bundle::build()`, takes a stable `CLiveDocument`, the selected directory's
 `content` node and a separate table of `SBuildSource` records. Each record maps
 an input file node to its resolved, zero-terminated UTF-8 physical path. Supply
@@ -371,7 +371,7 @@ bundle disposal, as specified below.
 This duplicates directory metadata, not file content. The shared baked directory
 remains immutable; no mutable asset-ID fields are reserved inside the bundle.
 
-The [filesystem image API](../../core/filesystem/filesystem_image.hpp)
+The [filesystem image API](../../host/filesystem/filesystem_image.hpp)
 provides the following Host-side mechanism:
 
 - `reserve_bundle()` returns a nonzero, image-local monotonic binding identity,
@@ -540,7 +540,7 @@ contract; only original bundle disposal uses the final notification.
 ## Final disposal notification
 
 Use `BundleDisposedNotification { CAssetId asset; }`, declared and registered
-in `core/assets/asset_messages.hpp` and the system type catalogue.
+in `framework/assets/asset_messages.hpp` and the system type catalogue.
 The ID identifies the original bundle asset, not the last sub-file or additional
 reference released. The notification carries no status, root string or borrowed
 view: it denotes completed destruction and removal of the associated virtual
@@ -697,7 +697,7 @@ implement a bundle lookup adapter here.
 
 ## Interface boundaries
 
-The [bundle API](../../core/assets/bundle.hpp) provides full
+The [bundle API](../../foundation/assets/bundle.hpp) provides full
 validation through `CBundleView::reset(bytes, size)`. Failure clears the view.
 `SValidationResult` carries a status and offending baked value index when
 available; that index refers to the input directory while its storage remains
@@ -739,7 +739,7 @@ The internal Host lifetime boundary is
   borrowers to have stopped and retires remaining records without notification.
 
 These are Host-internal methods. The public messages are registered in
-[`asset_messages.hpp`](../../core/assets/asset_messages.hpp):
+[`asset_messages.hpp`](../../framework/assets/asset_messages.hpp):
 
 | Request | Fields | Result |
 | --- | --- | --- |

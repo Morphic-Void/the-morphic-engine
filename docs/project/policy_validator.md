@@ -50,10 +50,14 @@ It contains:
 Routine permissions belong in this file. Existing usage is reviewed input to
 the allowlist, not automatic grandfathering.
 
-Framework's public contracts are scanned under engine policy. Their explicit
-`framework/...` includes resolve through the repository root. Framework may include
-Core definitions; Core remains restricted to Core and SuiteUTF. Creating Framework
-does not widen the exact-file permissions for SYSTEM registration macros.
+Foundation uses the `foundation/` directory and `MorphicFoundation` shared items.
+Its project includes are restricted to Foundation and SuiteUTF. Framework's contracts
+and common implementation may include Foundation, Framework and SuiteUTF, with explicit
+`framework/...` includes resolved through the repository root. Neither layer may
+include Host or module implementations. There are no migration exceptions.
+Configured catalogue macro permissions name the Framework files; generic
+registration machinery retains its Foundation permission. This separation does not
+widen the exact-file permissions for SYSTEM registration macros.
 
 Rendering source and project configuration use the same engine checks as Host
 and Executive. The two Basis Universal headers are permitted only in
@@ -110,10 +114,12 @@ The principal conclusive rules are:
 - `GID001` and `GID002`: catalogue or registration macro outside its permitted
   surface;
 - `INC001`: direct non-project include outside the reviewed allowlist;
-- `INC002`: core project include outside core or SuiteUTF, or a core include
+- `INC002`: Foundation project include outside Foundation or SuiteUTF, or a Foundation include
   whose macro-expanded operand cannot be checked;
 - `INC003`: direct `windows.h` use outside the wrapper;
 - `INC004`: unresolved quoted project include;
+- `INC006`: Framework project include outside Foundation, Framework or SuiteUTF, or a
+  Framework include whose macro-expanded operand cannot be checked;
 - `PRJ001`: applicable project configuration does not explicitly select C++17;
 - `PRJ002`: engine exception handling is not explicitly disabled, or tooling
   exception policy is not explicit;
@@ -127,16 +133,17 @@ Context-dependent findings are warnings initially:
 - `MEM003`: raw allocation primitive outside approved infrastructure;
 - `INC005`: ambiguously resolved quoted include;
 - `INC101`: apparently unused `<new>` include;
-- `INC102`: macro-expanded include operand outside core not evaluated; and
+- `INC102`: macro-expanded include operand outside Foundation/Framework not evaluated; and
 - `PRJ101`: project condition beyond the limited evaluator.
 
 Quoted project includes are checked relative to the including file's directory,
-the repository root, and core. Files under Host, Executive, and Rendering also
+the repository root, and Foundation. Files under Host, Executive, and Rendering also
 use their own module root, including when those sources are compiled into tests.
 Other modules remain explicitly qualified; their roots are not added as fallback
 candidates. Multiple distinct matching files still produce `INC005`.
 
-Core project includes may resolve only within `core/` or `external/SuiteUTF/`.
+Foundation project includes may resolve only within `foundation/` or `external/SuiteUTF/`;
+Framework includes may additionally resolve within `framework/`.
 SuiteUTF is an explicit exception because it is controlled by the engine's
 author and intended for low-level integration. Other engine modules, tests,
 tools, and vendor libraries are outside this boundary. The check normalises
@@ -144,9 +151,9 @@ path separators and resolves parent segments and symbolic links before
 checking the destination; a matching forbidden candidate fails the check even
 if another candidate is allowed. It applies to quoted and angle-bracket
 operands, and system-header permissions cannot override it. Approved standard
-and platform headers retain their existing permissions. Core must use literal
-include operands so the checker can verify this boundary; macro-expanded
-operands are errors there and remain warnings elsewhere.
+and platform headers retain their existing permissions. Both layers must use
+literal include operands so the checker can verify their boundaries;
+macro-expanded operands are errors there and remain warnings elsewhere.
 
 Errors produce a non-zero exit status. Warnings are reported but do not fail
 the build. Invocation or policy-loading failures use a distinct non-zero exit
@@ -177,7 +184,7 @@ this symbol check; tooling outside the configured scan roots remains exempt.
 ## Focused regression tests
 
 Run `python tools/tests/test_policy_includes.py --binary <validator-path>` to
-check include resolution and the core boundary in an isolated fixture checkout.
+check include resolution and the Foundation boundary in an isolated fixture checkout.
 Linux CI runs these cases through `MorphicPolicyIncludes` in CTest. They cover
 module and vendor dependencies, SuiteUTF, relative and absolute paths,
 backslashes, ambiguous candidates, angle-bracket permissions, macro operands,

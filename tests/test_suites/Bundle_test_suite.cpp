@@ -9,6 +9,7 @@
 //
 //  Bundle validation, lookup, adoption and concurrent-read tests.
 
+#include "framework/system/system_ids.hpp"
 #include "tests/test_suites/Bundle_test_suite.hpp"
 
 #include <algorithm>
@@ -23,7 +24,7 @@
 #include "data_model/live_document.hpp"
 #include "filesystem/logical_path.hpp"
 #include "platform/threading/thread_lifetime.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/document_helpers.hpp"

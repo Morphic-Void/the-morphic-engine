@@ -9,6 +9,7 @@
 //  Production composition callbacks through the existing batch client. Gates
 //  belong to controlled workers, never the callback's inline submission path.
 
+#include "framework/system/system_ids.hpp"
 #include "tests/test_suites/ShaderConditioning_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
@@ -17,7 +18,7 @@
 #include "assets/internal/bundle_builder_io.hpp"
 #include "containers/TInstance.hpp"
 #include "rendering/runtime/shader_conditioning.hpp"
-#include "threading/CBatchWork.hpp"
+#include "framework/threading/CBatchWork.hpp"
 #include "platform/threading/thread_lifetime.hpp"
 #include <atomic>
 #include <string>

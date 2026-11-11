@@ -13,7 +13,7 @@
 #ifndef RENDERING_SHADER_REQUESTS_HPP_INCLUDED
 #define RENDERING_SHADER_REQUESTS_HPP_INCLUDED
 
-#include "assets/asset_repository.hpp"
+#include "foundation/assets/asset_id.hpp"
 #include "assets/bundle.hpp"
 #include "shader/shader_data.hpp"
 

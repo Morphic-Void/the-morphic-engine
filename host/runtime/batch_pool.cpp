@@ -8,10 +8,11 @@
 //
 //  Host-owned runners for module-defined batch work.
 
+#include "framework/system/system_ids.hpp"
 #include "runtime/batch_pool.hpp"
 
 #include "debug/macros.hpp"
-#include "module/bound_module.hpp"
+#include "host/module/bound_module.hpp"
 #include "platform/threading/thread_naming.hpp"
 #include "platform/threading/thread_priority.hpp"
 #include "platform/threading/processor_relax.hpp"

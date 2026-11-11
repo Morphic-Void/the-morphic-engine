@@ -7,7 +7,7 @@ Date:    07 Nov 26
 
 # Packed buddy index
 
-[`buddy_index.hpp`](../../core/allocators/buddy_index.hpp) defines the internal
+[`buddy_index.hpp`](../../foundation/allocators/buddy_index.hpp) defines the internal
 `buddy_detail::TPackedIndex<TWord>`. It owns no backing allocation and uses only
 smallest-slot indices and allocation orders. The
 [standalone owner](TBuddyAllocator.md) supplies storage, translates byte requests

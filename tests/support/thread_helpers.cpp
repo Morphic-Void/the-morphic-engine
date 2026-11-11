@@ -9,7 +9,7 @@
 
 #include "tests/support/thread_helpers.hpp"
 
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 
 namespace tests
 {

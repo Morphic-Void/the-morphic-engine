@@ -15,9 +15,9 @@
 
 #include "framework/communications/module_tests.hpp"
 #include "framework/communications/direct_client.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include "runtime/resource_requests.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 
 namespace rendering
 {

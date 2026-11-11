@@ -8,6 +8,7 @@
 //
 //  Reads and validates a small bootstrap file without engine services.
 
+#include "host/config/module_extension.hpp"
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -103,7 +104,7 @@ struct SSeen
     {
         char expanded[k_bootstrap_value_capacity]{};
         if (seen.executive ||
-            !platform::module::expand_module_extension(value, expanded, sizeof(expanded)) ||
+            !host::config::expand_module_extension(value, expanded, sizeof(expanded)) ||
             !copy_value(config.executive, sizeof(config.executive), expanded))
         {
             return fail(error, number, "invalid or duplicate executive");

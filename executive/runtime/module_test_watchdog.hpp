@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "module/host_eligible_budget.hpp"
+#include "framework/module/host_eligible_budget.hpp"
 
 namespace executive
 {

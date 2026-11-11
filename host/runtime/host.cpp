@@ -12,10 +12,11 @@
 //
 //  The main host service thread for the engine.
 
-#include "services/service_protocol.hpp"
-#include "filesystem/filesystem_messages.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/services/service_protocol.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 #include <local_type_ids.hpp>
 
@@ -32,9 +33,9 @@
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "platform/threading/hw_thread_count.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "runtime/host_payloads.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "host/threading/CThreadPackage.hpp"
 
 #include "debug/macros.hpp"
 #include "debug/log_path.hpp"
@@ -89,7 +90,7 @@ void CHost::initialise_debug_service(const char* const log_tag, const char* cons
             m_debug_service_installed = debug_system::install_service(m_debug_service);
             if (m_debug_service_installed)
             {
-                m_debug_service_started = m_debug_service->start();
+                m_debug_service_started = m_debug_service->start({ thread_ids::debug_service, "debug_service" });
                 if (!m_debug_service_started && m_debug_service->retains_execution())
                 {
                     m_retain_runtime = true;

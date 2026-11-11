@@ -9,6 +9,8 @@
 //
 //  Filesystem image discovery, bindings, refresh and cache-association tests.
 
+#include "host/config/module_extension.hpp"
+#include "framework/system/system_ids.hpp"
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -22,7 +24,7 @@
 #include "tests/support/file_helpers.hpp"
 #include "tests/support/document_helpers.hpp"
 #include "tests/environment/test_paths.hpp"
-#include "filesystem/filesystem_image.hpp"
+#include "host/filesystem/filesystem_image.hpp"
 #include "platform/filesystem/directory.hpp"
 #include "platform/filesystem/file.hpp"
 #include "data_model/baked_document.hpp"
@@ -80,16 +82,16 @@ static void test_module_names(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, filename.view() == CStringView{ test_environment::module_filename(expected.c_str()).c_str() });
 
     char expanded[128]{};
-    TEST_EXPECT(ctx, expand_module_extension("package:/bin/Example.${module_extension}", expanded, expected.size() + 1u));
+    TEST_EXPECT(ctx, host::config::expand_module_extension("package:/bin/Example.${module_extension}", expanded, expected.size() + 1u));
     TEST_EXPECT(ctx, std::strcmp(expanded, expected.c_str()) == 0);
-    TEST_EXPECT(ctx, !expand_module_extension("package:/bin/Example.${module_extension}", expanded, expected.size()));
+    TEST_EXPECT(ctx, !host::config::expand_module_extension("package:/bin/Example.${module_extension}", expanded, expected.size()));
     TEST_EXPECT(ctx, std::strcmp(expanded, expected.c_str()) == 0);
-    TEST_EXPECT(ctx, !expand_module_extension(nullptr, expanded, sizeof(expanded)));
-    TEST_EXPECT(ctx, !expand_module_extension("text", nullptr, sizeof(expanded)));
-    TEST_EXPECT(ctx, !expand_module_extension("text", expanded, 0u));
-    TEST_EXPECT(ctx, expand_module_extension("literal.dll/${unknown}/${module_extension", expanded, sizeof(expanded)));
+    TEST_EXPECT(ctx, !host::config::expand_module_extension(nullptr, expanded, sizeof(expanded)));
+    TEST_EXPECT(ctx, !host::config::expand_module_extension("text", nullptr, sizeof(expanded)));
+    TEST_EXPECT(ctx, !host::config::expand_module_extension("text", expanded, 0u));
+    TEST_EXPECT(ctx, host::config::expand_module_extension("literal.dll/${unknown}/${module_extension", expanded, sizeof(expanded)));
     TEST_EXPECT(ctx, std::strcmp(expanded, "literal.dll/${unknown}/${module_extension") == 0);
-    TEST_EXPECT(ctx, expand_module_extension("${module_extension}.${module_extension}", expanded, sizeof(expanded)));
+    TEST_EXPECT(ctx, host::config::expand_module_extension("${module_extension}.${module_extension}", expanded, sizeof(expanded)));
     TEST_EXPECT(ctx, std::strcmp(expanded, test_environment::module_filename(get_modules_std_ext()).c_str()) == 0);
 
     tests::TAllocationFailureFixture state;

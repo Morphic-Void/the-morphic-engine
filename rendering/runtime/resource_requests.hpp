@@ -11,7 +11,9 @@
 
 #pragma once
 
-#include "assets/asset_messages.hpp"
+#include "framework/threading/messages/CErasedPodMsg.hpp"
+
+#include "framework/assets/asset_messages.hpp"
 #include "runtime/texture_requests.hpp"
 #include "runtime/shader_requests.hpp"
 

@@ -8,11 +8,12 @@
 //
 //  Lifecycle calls never run on workers and never recursively dispatch Host work.
 
-#include "services/service_protocol.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/services/service_protocol.hpp"
+#include "framework/module/module_messages.hpp"
 #include "runtime/pumped_client.hpp"
 #include "system/system_id_registry.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 
 namespace host
 {

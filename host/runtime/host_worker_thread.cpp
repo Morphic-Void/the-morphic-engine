@@ -8,9 +8,10 @@
 //
 //  Shared Host worker for file I/O, asset conditioning and module binding.
 
-#include "threading/messages/message_errors.hpp"
-#include "module/module_messages.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/threading/messages/message_errors.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 #include <local_type_ids.hpp>
 
@@ -28,10 +29,10 @@
 #include "platform/path/native_path.hpp"
 #include "platform/filesystem/file.hpp"
 #include "system/erased_owner.hpp"
-#include "assets/asset_messages.hpp"
-#include "image/image_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "host/image/image_messages.hpp"
 #include "runtime/host_payloads.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 
 namespace host
 {

@@ -6,7 +6,9 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    31 Oct 26
 
-#include "threading/messages/message_errors.hpp"
+#include "tests/support/thread_helpers.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/threading/messages/message_errors.hpp"
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -16,7 +18,8 @@
 #include "platform/threading/wait_deadline_math.hpp"
 #include "platform/threading/wait_word.hpp"
 #include "platform/threading/wait_word_internal.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "host/threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/test_suites/TimedWait_test_suite.hpp"
 #include "tests/test_suites/HostWait_test_cases.hpp"
@@ -285,15 +288,31 @@ void test_indefinite_waits(TTestContext& ctx)
 struct ServiceProbe
 {
     std::atomic<unsigned> stage{ 0u };
-    WaitResult timeout, message, exit;
+    WaitResult timeout, message, exit, drain_timeout, drain_wake;
+    void* prepared_resources{ nullptr };
+    bool exact_provisioning{ false };
     bool running_after_timeout{ false };
+    bool exiting_after_timeout{ false };
+    bool exiting_after_wake{ false };
     bool received{ false };
 };
 
-std::uint32_t MV_STD_ABI_CALL timed_service(void* data) noexcept
+bool MV_STD_ABI_CALL prepare_timed_service(void* const state,
+    const thread_ids::id_type thread_id, void* const resources) noexcept
 {
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    auto& probe = *static_cast<ServiceProbe*>(resources.config.prepare_context);
+    if (!tests::TThreadFixtureState<ServiceProbe>::prepare(state, thread_id, resources))
+    {
+        return false;
+    }
+    tests::TThreadFixtureState<ServiceProbe>::get().prepared_resources = resources;
+    return true;
+}
+
+std::uint32_t MV_STD_ABI_CALL timed_service(void* const data) noexcept
+{
+    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(data);
+    ServiceProbe& probe = tests::TThreadFixtureState<ServiceProbe>::get();
+    probe.exact_provisioning = probe.prepared_resources == data;
     threading::CThreadContext context(resources);
     context.startup();
     context.mark_running();
@@ -306,9 +325,19 @@ std::uint32_t MV_STD_ABI_CALL timed_service(void* data) noexcept
     probe.message = context.wait_for_new_epoch(0u, limit);
     threading::CErasedPodMsg message;
     probe.received = context.read(message) && message.is_payload_a<threading::UnrecognisedMsg>();
-    const auto epoch = probe.message.observed;
+    const std::uint32_t epoch = probe.message.observed;
     probe.stage.store(2u, std::memory_order_release);
     probe.exit = context.wait_for_new_epoch(epoch, limit);
+    context.mark_exiting();
+    const std::uint32_t drain_epoch = context.observe_epoch();
+    (void)limit.set_after_milliseconds(0u);
+    probe.drain_timeout = context.wait_for_new_epoch_preserving_state(drain_epoch, limit);
+    probe.exiting_after_timeout = resources.control_state.query_state() == threading::EThreadRunState::Exiting;
+    (void)limit.set_after_milliseconds(5000u);
+    probe.stage.store(3u, std::memory_order_release);
+    probe.drain_wake = context.wait_for_new_epoch_preserving_state(drain_epoch, limit);
+    probe.exiting_after_wake = resources.control_state.query_state() == threading::EThreadRunState::Exiting;
+    (void)context.read(message);
     if (context.exit_requested()) context.mark_exited();
     else context.mark_failed(1u);
     return 0u;
@@ -319,8 +348,8 @@ void test_service_message_and_exit(TTestContext& ctx)
     platform::system::CPerfCountConversion conversion;
     TEST_EXPECT(ctx, conversion.init());
     ServiceProbe probe;
-    threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-        EThreadPriority::Normal, &timed_service, nullptr, &probe };
+    const threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
+        EThreadPriority::Normal, &timed_service, &prepare_timed_service, &probe };
     threading::CThreadPackage package(config, conversion);
     const bool started = package.startup();
     TEST_EXPECT(ctx, started);
@@ -333,11 +362,48 @@ void test_service_message_and_exit(TTestContext& ctx)
     TEST_EXPECT(ctx, await([&] { return probe.stage.load(std::memory_order_acquire) >= 2u &&
         package.query_state() == threading::EThreadRunState::Waiting; }));
     package.request_exit();
+    TEST_EXPECT(ctx, await([&] { return (probe.stage.load(std::memory_order_acquire) == 3u) &&
+        (package.query_state() == threading::EThreadRunState::Exiting); }));
+    TEST_EXPECT(ctx, package.post(message));
     TEST_EXPECT(ctx, await([&] { return package.query_state() == threading::EThreadRunState::Exited; }));
     TEST_EXPECT(ctx, package.shutdown());
     TEST_EXPECT(ctx, probe.timeout.status == EWaitStatus::timed_out && probe.running_after_timeout);
     TEST_EXPECT(ctx, probe.message.status == EWaitStatus::satisfied && probe.received);
     TEST_EXPECT(ctx, probe.exit.status == EWaitStatus::satisfied);
+    TEST_EXPECT(ctx, probe.exact_provisioning);
+    TEST_EXPECT(ctx, probe.prepared_resources != &package);
+    TEST_EXPECT(ctx, (probe.drain_timeout.status == EWaitStatus::timed_out) && probe.exiting_after_timeout);
+    TEST_EXPECT(ctx, (probe.drain_wake.status == EWaitStatus::satisfied) && probe.exiting_after_wake);
+}
+
+void test_shared_context_and_preserved_waits(TTestContext& ctx)
+{
+    platform::system::CPerfCountConversion conversion;
+    TEST_EXPECT(ctx, conversion.init());
+    threading::CThreadResources resources(module_ids::audio, module_ids::rendering,
+        thread_ids::rendering, conversion);
+    threading::CThreadContext context{ resources };
+    TEST_EXPECT(ctx, context.module_id() == module_ids::rendering);
+    TEST_EXPECT(ctx, context.thread_id() == thread_ids::rendering);
+    TEST_EXPECT(ctx, context.batch_client() == nullptr);
+    TEST_EXPECT(ctx, resources.host_to_worker_msgs.destination_module_id() == module_ids::rendering);
+    TEST_EXPECT(ctx, resources.worker_to_host_msgs.destination_module_id() == module_ids::audio);
+    TEST_EXPECT(ctx, resources.worker_to_host_owned_msgs.destination_module_id() == module_ids::audio);
+    TEST_EXPECT(ctx, resources.wait_predicate.acquire_control());
+    context.startup();
+    CWaitDeadline immediate;
+    TEST_EXPECT(ctx, immediate.set_after_milliseconds(0u).code == EWaitError::none);
+    TEST_EXPECT(ctx, context.wait_for_new_epoch_preserving_state(0u, immediate).status == EWaitStatus::timed_out);
+    TEST_EXPECT(ctx, resources.control_state.query_state() == threading::EThreadRunState::Startup);
+    TEST_EXPECT(ctx, resources.wait_predicate.set_and_wake_one(1u));
+    TEST_EXPECT(ctx, context.wait_for_new_epoch_preserving_state(0u) == 1u);
+    TEST_EXPECT(ctx, resources.control_state.query_state() == threading::EThreadRunState::Startup);
+    context.mark_exiting();
+    TEST_EXPECT(ctx, context.wait_for_new_epoch_preserving_state(0u) == 1u);
+    TEST_EXPECT(ctx, resources.control_state.query_state() == threading::EThreadRunState::Exiting);
+    TEST_EXPECT(ctx, context.wait_for_new_epoch(0u) == 1u);
+    TEST_EXPECT(ctx, resources.control_state.query_state() == threading::EThreadRunState::Running);
+    resources.wait_predicate.release_control();
 }
 
 #if MV_PLATFORM_LINUX || MV_PLATFORM_ANDROID
@@ -400,6 +466,7 @@ int run_timed_wait_tests()
     test_native_return_boundary(ctx);
     test_indefinite_waits(ctx);
     test_service_message_and_exit(ctx);
+    test_shared_context_and_preserved_waits(ctx);
 #if MV_PLATFORM_LINUX || MV_PLATFORM_ANDROID
     test_interruptions(ctx);
 #endif

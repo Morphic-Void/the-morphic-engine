@@ -7,9 +7,10 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
-#include "system/storage_type_bindings.hpp"
-#include "threading/messages/message_errors.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/threading/messages/message_errors.hpp"
+#include "framework/module/module_messages.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -23,14 +24,14 @@
 #include "tests/environment/test_paths.hpp"
 #include "system/erased_pod.hpp"
 #include "system/system_context.hpp"
-#include "assets/asset_messages.hpp"
-#include "image/image_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "host/image/image_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "tests/test_suites/ErasedPod_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/file_helpers.hpp"
-#include "threading/messages/CErasedMessageTransports.hpp"
-#include "threading/messages/CErasedPodMsg.hpp"
+#include "framework/threading/messages/CErasedMessageTransports.hpp"
+#include "framework/threading/messages/CErasedPodMsg.hpp"
 
 namespace erased_pod_test_types
 {
@@ -518,7 +519,7 @@ void test_concrete_erased_pod_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, service->open_logs());
     service->publish_configuration(0u);
     TEST_EXPECT(ctx, debug_system::install_service(service));
-    TEST_EXPECT(ctx, service->start());
+    TEST_EXPECT(ctx, service->start({ thread_ids::debug_service, "debug_service" }));
 
     const module_ids::id_type previous_module_id =
         system_context::set_ambient_module_id(module_ids::executable);

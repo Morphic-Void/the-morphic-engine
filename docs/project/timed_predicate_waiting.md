@@ -15,9 +15,9 @@ implementation. Existing indefinite overloads, semaphores and parking gates
 retain their behaviour.
 
 `platform::threading::CWaitDeadline`, declared in
-[`wait_deadline.hpp`](../../core/platform/threading/wait_deadline.hpp), is an
+[`wait_deadline.hpp`](../../foundation/platform/threading/wait_deadline.hpp), is an
 opaque, copyable deadline. Its implementation lives with the native waits in
-[`wait_word.cpp`](../../core/platform/threading/wait_word.cpp).
+[`wait_word.cpp`](../../foundation/platform/threading/wait_word.cpp).
 
 - `set_after_nanoseconds(uint64_t)` and `set_after_milliseconds(uint64_t)` create
   a deadline relative to one clock observation. They return `WaitError` with
@@ -70,6 +70,13 @@ predicate helpers perform the final observation and give satisfaction precedence
 maintains the existing waiting/running state transitions on every return.
 The old overload remains the indefinite idle wait. Message posting and exit
 requests use the same epoch publication and wake operations as before.
+
+The context is declared in `framework/threading/CThreadContext.hpp`. Both
+`wait_for_new_epoch_preserving_state(epoch, deadline)` and its indefinite
+overload wait on the same predicate and ticket without publishing a lifecycle
+transition. Use these during drain/exit work after publishing `Exiting`, or when
+another current state must remain visible. Rendering's exit drain uses this
+operation; ordinary idle waits retain their Waiting/Running transitions.
 
 ```cpp
 threading::CWaitDeadline check;

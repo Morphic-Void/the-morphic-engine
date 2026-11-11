@@ -16,7 +16,7 @@
 #include <cstdint>
 
 #include "platform/threading/thread_lifetime.hpp"
-#include "threading/CBatchWork.hpp"
+#include "framework/threading/CBatchWork.hpp"
 
 namespace host
 {

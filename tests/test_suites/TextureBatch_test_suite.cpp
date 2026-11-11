@@ -10,8 +10,9 @@
 //  Drive the real rendering DLL with a controlled batch queue. Holding a
 //  dequeued item makes discard and exit ordering deterministic.
 
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
-#include "module/module_messages.hpp"
+#include "framework/module/module_messages.hpp"
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -19,20 +20,20 @@
 
 #include "debug/service.hpp"
 #include "host/runtime/asset_service.hpp"
-#include "module/bound_module.hpp"
+#include "host/module/bound_module.hpp"
 #include "platform/path/native_path.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "rendering/runtime/texture_jobs.hpp"
-#include "assets/asset_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
 #include "rendering/texture/texture_requests.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
 #include "tests/support/direct_connection_fixture.hpp"
 #include "tests/test_suites/TextureBatch_test_suite.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "host/threading/CThreadPackage.hpp"
 #include "types/fp16data_t.hpp"
 
 namespace texture_batch_tests
@@ -86,7 +87,7 @@ struct SRealFixture
         const platform::path::NativePath path = platform::path::makeNativePath(filename.c_str());
         modules::FModuleFunction function = nullptr;
         if (!debug_service->configure_log_paths(log.c_str(), direct_log.c_str()) ||
-            !debug_service->open_logs() || !debug_service->start() || !path.is_ready() ||
+            !debug_service->open_logs() || !debug_service->start({ thread_ids::debug_service, "debug_service" }) || !path.is_ready() ||
             !module.bind(path, module_ids::rendering, identity) ||
             !module.install(test_environment::system_registry_view(), module_ids::rendering,
                 test_environment::rendering_memory_context(), debug_service.operator->()) ||

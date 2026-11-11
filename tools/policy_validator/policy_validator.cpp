@@ -639,7 +639,8 @@ static void add_diagnostic(
     diagnostics.push_back({ path, line, column, severity, std::move(rule), std::move(message), false });
 }
 
-[[nodiscard]] static bool core_include_target_is_allowed(const fs::path& root, const fs::path& candidate)
+[[nodiscard]] static bool layer_include_target_is_allowed(
+    const fs::path& root, const fs::path& candidate, const bool allow_framework)
 {
     std::error_code error;
     const fs::path canonical_target = fs::weakly_canonical(candidate, error);
@@ -651,7 +652,9 @@ static void add_diagnostic(
 #ifdef _WIN32
     target = lower_copy(target);
 #endif
-    for (const fs::path& allowed : { root / "core", root / "external" / "SuiteUTF" })
+    std::vector<fs::path> allowed_roots{ root / "foundation", root / "external" / "SuiteUTF" };
+    if (allow_framework) allowed_roots.push_back(root / "framework");
+    for (const fs::path& allowed : allowed_roots)
     {
         const fs::path canonical_allowed = fs::weakly_canonical(allowed, error);
         if (error)
@@ -696,15 +699,19 @@ static void check_include(
         return;
     }
 
-    const bool in_core = normalise_relative_path(relative_path).rfind("core/", 0u) == 0u;
+    const std::string source_path = normalise_relative_path(relative_path);
+    const bool in_foundation = source_path.rfind("foundation/", 0u) == 0u;
+    const bool in_framework = source_path.rfind("framework/", 0u) == 0u;
+    const char* const boundary_rule = in_foundation ? "INC002" : "INC006";
+    const std::string layer_name = in_foundation ? "foundation" : "framework";
     const char opening = text[0];
     const char closing = (opening == '<') ? '>' : ((opening == '"') ? '"' : '\0');
     if (closing == '\0')
     {
-        if (in_core)
+        if (in_foundation || in_framework)
         {
             add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
-                ESeverity::error, "INC002", "core include must use a literal operand so its boundary can be checked");
+                ESeverity::error, boundary_rule, layer_name + " include must use a literal operand so its boundary can be checked");
         }
         else
         {
@@ -729,7 +736,7 @@ static void check_include(
     std::replace(project_operand.begin(), project_operand.end(), '\\', '/');
     std::vector<fs::path> candidates = {
         root / fs::path(project_operand),
-        root / "core" / fs::path(project_operand)
+        root / "foundation" / fs::path(project_operand)
     };
     if (opening == '"')
     {
@@ -749,11 +756,12 @@ static void check_include(
         std::error_code error;
         if (fs::is_regular_file(candidate, error))
         {
-            if (in_core && !core_include_target_is_allowed(root, candidate))
+            if ((in_foundation || in_framework) && !layer_include_target_is_allowed(root, candidate, in_framework))
             {
+                const std::string allowed_layers = in_foundation ? "foundation and SuiteUTF" : "foundation, framework and SuiteUTF";
                 add_diagnostic(diagnostics, relative_path, directive.line, column,
-                    ESeverity::error, "INC002", "core include " + operand +
-                        " resolves outside core and SuiteUTF: " + normalise_relative_path(candidate));
+                    ESeverity::error, boundary_rule, layer_name + " include " + operand +
+                        " resolves outside " + allowed_layers + ": " + normalise_relative_path(candidate));
                 return;
             }
             resolved.insert(normalise_relative_path(candidate.lexically_normal()));
@@ -769,7 +777,7 @@ static void check_include(
                     "> is not allowed in this scope/path");
         }
         if ((operand == "windows.h") &&
-            (normalise_relative_path(relative_path) != "core/platform/windows_include.hpp"))
+            (normalise_relative_path(relative_path) != "foundation/platform/windows_include.hpp"))
         {
             add_diagnostic(diagnostics, relative_path, directive.line, column,
                 ESeverity::error, "INC003", "windows.h must be included through the project wrapper");

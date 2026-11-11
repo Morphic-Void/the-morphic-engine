@@ -7,7 +7,7 @@ Date:    08 Nov 26
 
 # THybridAllocator<TWord>
 
-[`THybridAllocator.hpp`](../../core/allocators/THybridAllocator.hpp) combines a
+[`THybridAllocator.hpp`](../../foundation/allocators/THybridAllocator.hpp) combines a
 [`TBuddyAllocatorChain`](TBuddyAllocatorChain.md) with a
 [`CTrackedAllocator`](CTrackedAllocator.md). The aliases `CHybridAllocator32` and
 `CHybridAllocator64` select the packed buddy word size, independently of pointer

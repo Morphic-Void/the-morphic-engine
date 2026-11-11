@@ -38,7 +38,7 @@ def main():
         root = Path(directory)
         (root / "MorphicEngine.sln").touch()
         (root / "policy").mkdir()
-        roots = ("core", "framework", "host", "executive", "rendering", "audio", "platform", "tests")
+        roots = ("foundation", "framework", "host", "executive", "rendering", "audio", "platform", "tests")
         policy = "version|1\n"
         for component in roots:
             (root / component).mkdir()
@@ -46,7 +46,7 @@ def main():
             policy += f"scan|{component}|{scope}\n"
         policy += "project|fixture.vcxproj|engine\n"
         policy += "include|cstdint|all|any|*|engine-wide\n"
-        # A system-header permission must not override the core boundary.
+        # A system-header permission must not override the Foundation boundary.
         policy += "include|rendering/runtime/only_rendering.hpp|all|any|*|fixture\n"
         (root / "fixture.vcxproj").write_text(
             '<Project><ItemGroup><ProjectConfiguration Include="Debug|x64" />'
@@ -57,7 +57,7 @@ def main():
         )
         (root / "policy/morphic_policy.cfg").write_text(policy, encoding="utf-8")
         for header in (
-            "core/debug/macros.hpp", "external/SuiteUTF/include/utf_toolkit.h",
+            "foundation/debug/macros.hpp", "external/SuiteUTF/include/utf_toolkit.h",
             "host/module/types/local_type_ids.hpp",
             "executive/module/types/local_type_ids.hpp",
             "rendering/module/types/local_type_ids.hpp",
@@ -67,8 +67,9 @@ def main():
             "host/runtime/local.hpp", "host/debug/macros.hpp",
             "tests/helper.hpp", "tools/helper.hpp", "audio/runtime/helper.hpp",
             "external/other/header.hpp", "external/SuiteUTF_extra/header.hpp",
-            "core/shared.hpp", "shared.hpp",
+            "foundation/shared.hpp", "shared.hpp",
             "framework/platform/window.hpp", "framework/platform/window_state.hpp",
+            "framework/system/system_ids.hpp", "framework/system/system_erased_owner_operations.hpp",
         ):
             path = root / header
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,8 +95,8 @@ def main():
         check(binary, root, "framework/platform/probe.hpp", "debug/macros.hpp")
         check(binary, root, "framework/platform/probe.hpp", "cstdint", opening='<')
         check(binary, root, "framework/platform/probe.hpp", "vector", errors=1, rule="INC001", opening='<')
-        check(binary, root, "core/probe.cpp", "external/SuiteUTF/include/utf_toolkit.h")
-        for component in ("core", "tests"):
+        check(binary, root, "foundation/probe.cpp", "external/SuiteUTF/include/utf_toolkit.h")
+        for component in ("foundation", "tests"):
             check(binary, root, f"{component}/probe.cpp", "module/types/local_type_ids.hpp",
                   errors=1, rule="INC004")
         check(binary, root, "rendering/runtime/probe.cpp", "runtime/missing.hpp",
@@ -107,24 +108,55 @@ def main():
             "audio/runtime/helper.hpp", "external/other/header.hpp",
             "framework/platform/window.hpp", "../framework/platform/window.hpp",
             "external/SuiteUTF_extra/header.hpp", "../host/runtime/local.hpp",
-            "../core/../host/runtime/local.hpp", "external/SuiteUTF/../other/header.hpp",
+            "../foundation/../host/runtime/local.hpp", "external/SuiteUTF/../other/header.hpp",
             r"host\runtime\local.hpp", str(root / "host/runtime/local.hpp"),
         ):
-            check(binary, root, "core/probe.cpp", operand, errors=1, rule="INC002")
-        for operand in ("debug/macros.hpp", "core/debug/macros.hpp",
+            check(binary, root, "foundation/probe.cpp", operand, errors=1, rule="INC002")
+        for operand in ("debug/macros.hpp", "foundation/debug/macros.hpp",
                         "external/SuiteUTF/include/../include/utf_toolkit.h",
-                        str(root / "core/debug/macros.hpp")):
-            check(binary, root, "core/probe.cpp", operand)
-        check(binary, root, "core/probe.def", "host/runtime/local.hpp", errors=1, rule="INC002")
-        check(binary, root, "core/probe.cpp", "shared.hpp", errors=1, rule="INC002")
-        check(binary, root, "core/probe.cpp", "cstdint", opening='<')
-        check(binary, root, "core/probe.cpp", "rendering/runtime/only_rendering.hpp",
+                        str(root / "foundation/debug/macros.hpp")):
+            check(binary, root, "foundation/probe.cpp", operand)
+        check(binary, root, "foundation/probe.def", "host/runtime/local.hpp", errors=1, rule="INC002")
+        check(binary, root, "foundation/probe.cpp", "shared.hpp", errors=1, rule="INC002")
+        check(binary, root, "foundation/probe.cpp", "cstdint", opening='<')
+        check(binary, root, "foundation/probe.cpp", "rendering/runtime/only_rendering.hpp",
               errors=1, rule="INC002", opening='<')
-        check(binary, root, "core/probe.cpp", "H", errors=1, rule="INC002", raw=True)
+        check(binary, root, "foundation/probe.cpp", "H", errors=1, rule="INC002", raw=True)
         check(binary, root, "host/runtime/probe.cpp", "HEADER_PATH", warnings=1, rule="INC102", raw=True)
 
-        # Resolve aliases before admitting either core or the SuiteUTF exception.
-        for alias in ("core/alias.hpp", "external/SuiteUTF/include/alias.hpp"):
+        check(binary, root, "foundation/debug/service.cpp", "framework/system/system_ids.hpp",
+              errors=1, rule="INC002")
+        check(binary, root, "foundation/threading/CThreadPackage.hpp", "framework/system/system_ids.hpp",
+              errors=1, rule="INC002")
+
+        check(binary, root, "foundation/module/module_binding_context.hpp", "framework/system/system_ids.hpp",
+              errors=1, rule="INC002")
+
+        # Shared participation may use Foundation and Framework, never Host or
+        # application implementation. Canonical resolution also covers aliases.
+        for operand in ("foundation/debug/macros.hpp", "../foundation/debug/macros.hpp",
+                        "framework/platform/window.hpp", "../framework/platform/window.hpp",
+                        "external/SuiteUTF/include/utf_toolkit.h",
+                        str(root / "foundation/debug/macros.hpp"), str(root / "framework/platform/window.hpp")):
+            check(binary, root, "framework/probe.hpp", operand)
+        for operand in ("host/runtime/local.hpp", "../host/runtime/local.hpp",
+                        "executive/module/types/local_type_ids.hpp", "rendering/runtime/only_rendering.hpp",
+                        "audio/runtime/helper.hpp", "platform/module/types/local_type_ids.hpp",
+                        "tests/helper.hpp", "tools/helper.hpp", "external/other/header.hpp",
+                        "external/SuiteUTF_extra/header.hpp", "external/SuiteUTF/../other/header.hpp",
+                        r"host\runtime\local.hpp", str(root / "host/runtime/local.hpp"), "shared.hpp"):
+            check(binary, root, "framework/probe.hpp", operand, errors=1, rule="INC006")
+        check(binary, root, "framework/probe.hpp", "rendering/runtime/only_rendering.hpp",
+              errors=1, rule="INC006", opening='<')
+        check(binary, root, "framework/probe.hpp", "HEADER_PATH", errors=1, rule="INC006", raw=True)
+
+        # Resolve aliases before admitting either Foundation or the SuiteUTF exception.
+        for source, alias, rule in (
+            ("foundation/probe.cpp", "foundation/alias.hpp", "INC002"),
+            ("foundation/probe.cpp", "external/SuiteUTF/include/alias.hpp", "INC002"),
+            ("framework/probe.hpp", "framework/alias.hpp", "INC006"),
+            ("framework/probe.hpp", "external/SuiteUTF/include/alias.hpp", "INC006"),
+        ):
             link = root / alias
             try:
                 link.symlink_to(root / "host/runtime/local.hpp")
@@ -134,10 +166,10 @@ def main():
                 print(f"Symlink fixture unavailable: {error}")
                 continue
             try:
-                check(binary, root, "core/probe.cpp", alias, errors=1, rule="INC002")
+                check(binary, root, source, alias, errors=1, rule=rule)
             finally:
                 link.unlink()
-    print("Policy include resolution and core boundary checks passed")
+    print("Policy include resolution and Foundation/Framework boundary checks passed")
 
 
 if __name__ == "__main__":

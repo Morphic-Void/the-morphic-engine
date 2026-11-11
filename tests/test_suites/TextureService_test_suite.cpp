@@ -9,6 +9,7 @@
 //
 //  Typed Rendering services against the generic Host acquisition boundary.
 
+#include "framework/system/system_ids.hpp"
 #include <atomic>
 #include <cstring>
 #include "tests/support/resource_service_fixture.hpp"

@@ -9,10 +9,12 @@
 //
 
 
+#include "framework/system/system_erased_owner_operations.hpp"
+#include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "tests/support/direct_connection_fixture.hpp"
-#include "system/storage_type_bindings.hpp"
-#include "module/module_messages.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/module/module_messages.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -25,7 +27,7 @@
 #include "debug/macros.hpp"
 #include "debug/service.hpp"
 #include "data_model/document_translation.hpp"
-#include "module/bound_module.hpp"
+#include "host/module/bound_module.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -33,8 +35,8 @@
 #include "platform/path/native_path.hpp"
 #include "system/erased_owner.hpp"
 #include "system/erased_owner_transport.hpp"
-#include "assets/asset_messages.hpp"
-#include "image/image_messages.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "host/image/image_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "executive/runtime/module_test_watchdog.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
@@ -44,8 +46,9 @@
 #include "tests/support/thread_helpers.hpp"
 #include "tests/support/file_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
-#include "threading/messages/CErasedMessageTransports.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "framework/threading/messages/CErasedMessageTransports.hpp"
+#include "host/threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include "threading/transports/TOwningTransport.hpp"
 
 namespace executive_startup_tests
@@ -377,6 +380,10 @@ struct SExecutiveSubmissionFailure
 static bool MV_STD_ABI_CALL prepare_executive_without_outbound_queue(void* const context,
     const thread_ids::id_type thread_id, void* const provisioning) noexcept
 {
+    if (!tests::TThreadFixtureState<SExecutiveSubmissionFailure>::prepare(context, thread_id, provisioning))
+    {
+        return false;
+    }
     SExecutiveSubmissionFailure& test = *static_cast<SExecutiveSubmissionFailure*>(context);
     threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(provisioning);
     //  Fail the first post without changing the production Executive entry point.
@@ -387,7 +394,7 @@ static bool MV_STD_ABI_CALL prepare_executive_without_outbound_queue(void* const
 static std::uint32_t MV_STD_ABI_CALL capture_executive_submission_failure(void* const provisioning) noexcept
 {
     threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(provisioning);
-    SExecutiveSubmissionFailure& test = *static_cast<SExecutiveSubmissionFailure*>(resources.config.prepare_context);
+    SExecutiveSubmissionFailure& test = tests::TThreadFixtureState<SExecutiveSubmissionFailure>::get();
     test.exit_code = test.entry(provisioning);
     //  Capture before the Host-side startup rejection cleans up the package.
     test.final_state = resources.control_state.query_state();
@@ -701,7 +708,7 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
         TEST_EXPECT(ctx, clock_ready);
         if (found && clock_ready)
         {
-            TEST_EXPECT(ctx, debug_service->start());
+            TEST_EXPECT(ctx, debug_service->start({ thread_ids::debug_service, "debug_service" }));
             SExecutiveSubmissionFailure failure;
             failure.module = &module;
             failure.entry = reinterpret_cast<platform::threading::FThreadEntry>(function);
@@ -893,6 +900,32 @@ void test_moves_and_hazards(TTestContext& ctx)
     TEST_EXPECT(ctx, destination.has_hazard(mount_point_ids::executable));
     TEST_EXPECT(ctx, !destination.has_hazard(mount_point_ids::render));
     TEST_EXPECT(ctx, destination.has_any_hazard());
+}
+
+void test_invalid_and_unregistered_hazards(TTestContext& ctx)
+{
+    tests::TAssertionTestScope assertions(ctx);
+    CErasedOwner owner;
+    owner.add_hazard(mount_point_ids::executable);
+    const std::uint32_t original_mask = owner.hazard_mask();
+    constexpr mount_point_ids::id_type unregistered = mount_point_ids::ops::make_id(
+        mount_point_ids::ops::make_index(mount_point_ids::k_count));
+    constexpr mount_point_ids::id_type outside_mask = mount_point_ids::ops::make_id(
+        mount_point_ids::ops::make_index(mount_point_ids::ops::k_dependency_mask_capacity));
+    static_assert(mount_point_ids::k_count < mount_point_ids::ops::k_dependency_mask_capacity);
+    static_assert(mount_point_ids::ops::is_valid_id(unregistered));
+    static_assert(mount_point_ids::ops::is_valid_id(outside_mask));
+    TEST_EXPECT(ctx, (system_id_registry::find_mount_point(unregistered) == nullptr));
+
+    for (const mount_point_ids::id_type rejected : {
+        mount_point_ids::id_type{}, mount_point_ids::id_type{ 1u }, unregistered, outside_mask })
+    {
+        assertions.expect_assertion(ctx, [&]() { owner.add_hazard(rejected); });
+        TEST_EXPECT(ctx, (owner.hazard_mask() == original_mask));
+        assertions.expect_assertion(ctx, [&]() { owner.remove_hazard(rejected); });
+        TEST_EXPECT(ctx, (owner.hazard_mask() == original_mask));
+        assertions.expect_assertion(ctx, [&]() { TEST_EXPECT(ctx, !owner.has_hazard(rejected)); });
+    }
 }
 
 void test_allocation_failure_is_canonical(TTestContext& ctx)
@@ -1949,6 +1982,7 @@ int run_erased_owner_tests()
     test_local_context_boundaries(ctx);
     test_creation_accounting_and_destruction(ctx);
     test_moves_and_hazards(ctx);
+    test_invalid_and_unregistered_hazards(ctx);
     test_allocation_failure_is_canonical(ctx);
     test_owner_reattribution(ctx);
     test_all_registered_payload_reattribution(ctx);

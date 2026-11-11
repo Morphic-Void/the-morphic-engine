@@ -8,7 +8,7 @@
 //
 //  Deterministic restriction accounting, publication boundaries and budget expiry.
 
-#include "module/host_eligible_budget.hpp"
+#include "framework/module/host_eligible_budget.hpp"
 #include "host/runtime/host_restrictions.hpp"
 #include "tests/support/test_context.hpp"
 #include "platform/threading/thread_lifetime.hpp"

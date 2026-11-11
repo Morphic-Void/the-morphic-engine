@@ -7,7 +7,7 @@ Date:    07 Nov 26
 
 # CTrackedAllocator
 
-[`CTrackedAllocator.hpp`](../../core/allocators/CTrackedAllocator.hpp) owns
+[`CTrackedAllocator.hpp`](../../foundation/allocators/CTrackedAllocator.hpp) owns
 independent allocations in `TOrderedSlots<memory::CMemoryToken, SAddressKey>`.
 Each key is the token's allocated starting address, converted to `std::uintptr_t`
 and compared numerically. The ordered slots provide logarithmic exact-address

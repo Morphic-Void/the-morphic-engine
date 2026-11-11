@@ -9,7 +9,7 @@
 //  Nominated Host conditioning followed by bounded Platform installation/retirement.
 
 #include "runtime/platform_runtime.hpp"
-#include "threading/messages/message_helpers.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 #include <algorithm>
 #include <cstring>
 

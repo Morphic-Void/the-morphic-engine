@@ -15,7 +15,8 @@
 
 #include "runtime/shader_compiler.hpp"
 #include "shader/shader_requests.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "containers/TInstance.hpp"
+#include "framework/threading/CBatchWork.hpp"
 
 namespace rendering
 {
