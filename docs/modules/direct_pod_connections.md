@@ -4,6 +4,9 @@ Implementation work authorised 5 November 2026, starting from `5ff920e`.
 This contract supersedes the fixed-ring proposal for general direct messages.
 It does not change Platform-owned input streams.
 
+[Opaque bulk connections](direct_bulk_connections.md) now share this lifecycle
+and its coordinator, with separate fixed-capacity backing and role endpoints.
+
 ## Contract
 
 Host owns each connection and its two growable `CErasedPodMsgTransport` queues.

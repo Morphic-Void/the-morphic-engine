@@ -55,13 +55,18 @@ private:
     };
     struct SRecord
     {
-        SRecord(SClientRecord& first, SClientRecord& second, const std::uint32_t version) noexcept;
+        SRecord(SClientRecord& first, SClientRecord& second, const std::uint32_t version,
+            const connections::SBulkConfiguration bulk) noexcept;
         connections::SToken token;
         std::uint32_t version;
         EPhase phase{ EPhase::offered };
         connections::EStatus reason{ connections::EStatus::cancelled };
         SSide sides[2];
         threading::transports::CErasedPodMsgTransport forward, reverse;
+        connections::SBulkConfiguration bulk_configuration;
+        threading::transports::CBulkBufferTransport bulk;
+        threading::transports::CBulkBufferProducerEndpoint bulk_producer{ bulk };
+        threading::transports::CBulkBufferConsumerEndpoint bulk_consumer{ bulk };
         modules::CHostEligibleBudget budget;
     };
     [[nodiscard]] SRecord* find(const connections::SToken token) noexcept;

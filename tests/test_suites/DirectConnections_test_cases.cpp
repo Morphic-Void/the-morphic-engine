@@ -22,6 +22,9 @@
 #include "tests/support/direct_connection_fixture.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "platform/threading/processor_relax.hpp"
+#include "platform/threading/thread_lifetime.hpp"
+
+#include <cstring>
 
 namespace
 {
@@ -33,8 +36,12 @@ static const connections::SMessageRule rules[]{
 };
 static const connections::SContractPolicy policies[]{
     { connections::contract(module_ids::executive, module_ids::rendering, 1u), rules, 2u },
-    { connections::contract(module_ids::executive, module_ids::rendering, 2u), rules, 2u }
+    { connections::contract(module_ids::executive, module_ids::rendering, 2u), rules, 2u },
+    { connections::contract(module_ids::executive, module_ids::rendering, 1u), nullptr, 0u, { 129u, module_ids::executive } },
+    { connections::contract(module_ids::executive, module_ids::rendering, 1u), nullptr, 0u, { 257u, module_ids::executive } },
+    { connections::contract(module_ids::executive, module_ids::rendering, 1u), nullptr, 0u, { 129u, module_ids::rendering } }
 };
+static constexpr std::uint32_t policy_count = static_cast<std::uint32_t>(std::size(policies));
 
 struct SFixture
 {
@@ -46,8 +53,8 @@ struct SFixture
     host::SClientRecord a{ module_ids::executive, 11u, &first }, b{ module_ids::rendering, 22u, &second };
     threading::CThreadContext context_a{ threading::SDirectConnectionTestAccess::resources(first) };
     threading::CThreadContext context_b{ threading::SDirectConnectionTestAccess::resources(second) };
-    connections::CClient client_a{ context_a, module_ids::executive, policies, 2u };
-    connections::CClient client_b{ context_b, module_ids::rendering, policies, 2u };
+    connections::CClient client_a{ context_a, module_ids::executive, policies, policy_count };
+    connections::CClient client_b{ context_b, module_ids::rendering, policies, policy_count };
     host::CDirectConnections coordinator;
 
     explicit SFixture(tests::TTestContext& ctx) : test{ ctx }
@@ -181,6 +188,275 @@ static void reciprocal_and_data(tests::TTestContext& ctx)
     fixture.finish(successor);
 }
 
+static SToken establish_bulk(SFixture& fixture, const bool consumer_first, const bool reciprocal)
+{
+    TEST_EXPECT(fixture.test, (consumer_first ? fixture.client_b.open_bulk(module_ids::executive, 1u, 9, 129u, false) :
+        fixture.client_a.open_bulk(module_ids::rendering, 1u, 7, 129u, true)));
+    if (reciprocal)
+    {
+        TEST_EXPECT(fixture.test, (consumer_first ? fixture.client_a.open_bulk(module_ids::rendering, 1u, 7, 129u, true) :
+            fixture.client_b.open_bulk(module_ids::executive, 1u, 9, 129u, false)));
+    }
+    for (unsigned index = 0u; index < 5u; ++index) fixture.step();
+    const SToken token = fixture.client_a.active(module_ids::rendering, true);
+    TEST_EXPECT(fixture.test, (token.value && fixture.client_b.active(token)));
+    connections::Result result;
+    std::int32_t slot = -1;
+    if (!consumer_first || reciprocal)
+    {
+        TEST_EXPECT(fixture.test, (fixture.client_a.take_result(result, slot) && (slot == 7) &&
+            (result.status == EStatus::success) && (result.token.value == token.value)));
+    }
+    if (consumer_first || reciprocal)
+    {
+        TEST_EXPECT(fixture.test, (fixture.client_b.take_result(result, slot) && (slot == 9) &&
+            (result.status == EStatus::success) && (result.token.value == token.value)));
+    }
+    return token;
+}
+
+static void bulk_buffers(tests::TTestContext& ctx, const bool consumer_first, const bool reciprocal)
+{
+    SFixture fixture{ ctx };
+    TEST_EXPECT(ctx, !fixture.client_a.open_bulk(module_ids::rendering, 1u, 7, 0u, true));
+    TEST_EXPECT(ctx, !fixture.client_a.open_bulk(module_ids::rendering, 1u, 7, UINT64_MAX, true));
+    const SToken token = establish_bulk(fixture, consumer_first, reciprocal);
+    TEST_EXPECT(ctx, !fixture.client_b.has_data());
+    TEST_EXPECT(ctx, !fixture.client_b.discard_and_acquire(token));
+    TEST_EXPECT(ctx, !fixture.client_b.consumer_data(token));
+    TEST_EXPECT(ctx, !fixture.client_b.producer_data(token));
+    TEST_EXPECT(ctx, !fixture.client_a.discard_and_acquire(token));
+    TEST_EXPECT(ctx, (fixture.client_b.publish_bulk(token) == connections::EBulkPublish::inactive));
+    const threading::CErasedPodMsg message = threading::make_pod_message(0, modules::RunTestsRequest{ module_ids::rendering });
+    threading::CErasedPodMsg received;
+    TEST_EXPECT(ctx, (fixture.client_a.post(token, message) == connections::EPost::inactive));
+    TEST_EXPECT(ctx, (fixture.client_b.read(token, received) == connections::ERead::inactive));
+
+    void* slots[3]{};
+    for (unsigned index = 0u; index < 2u; ++index)
+    {
+        const memory::CMemoryView output = fixture.client_a.producer_data(token);
+        TEST_EXPECT(ctx, ((output.bytes() == 129u) && (output.storage_alignment() == 128u)));
+        if (!output) return;
+        slots[index] = output.data();
+        std::memset(output.data(), static_cast<int>(index + 1u), output.bytes());
+        TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(token) == connections::EBulkPublish::published));
+    }
+    TEST_EXPECT(ctx, fixture.client_b.has_data());
+    fixture.client_b.clear_notifications(); //  Durable staged data survives a cleared hint.
+    TEST_EXPECT(ctx, fixture.client_b.has_data());
+    TEST_EXPECT(ctx, fixture.client_b.discard_and_acquire(token));
+    const memory::CMemoryConstView held = fixture.client_b.consumer_data(token);
+    TEST_EXPECT(ctx, ((held.bytes() == 129u) && (held.data() == slots[1])));
+    if (!held) return;
+    TEST_EXPECT(ctx, (*static_cast<const unsigned char*>(held.data()) == 2u));
+    for (unsigned index = 0u; index < 32u; ++index)
+    {
+        const memory::CMemoryView output = fixture.client_a.producer_data(token);
+        TEST_EXPECT(ctx, (output.data() != held.data()));
+        TEST_EXPECT(ctx, ((reinterpret_cast<std::uintptr_t>(output.data()) & 127u) == 0u));
+        if (!output) return;
+        if (index == 1u) slots[2] = output.data();
+        std::memset(output.data(), static_cast<int>(index + 3u), output.bytes());
+        TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(token) == connections::EBulkPublish::published));
+        const unsigned char* const bytes = static_cast<const unsigned char*>(held.data());
+        for (std::size_t byte = 0u; byte < held.bytes(); ++byte)
+        {
+            TEST_EXPECT(ctx, (bytes[byte] == 2u));
+        }
+    }
+    TEST_EXPECT(ctx, ((slots[0] != slots[1]) && (slots[0] != slots[2]) && (slots[1] != slots[2])));
+    TEST_EXPECT(ctx, fixture.client_b.discard_and_acquire(token));
+    const memory::CMemoryConstView latest = fixture.client_b.consumer_data(token);
+    TEST_EXPECT(ctx, (latest && (*static_cast<const unsigned char*>(latest.data()) == 34u)));
+    TEST_EXPECT(ctx, !fixture.client_b.discard_and_acquire(token));
+    TEST_EXPECT(ctx, !fixture.client_b.consumer_data(token));
+    fixture.finish(token);
+    TEST_EXPECT(ctx, !fixture.client_a.producer_data(token));
+    TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(token) == connections::EBulkPublish::inactive));
+    const SToken successor = establish_bulk(fixture, !consumer_first, reciprocal);
+    TEST_EXPECT(ctx, (successor.value != token.value));
+    TEST_EXPECT(ctx, !fixture.client_b.has_data());
+    fixture.finish(successor);
+}
+
+static void bulk_configuration_and_coexistence(tests::TTestContext& ctx, const bool wrong_producer)
+{
+    SFixture fixture{ ctx };
+    const SToken pod = fixture.establish();
+    TEST_EXPECT(ctx, fixture.client_a.open_bulk(module_ids::rendering, 1u, 7, 129u, true));
+    TEST_EXPECT(ctx, fixture.client_b.open_bulk(module_ids::executive, 1u, 9,
+        (wrong_producer ? 129u : 257u), wrong_producer));
+    for (unsigned index = 0u; index < 5u; ++index) fixture.step();
+    connections::Result result;
+    std::int32_t slot = -1;
+    TEST_EXPECT(ctx, (fixture.client_a.take_result(result, slot) && (result.status == EStatus::success)));
+    const SToken bulk = result.token;
+    TEST_EXPECT(ctx, (fixture.client_b.take_result(result, slot) && (result.status == EStatus::configuration_mismatch)));
+    TEST_EXPECT(ctx, (fixture.client_a.active(module_ids::rendering).value == pod.value));
+    TEST_EXPECT(ctx, (fixture.client_a.active(module_ids::rendering, true).value == bulk.value));
+    const threading::CErasedPodMsg message = threading::make_pod_message(0, modules::RunTestsRequest{ module_ids::rendering });
+    TEST_EXPECT(ctx, (fixture.client_a.post(pod, message) == connections::EPost::queued));
+    threading::CErasedPodMsg received;
+    TEST_EXPECT(ctx, (fixture.client_b.read(pod, received) == connections::ERead::record));
+    fixture.client_a.close(bulk);
+    fixture.client_a.progress();
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.client_a.quiesce(bulk) && fixture.client_b.quiesce(bulk)));
+    fixture.step();
+    TEST_EXPECT(ctx, (fixture.client_a.active(pod) && fixture.client_b.active(pod)));
+    fixture.finish(pod);
+}
+
+static void bulk_wake_failure(tests::TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    const SToken token = establish_bulk(fixture, false, false);
+    const memory::CMemoryView output = fixture.client_a.producer_data(token);
+    if (!output) return;
+    std::memset(output.data(), 42, output.bytes());
+    threading::SDirectConnectionTestAccess::resources(fixture.second).wait_predicate.release_control();
+    TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(token) == connections::EBulkPublish::published_wake_failed));
+    TEST_EXPECT(ctx, fixture.client_b.discard_and_acquire(token));
+    const memory::CMemoryConstView held = fixture.client_b.consumer_data(token);
+    TEST_EXPECT(ctx, (held && (*static_cast<const unsigned char*>(held.data()) == 42u)));
+    TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(token) == connections::EBulkPublish::inactive));
+    fixture.finish(token);
+}
+
+static void bulk_allocation_failure(tests::TTestContext& ctx)
+{
+    tests::TAllocationFailureFixture allocation;
+    memory::CMemoryAllocator allocator{ &allocation, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext memory{ allocator };
+    tests::TMemoryContextScope scope{ &memory };
+    {
+        SFixture fixture{ ctx };
+        TEST_EXPECT(ctx, fixture.client_a.open_bulk(module_ids::rendering, 1u, 7, 129u, true));
+        fixture.step(); //  Accept the offer before failing backing preparation.
+        allocation.fail_on = allocation.attempts;
+        for (unsigned index = 0u; index < 5u; ++index) fixture.step();
+        connections::Result result;
+        std::int32_t slot = -1;
+        TEST_EXPECT(ctx, allocation.failed);
+        TEST_EXPECT(ctx, (fixture.client_a.take_result(result, slot) && (result.status == EStatus::allocation_failed)));
+        TEST_EXPECT(ctx, (fixture.coordinator.empty() && fixture.client_a.idle() && fixture.client_b.idle()));
+        TEST_EXPECT(ctx, (!threading::SDirectConnectionTestAccess::pins(fixture.first) &&
+            !threading::SDirectConnectionTestAccess::pins(fixture.second)));
+    }
+    TEST_EXPECT(ctx, memory.is_attribution_empty());
+}
+
+static void bulk_backing_ownership(tests::TTestContext& ctx)
+{
+    tests::TAllocationFailureFixture allocation;
+    memory::CMemoryAllocator allocator{ &allocation, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext owner{ allocator }, participant{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &owner };
+        threading::transports::CBulkBufferTransport bulk;
+        TEST_EXPECT(ctx, !bulk.initialise(0u));
+        TEST_EXPECT(ctx, !bulk.initialise(UINT64_MAX));
+        TEST_EXPECT(ctx, !bulk.initialise(memory::k_byte_size_ceiling));
+        TEST_EXPECT(ctx, bulk.initialise(129u));
+        TEST_EXPECT(ctx, (bulk.memory_context() == &owner));
+        TEST_EXPECT(ctx, (owner.get_live_allocated_bytes() == 768u));
+        TEST_EXPECT(ctx, !bulk.initialise(257u));
+        const std::size_t attempts = allocation.attempts;
+        tests::TMemoryContextScope participant_scope{ &participant };
+        for (unsigned index = 0u; index < 32u; ++index)
+        {
+            const memory::CMemoryView output = bulk.producer_data();
+            TEST_EXPECT(ctx, (output.bytes() == 129u));
+            if (!output) return;
+            std::memset(output.data(), static_cast<int>(index), output.bytes());
+            (void)bulk.publish();
+            TEST_EXPECT(ctx, bulk.discard_and_acquire());
+            const memory::CMemoryConstView input = bulk.consumer_data();
+            TEST_EXPECT(ctx, (input && (*static_cast<const unsigned char*>(input.data()) == index)));
+        }
+        TEST_EXPECT(ctx, ((allocation.attempts == attempts) && participant.is_attribution_empty()));
+    }
+    TEST_EXPECT(ctx, (owner.is_attribution_empty() && participant.is_attribution_empty()));
+}
+
+struct SConcurrentBulk
+{
+    threading::transports::CBulkBufferTransport bulk;
+    std::atomic<bool> done{ false };
+    static std::uint32_t MV_STD_ABI_CALL write(void* const context) noexcept
+    {
+        SConcurrentBulk& shared = *static_cast<SConcurrentBulk*>(context);
+        for (unsigned index = 1u; index <= 20000u; ++index)
+        {
+            const memory::CMemoryView output = shared.bulk.producer_data();
+            std::memset(output.data(), static_cast<int>(index & 255u), output.bytes());
+            (void)shared.bulk.publish();
+        }
+        shared.done.store(true, std::memory_order_release);
+        return 0u;
+    }
+};
+
+static void bulk_concurrent_exchange(tests::TTestContext& ctx)
+{
+    SConcurrentBulk shared;
+    TEST_EXPECT(ctx, shared.bulk.initialise(129u));
+    if (!shared.bulk.capacity()) return;
+    platform::threading::CThread producer;
+    const bool created = producer.create(&SConcurrentBulk::write, &shared);
+    TEST_EXPECT(ctx, created);
+    if (!created) return;
+    bool consistent = true;
+    unsigned acquired = 0u;
+    do
+    {
+        if (shared.bulk.discard_and_acquire())
+        {
+            ++acquired;
+            const memory::CMemoryConstView input = shared.bulk.consumer_data();
+            const unsigned char* const bytes = static_cast<const unsigned char*>(input.data());
+            const unsigned char expected = bytes[0];
+            platform::threading::processor_relax();
+            for (std::size_t byte = 0u; byte < input.bytes(); ++byte)
+            {
+                if (bytes[byte] != expected) consistent = false;
+            }
+        }
+        else
+        {
+            platform::threading::processor_relax();
+        }
+    } while (!shared.done.load(std::memory_order_acquire) || shared.bulk.has_staged_data());
+    TEST_EXPECT(ctx, producer.join_and_close());
+    TEST_EXPECT(ctx, (consistent && (acquired != 0u)));
+}
+
+static void bulk_request_validation(tests::TTestContext& ctx)
+{
+    SFixture fixture{ ctx };
+    const connections::SBulkConfiguration invalid[]{
+        { 0u, module_ids::executive },
+        { UINT64_MAX, module_ids::executive },
+        { memory::k_byte_size_ceiling, module_ids::executive },
+        { 129u, module_ids::audio }
+    };
+    for (const connections::SBulkConfiguration configuration : invalid)
+    {
+        TEST_EXPECT(ctx, fixture.a.reserve_replies(1u));
+        fixture.coordinator.request(fixture.a, &fixture.b, { module_ids::rendering, 1u, configuration },
+            7, fixture.restrictions.reader());
+        threading::CErasedPodMsg message;
+        connections::Result result;
+        TEST_EXPECT(ctx, (fixture.context_a.read(message) && message.copy_payload_to(result) &&
+            (result.status == EStatus::invalid_request) && !result.token.value));
+        TEST_EXPECT(ctx, fixture.coordinator.empty());
+    }
+    fixture.b.direct_connections = host::EDirectConnectionState::unregistered;
+    fixture.coordinator.register_client(fixture.b, { 1u });
+    TEST_EXPECT(ctx, (fixture.b.direct_connections == host::EDirectConnectionState::unregistered));
+}
+
 static void capacity_and_unread_close(tests::TTestContext& ctx)
 {
     SFixture fixture{ ctx };
@@ -250,10 +526,11 @@ static void capacity_wake_ordering(tests::TTestContext& ctx, const bool before_c
     fixture.finish(token);
 }
 
-static void partial_installation(tests::TTestContext& ctx)
+static void partial_installation(tests::TTestContext& ctx, const bool bulk = false)
 {
     SFixture fixture{ ctx };
-    TEST_EXPECT(ctx, fixture.client_a.open(module_ids::rendering, 1u, 7));
+    TEST_EXPECT(ctx, fixture.client_a.open(module_ids::rendering, 1u, 7,
+        (bulk ? connections::SBulkConfiguration{ 129u, module_ids::executive } : connections::SBulkConfiguration{})));
     fixture.step(false, true); // Offer accepted; initiator has seen no token.
     fixture.step(false, true); // Both installations queued, only B has consumed one.
     TEST_EXPECT(ctx, !fixture.client_b.active(module_ids::executive).value);
@@ -412,10 +689,11 @@ static void submission_poison(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, (requests == 1u)); // No automatic retransmission after ambiguous failure.
 }
 
-static void activation_and_timeout(tests::TTestContext& ctx, const bool expire)
+static void activation_and_timeout(tests::TTestContext& ctx, const bool expire, const bool bulk = false)
 {
     SFixture fixture{ ctx };
-    TEST_EXPECT(ctx, fixture.client_a.open(module_ids::rendering, 1u, 7));
+    TEST_EXPECT(ctx, fixture.client_a.open(module_ids::rendering, 1u, 7,
+        (bulk ? connections::SBulkConfiguration{ 129u, module_ids::executive } : connections::SBulkConfiguration{})));
     fixture.step(); // Offer.
     fixture.step(); // Installations and readiness submissions.
     threading::CErasedPodMsg pending;
@@ -425,6 +703,8 @@ static void activation_and_timeout(tests::TTestContext& ctx, const bool expire)
     fixture.coordinator.progress();
     fixture.deliver(fixture.context_a, fixture.client_a);
     TEST_EXPECT(ctx, (!fixture.client_a.active(ready.token) && !fixture.client_b.active(ready.token)));
+    TEST_EXPECT(ctx, !fixture.client_a.producer_data(ready.token));
+    TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(ready.token) == connections::EBulkPublish::inactive));
     if (expire)
     {
         host::SDirectConnectionTestAccess::expire(fixture.coordinator, ready.token, fixture.restrictions.reader());
@@ -445,12 +725,27 @@ static void activation_and_timeout(tests::TTestContext& ctx, const bool expire)
         fixture.coordinator.progress();
         fixture.deliver(fixture.context_a, fixture.client_a);
         TEST_EXPECT(ctx, (fixture.client_a.active(ready.token) && !fixture.client_b.active(ready.token)));
-        const auto message = threading::make_pod_message(4, modules::RunTestsRequest{ module_ids::rendering });
-        TEST_EXPECT(ctx, (fixture.client_a.post(ready.token, message) == connections::EPost::queued));
-        threading::CErasedPodMsg received;
-        TEST_EXPECT(ctx, (fixture.client_b.read(ready.token, received) == connections::ERead::inactive));
-        fixture.deliver(fixture.context_b, fixture.client_b);
-        TEST_EXPECT(ctx, (fixture.client_b.read(ready.token, received) == connections::ERead::record));
+        if (bulk)
+        {
+            const memory::CMemoryView output = fixture.client_a.producer_data(ready.token);
+            TEST_EXPECT(ctx, output);
+            if (output) std::memset(output.data(), 42, output.bytes());
+            TEST_EXPECT(ctx, (fixture.client_a.publish_bulk(ready.token) == connections::EBulkPublish::published));
+            TEST_EXPECT(ctx, !fixture.client_b.discard_and_acquire(ready.token));
+            fixture.deliver(fixture.context_b, fixture.client_b);
+            TEST_EXPECT(ctx, fixture.client_b.discard_and_acquire(ready.token));
+            const memory::CMemoryConstView input = fixture.client_b.consumer_data(ready.token);
+            TEST_EXPECT(ctx, (input && (*static_cast<const unsigned char*>(input.data()) == 42u)));
+        }
+        else
+        {
+            const threading::CErasedPodMsg message = threading::make_pod_message(4, modules::RunTestsRequest{ module_ids::rendering });
+            TEST_EXPECT(ctx, (fixture.client_a.post(ready.token, message) == connections::EPost::queued));
+            threading::CErasedPodMsg received;
+            TEST_EXPECT(ctx, (fixture.client_b.read(ready.token, received) == connections::ERead::inactive));
+            fixture.deliver(fixture.context_b, fixture.client_b);
+            TEST_EXPECT(ctx, (fixture.client_b.read(ready.token, received) == connections::ERead::record));
+        }
         connections::Result result; std::int32_t slot = -1;
         TEST_EXPECT(ctx, (fixture.client_a.take_result(result, slot) && (result.status == EStatus::success)));
         fixture.finish(ready.token);
@@ -521,7 +816,7 @@ static std::uint32_t MV_STD_ABI_CALL terminal_worker(void* const data) noexcept
     return 0u;
 }
 
-static void native_join_retention(tests::TTestContext& ctx)
+static void native_join_retention(tests::TTestContext& ctx, const bool bulk = false)
 {
     platform::system::CPerfCountConversion conversion;
     TEST_EXPECT(ctx, conversion.init());
@@ -540,11 +835,13 @@ static void native_join_retention(tests::TTestContext& ctx)
         return;
     }
     threading::CThreadContext context_b{ threading::SDirectConnectionTestAccess::resources(second) };
-    connections::CClient client_b{ context_b, module_ids::rendering, policies, 2u };
+    connections::CClient client_b{ context_b, module_ids::rendering, policies, policy_count };
     host::CHostRestrictions restrictions;
     host::CDirectConnections coordinator;
     TEST_EXPECT(ctx, a.reserve_replies(1u));
-    coordinator.request(a, &b, { module_ids::rendering, 1u }, 7, restrictions.reader());
+    coordinator.request(a, &b, { module_ids::rendering, 1u,
+        (bulk ? connections::SBulkConfiguration{ 129u, module_ids::executive } : connections::SBulkConfiguration{}) },
+        7, restrictions.reader());
     coordinator.progress();
     threading::CErasedPodMsg message;
     TEST_EXPECT(ctx, context_b.read(message));
@@ -581,6 +878,10 @@ static void native_join_retention(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, (!coordinator.empty() && (threading::SDirectConnectionTestAccess::pins(first) == 1u) &&
         (threading::SDirectConnectionTestAccess::pins(second) == 1u)));
     TEST_EXPECT(ctx, (!first.join_terminated_execution() && !first.shutdown()));
+    if (bulk)
+    {
+        TEST_EXPECT(ctx, (host::SDirectConnectionTestAccess::bulk_capacity(coordinator, offer.token) == 129u));
+    }
     state.signal.store(true, std::memory_order_release);
     TEST_EXPECT(ctx, await([&] { return state.signalled.load(std::memory_order_acquire); }));
     state.finish.store(true, std::memory_order_release);
@@ -601,6 +902,21 @@ static void native_join_retention(tests::TTestContext& ctx)
 
 void run_direct_connection_tests(tests::TTestContext& ctx)
 {
+    bulk_backing_ownership(ctx);
+    bulk_concurrent_exchange(ctx);
+    bulk_request_validation(ctx);
+    bulk_buffers(ctx, false, false);
+    bulk_buffers(ctx, true, false);
+    bulk_buffers(ctx, false, true);
+    bulk_buffers(ctx, true, true);
+    bulk_configuration_and_coexistence(ctx, false);
+    bulk_configuration_and_coexistence(ctx, true);
+    bulk_allocation_failure(ctx);
+    bulk_wake_failure(ctx);
+    partial_installation(ctx, true);
+    activation_and_timeout(ctx, false, true);
+    activation_and_timeout(ctx, true, true);
+    native_join_retention(ctx, true);
     reciprocal_and_data(ctx);
     capacity_and_unread_close(ctx);
     capacity_wake_ordering(ctx, true);

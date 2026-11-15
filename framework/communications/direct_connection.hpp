@@ -15,6 +15,7 @@
 #include "system/system_type_registration.hpp"
 #include "threading/CNotification.hpp"
 #include "framework/threading/messages/CErasedMessageTransports.hpp"
+#include "threading/transports/CBulkBufferTransport.hpp"
 
 namespace connections
 {
@@ -24,7 +25,7 @@ enum class EStatus : std::uint32_t
 {
     success, invalid_request, unavailable, unsupported, version_mismatch, rejected,
     busy, already_connected, closing, cancelled, timed_out, allocation_failed,
-    transport_failed, notification_failed
+    transport_failed, notification_failed, configuration_mismatch
 };
 
 struct SContract
@@ -45,12 +46,27 @@ struct SMessageRule
     module_ids::id_type source;
 };
 
+//  Zero capacity and no producer select the existing bidirectional POD transport.
+//  Bulk capacity is the usable byte count of each of three 128-byte-aligned slots.
+struct SBulkConfiguration
+{
+    std::uint64_t capacity{ 0u };
+    module_ids::id_type producer{};
+
+    [[nodiscard]] bool matches(const SBulkConfiguration& other) const noexcept
+    {
+        return (capacity == other.capacity) && (producer == other.producer);
+    }
+    [[nodiscard]] bool is_bulk() const noexcept { return capacity != 0u; }
+};
+
 //  Immutable policy belongs to the participating module, never a Host callback.
 struct SContractPolicy
 {
     SContract identity;
     const SMessageRule* messages{ nullptr };
     std::uint32_t count{ 0u };
+    SBulkConfiguration bulk;
 
     [[nodiscard]] bool admits(const threading::CErasedPodMsg& message,
         const module_ids::id_type source) const noexcept
@@ -83,18 +99,27 @@ struct SEndpointDescriptor
     threading::transports::CErasedPodMsgTransport* incoming{ nullptr };
     threading::SNotificationReader notification;
     threading::SNotificationEndpoint peer_notification;
+    SBulkConfiguration bulk;
+    threading::transports::CBulkBufferProducerEndpoint* bulk_producer{ nullptr };
+    threading::transports::CBulkBufferConsumerEndpoint* bulk_consumer{ nullptr };
 };
 
 //  All these messages use the ordinary Host POD pipes. Request correlation uses
 //  their carrier's async_slot and the authenticated originating client instance.
-struct Register { std::uint32_t version{ 1u }; };
-struct Request { module_ids::id_type peer{}; std::uint32_t version{ 0u }; };
+struct Register { std::uint32_t version{ 2u }; };
+struct Request
+{
+    module_ids::id_type peer{};
+    std::uint32_t version{ 0u };
+    SBulkConfiguration bulk;
+};
 struct Offer
 {
     SToken token;
     modules::SModuleInstance peer;
     module_ids::id_type peer_role{};
     std::uint32_t version{ 0u };
+    SBulkConfiguration bulk;
 };
 struct Decision { SToken token; EStatus status{ EStatus::rejected }; };
 struct Install { SToken token; const SEndpointDescriptor* descriptor{ nullptr }; };
@@ -117,6 +142,7 @@ enum class EPost : std::uint8_t
     queued, full, inactive, invalid_message, transport_failed, queued_wake_failed
 };
 enum class ERead : std::uint8_t { record, empty, inactive, invalid_message, record_wake_failed };
+enum class EBulkPublish : std::uint8_t { published, inactive, published_wake_failed };
 
 [[nodiscard]] inline bool was_queued(const EPost result) noexcept
 {

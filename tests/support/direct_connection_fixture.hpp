@@ -47,6 +47,11 @@ namespace host
 {
 struct SDirectConnectionTestAccess
 {
+    static std::size_t bulk_capacity(CDirectConnections& connections, const connections::SToken token)
+    {
+        const CDirectConnections::SRecord* const record = connections.find(token);
+        return record ? record->bulk.capacity() : 0u;
+    }
     static void limit(CDirectConnections& connections, const connections::SToken token, const std::uint32_t capacity = 32u)
     {
         auto* record = connections.find(token);

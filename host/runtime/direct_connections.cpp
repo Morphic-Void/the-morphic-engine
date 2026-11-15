@@ -27,8 +27,8 @@ static connections::SToken issue_token() noexcept
 }
 
 CDirectConnections::SRecord::SRecord(SClientRecord& first, SClientRecord& second,
-    const std::uint32_t value) noexcept
-    : version{ value }, forward{ second.module }, reverse{ first.module }
+    const std::uint32_t value, const connections::SBulkConfiguration configuration) noexcept
+    : version{ value }, forward{ second.module }, reverse{ first.module }, bulk_configuration{ configuration }
 {
     sides[0].client = &first;
     sides[1].client = &second;
@@ -74,7 +74,7 @@ static bool live_participant(const SClientRecord& client) noexcept
 
 void CDirectConnections::register_client(SClientRecord& client, const connections::Register& registration) noexcept
 {
-    if (!m_closed && (registration.version == 1u) && client.thread && !client.stop_requested &&
+    if (!m_closed && (registration.version == 2u) && client.thread && !client.stop_requested &&
         (client.direct_connections != EDirectConnectionState::closing))
     {
         client.direct_connections = EDirectConnectionState::available;
@@ -101,7 +101,11 @@ void CDirectConnections::request(SClientRecord& client, SClientRecord* const pee
     const modules::SHostRestrictionReader restriction) noexcept
 {
     EStatus rejection = EStatus::success;
-    if ((slot < 0) || !request.version || (request.peer == client.module) || !module_ids::ops::is_valid_id(request.peer))
+    const bool valid_bulk = request.bulk.is_bulk() ?
+        (threading::transports::CBulkBufferTransport::valid_capacity(request.bulk.capacity) &&
+            ((request.bulk.producer == client.module) || (request.bulk.producer == request.peer))) :
+        (request.bulk.producer == module_ids::id_type{});
+    if ((slot < 0) || !request.version || !valid_bulk || (request.peer == client.module) || !module_ids::ops::is_valid_id(request.peer))
     {
         rejection = EStatus::invalid_request;
     }
@@ -129,6 +133,10 @@ void CDirectConnections::request(SClientRecord& client, SClientRecord* const pee
         {
             continue;
         }
+        if (record.bulk_configuration.is_bulk() != request.bulk.is_bulk())
+        {
+            continue;
+        }
         if (record.phase == EPhase::closing)
         {
             rejection = EStatus::closing;
@@ -136,6 +144,10 @@ void CDirectConnections::request(SClientRecord& client, SClientRecord* const pee
         else if (record.version != request.version)
         {
             rejection = EStatus::version_mismatch;
+        }
+        else if (!record.bulk_configuration.matches(request.bulk))
+        {
+            rejection = EStatus::configuration_mismatch;
         }
         else if (record.phase == EPhase::active)
         {
@@ -171,7 +183,7 @@ void CDirectConnections::request(SClientRecord& client, SClientRecord* const pee
         refuse(client, peer, request, slot, EStatus::allocation_failed);
         return;
     }
-    const auto record_slot = m_records.emplace(client, *peer, request.version);
+    const std::int32_t record_slot = m_records.emplace(client, *peer, request.version, request.bulk);
     if (record_slot < 0)
     {
         refuse(client, peer, request, slot, EStatus::allocation_failed);
@@ -227,7 +239,14 @@ void CDirectConnections::begin_close(SRecord& record, const EStatus reason) noex
 
 bool CDirectConnections::install(SRecord& record) noexcept
 {
-    if (!record.forward.initialise_growable(0u) || !record.reverse.initialise_growable(0u))
+    if (record.bulk_configuration.is_bulk())
+    {
+        if (!record.bulk.initialise(record.bulk_configuration.capacity))
+        {
+            return false;
+        }
+    }
+    else if (!record.forward.initialise_growable(0u) || !record.reverse.initialise_growable(0u))
     {
         return false;
     }
@@ -247,6 +266,20 @@ bool CDirectConnections::install(SRecord& record) noexcept
             side.client->module, peer.client->module, record.version,
             (index ? &record.reverse : &record.forward), (index ? &record.forward : &record.reverse),
             side.notification.reader(), peer.notification.endpoint() };
+        if (record.bulk_configuration.is_bulk())
+        {
+            side.descriptor.outgoing = nullptr;
+            side.descriptor.incoming = nullptr;
+            side.descriptor.bulk = record.bulk_configuration;
+            if (side.client->module == record.bulk_configuration.producer)
+            {
+                side.descriptor.bulk_producer = &record.bulk_producer;
+            }
+            else
+            {
+                side.descriptor.bulk_consumer = &record.bulk_consumer;
+            }
+        }
     }
     return true;
 }
@@ -384,7 +417,7 @@ void CDirectConnections::progress() noexcept
         {
             auto& peer = *record.sides[0].client;
             record.sides[1].offered = publish(record.sides[1], threading::make_pod_message(-1,
-                connections::Offer{ record.token, peer.instance, peer.module, record.version }));
+                connections::Offer{ record.token, peer.instance, peer.module, record.version, record.bulk_configuration }));
         }
         if (record.phase == EPhase::installing)
         {
