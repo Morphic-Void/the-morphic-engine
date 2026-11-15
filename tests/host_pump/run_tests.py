@@ -18,7 +18,7 @@ import time
 REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
             "bad-provider-size", "bad-provider-version", "bad-provider-flags", "bad-provider-count",
             "bad-provider-null", "bad-provider-contract", "bad-provider-duplicate", "bad-provider-query")
-CASES = ("normal", "empty-provider", "platform-shell") + REJECTED + (
+CASES = ("normal", "sequence", "empty-provider", "platform-shell") + REJECTED + (
          "activation-failed", "activation-null", "unauthorised-native-stop", "unauthorised-native-events", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
@@ -90,6 +90,7 @@ def main():
         if case in ("inbox-full", "emergency") and "full inbox and outbound backpressure established" not in events:
             raise RuntimeError(f"Backpressure not reached; inspect {runtime}")
         required = {
+            "sequence": ("shared sequence pointer, wrap and reload passed",),
             "platform-shell": ("Platform unsupported service commands completed and route remained usable",),
             "cleanup-credits": ("512 disposal credits retained by live acquisitions",
                                 "zero-reply cancellation admitted with 512 reserved replies",

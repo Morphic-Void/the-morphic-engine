@@ -15,6 +15,7 @@
 #include "framework/module/module_messages.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "framework/module/module_binding_context.hpp"
@@ -66,6 +67,12 @@ struct SModalDescriptor { SModalData* state{ nullptr }; };
 
 struct SNotificationData { std::atomic<unsigned> value{ 0u }; };
 struct SNotificationReady { SServiceBorrow borrow; SNotificationRegistration registration; };
+
+struct SSequenceProbe
+{
+    std::atomic<std::uint64_t>* counter{ nullptr };
+    std::uint64_t sequence{ 0u };
+};
 
 static threading::CErasedOwnerMsg module_request(const module_ids::id_type module,
     const modules::EModuleAction action, const char* const file = nullptr, const bool pump = false, const bool thread = false)
@@ -1043,6 +1050,50 @@ static bool platform_native(threading::CThreadContext& context)
 }
 #endif
 
+static bool probe_sequence(threading::CThreadContext& context, const SServiceRoute route,
+    const std::uint64_t request_id, const std::uint64_t expected)
+{
+    std::atomic<std::uint64_t>* const counter = system_context::sequence_counter;
+    if ((counter == nullptr) || (counter->fetch_add(1u, std::memory_order_relaxed) != expected))
+    {
+        return false;
+    }
+    ServiceRequest request;
+    request.route = route;
+    request.request.value = request_id;
+    request.opcode = 12u;
+    if (!context.post(threading::make_pod_message(90, request)))
+    {
+        return false;
+    }
+    for (const EServiceNotice notice : { EServiceNotice::acknowledged, EServiceNotice::completed })
+    {
+        threading::CErasedPodMsg message;
+        ServiceReply reply;
+        if (!receive(context, message) || !message.copy_payload_to(reply) ||
+            (message.query_async_slot() != 90) || (reply.route.value != route.value) ||
+            (reply.request.value != request_id) || (reply.opcode != 12u) ||
+            (reply.notice != notice) || (reply.status != EServiceStatus::success))
+        {
+            return false;
+        }
+        if (notice == EServiceNotice::completed)
+        {
+            if (reply.payload_size != sizeof(SSequenceProbe))
+            {
+                return false;
+            }
+            SSequenceProbe probe;
+            std::memcpy(&probe, reply.payload, sizeof(probe));
+            if ((probe.counter != counter) || (probe.sequence != (expected + 1u)))
+            {
+                return false;
+            }
+        }
+    }
+    return counter->fetch_add(1u, std::memory_order_relaxed) == (expected + 2u);
+}
+
 static bool run(threading::CThreadContext& context)
 {
     if (scenario("platform-shell"))
@@ -1241,6 +1292,21 @@ static bool run(threading::CThreadContext& context)
         return true;
     };
     if (!probe(10u, 40)) return false;
+    if (scenario("sequence"))
+    {
+        if (!probe_sequence(context, opened.route, 5u, 0u))
+        {
+            return false;
+        }
+        //  This isolated fixture has no other sequence consumers. Seed only to
+        //  exercise wrap, then preserve the resulting value across DLL reload.
+        system_context::sequence_counter->store(
+            (std::numeric_limits<std::uint64_t>::max() - 1u), std::memory_order_relaxed);
+        if (!probe_sequence(context, opened.route, 6u, (std::numeric_limits<std::uint64_t>::max() - 1u)))
+        {
+            return false;
+        }
+    }
     if (scenario("cleanup-credits"))
     {
         ServiceRequest request;
@@ -1339,7 +1405,7 @@ static bool run(threading::CThreadContext& context)
     {
         return false;
     }
-    if (scenario("normal"))
+    if (scenario("normal") || scenario("sequence"))
     {
         if (!operation(context, modules::EModuleAction::load, modules::EModuleStatus::success) ||
             !context.post(threading::make_pod_message(60, OpenServiceRequest{module_ids::rendering, 1u, 1u, {1u}})) || !receive(context, message))
@@ -1351,6 +1417,14 @@ static bool run(threading::CThreadContext& context)
             (replacement.provider.value == opened.provider.value) || (replacement.route.value == opened.route.value))
         {
             return false;
+        }
+        if (scenario("sequence"))
+        {
+            if (!probe_sequence(context, replacement.route, 1u, 1u))
+            {
+                return false;
+            }
+            MV_LOG(info, "Pump fixture: shared sequence pointer, wrap and reload passed");
         }
         if (!context.post(threading::make_pod_message(61, CloseServiceRequest{opened.route, {6u}})) || !receive(context, message) ||
             !message.copy_payload_to(closed) || (closed.status != EServiceStatus::stale))
@@ -2215,7 +2289,22 @@ static ECallStatus MV_STD_ABI_CALL pump(void* const runtime, const SPumpInput* c
         {
             reply.payload[0] = 33u;
         }
-        if (reply.opcode == 10u)
+        if (reply.opcode == 12u)
+        {
+            std::atomic<std::uint64_t>* const counter = system_context::sequence_counter;
+            if (counter == nullptr)
+            {
+                return ECallStatus::failed;
+            }
+            const SSequenceProbe probe{ counter, counter->fetch_add(1u, std::memory_order_relaxed) };
+            reply.payload_size = sizeof(probe);
+            std::memcpy(reply.payload, &probe, sizeof(probe));
+            if (state.context->services->complete(state.context->service_context, &reply) != EServiceStatus::success)
+            {
+                return ECallStatus::failed;
+            }
+        }
+        else if (reply.opcode == 10u)
         {
             state.test_reply = reply;
             auto value = CErasedOwner::create<filesystem::FilesystemRefreshRequest>();
@@ -2364,7 +2453,7 @@ static CModuleBindingContext s_binding{k_binding_config};
 
 }   //  namespace pump_tests
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(modules::SBootstrapFunctions* const functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(modules::SBootstrapFunctions* const functions) noexcept
 {
     return pump_tests::s_binding.bootstrap(functions);
 }

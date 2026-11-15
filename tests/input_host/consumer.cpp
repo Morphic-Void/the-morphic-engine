@@ -926,7 +926,7 @@ static constexpr modules::SModuleBindingConfig k_binding_config = MV_MODULE_BIND
 static modules::CModuleBindingContext s_binding{ k_binding_config };
 }
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(modules::SBootstrapFunctions* const functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(modules::SBootstrapFunctions* const functions) noexcept
 {
     return input_host::s_binding.bootstrap(functions);
 }

@@ -78,6 +78,7 @@ private:
     static EBindingResult MV_STD_ABI_CALL install_ambient_module_id(const module_ids::id_type module_id) noexcept;
     static EBindingResult MV_STD_ABI_CALL install_system_registry_view(const system_id_registry::SSystemRegistryView* const view) noexcept;
     static EBindingResult MV_STD_ABI_CALL install_module_memory_context(memory::CMemoryContext* const context) noexcept;
+    static EBindingResult MV_STD_ABI_CALL install_sequence_counter(std::atomic<std::uint64_t>* const counter) noexcept;
     static EBindingResult MV_STD_ABI_CALL install_debug_service(debug_system::CDebugServiceState* const service) noexcept;
     static EBindingResult MV_STD_ABI_CALL install_ambient_thread_id(const thread_ids::id_type thread_id) noexcept;
     static EBindingResult MV_STD_ABI_CALL install_thread_memory_context(memory::CMemoryContext* const context) noexcept;
@@ -97,6 +98,7 @@ private:
     bool m_system_registry_installed{ false };
     bool m_ambient_module_id_installed{ false };
     bool m_module_memory_context_installed{ false };
+    bool m_sequence_counter_installed{ false };
     bool m_debug_service_installed{ false };
 };
 

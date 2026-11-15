@@ -13,10 +13,20 @@
 #ifndef SYSTEM_CONTEXT_HPP_INCLUDED
 #define SYSTEM_CONTEXT_HPP_INCLUDED
 
+#include <atomic>
+#include <cstdint>
+
 #include "foundation/system/system_ids.hpp"
 
 namespace system_context
 {
+
+//  Module-local pointer to the Host-owned shared sequence counter. Installed
+//  before module work starts; only bootstrap/teardown may change the pointer.
+//  Use fetch_add(1u, std::memory_order_relaxed) to claim the previous value.
+//  Values start at zero and wrap modulo 2^64. This orders claims only; callers
+//  must separately synchronise associated data and account for wrap in comparisons.
+extern std::atomic<std::uint64_t>* sequence_counter;
 
 //==============================================================================
 //  Ambient system identity

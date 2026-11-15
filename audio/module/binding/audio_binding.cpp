@@ -47,7 +47,7 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 
 }   //  namespace audio::module_binding
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(
     modules::SBootstrapFunctions* const functions) noexcept
 {
     return audio::module_binding::s_binding.bootstrap(functions);

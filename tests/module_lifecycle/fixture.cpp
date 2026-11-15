@@ -1583,7 +1583,7 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 
 }   //  namespace module_lifecycle_tests
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(
     modules::SBootstrapFunctions* const functions) noexcept
 {
     return module_lifecycle_tests::s_binding.bootstrap(functions);

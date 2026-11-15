@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    13 July 26
 //
-//  Owns and installs the Host allocator and memory context.
+//  Owns and installs the Host allocator, memory context and shared sequence counter.
 // 
 //  This file should not be included in modules/DLLs.
 //
@@ -19,6 +19,9 @@
 
 #ifndef HOST_CONTEXT_HPP_INCLUDED
 #define HOST_CONTEXT_HPP_INCLUDED
+
+#include <atomic>
+#include <cstdint>
 
 #include "memory/memory_context.hpp"
 
@@ -43,6 +46,7 @@ public:
 private:
     memory::CMemoryAllocator m_allocator;
     memory::CMemoryContext m_memory;
+    std::atomic<std::uint64_t>* m_previous_sequence_counter{ nullptr };
     memory::CMemoryContext* m_previous_module_memory{ nullptr };
     memory::CMemoryContext* m_previous_thread_memory{ nullptr };
     module_ids::id_type m_previous_module{};

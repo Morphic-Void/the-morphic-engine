@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    13 July 26
 //
-//  Owns and installs the Host allocator and memory context.
+//  Owns and installs the Host allocator, memory context and shared sequence counter.
 // 
 //  This file should not be included in modules/DLLs.
 //
@@ -35,6 +35,9 @@
 
 namespace host
 {
+
+//  Process lifetime: module reloads and Host context recreation do not reset it.
+static std::atomic<std::uint64_t> s_sequence_counter{ 0u };
 
 //==============================================================================
 //  The host memory allocation functions
@@ -71,6 +74,8 @@ CHostContext::CHostContext() noexcept
     : m_allocator{ nullptr, &host_allocate, &host_deallocate, system_ids::host }
     , m_memory{ m_allocator, system_ids::host }
 {
+    m_previous_sequence_counter = system_context::sequence_counter;
+    system_context::sequence_counter = &s_sequence_counter;
     //  Even failed registry installation leaves dependent empty containers with
     //  a valid memory context through construction and orderly destruction.
     m_previous_module_memory = memory::set_module_memory_context(&m_memory);
@@ -98,6 +103,7 @@ CHostContext::CHostContext() noexcept
 
 CHostContext::~CHostContext() noexcept
 {
+    system_context::sequence_counter = m_previous_sequence_counter;
     (void)memory::set_thread_memory_context(m_previous_thread_memory);
     (void)memory::set_module_memory_context(m_previous_module_memory);
     (void)system_context::set_ambient_thread_id(m_previous_thread);

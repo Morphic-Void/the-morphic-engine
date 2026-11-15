@@ -50,6 +50,7 @@ memory::CMemoryAllocator s_allocator(
     nullptr, &allocate_memory, &deallocate_memory, system_ids::host);
 memory::CMemoryContext s_executable_context(s_allocator, system_ids::host);
 memory::CMemoryContext s_executive_context(s_allocator, system_ids::executive);
+std::atomic<std::uint64_t> s_sequence_counter{ 0u };
 }
 
 static memory::CMemoryContext s_rendering_context(s_allocator,
@@ -69,6 +70,7 @@ bool install() noexcept
     }
 
     (void)system_context::set_ambient_module_id(module_ids::executable);
+    system_context::sequence_counter = &s_sequence_counter;
     (void)system_context::set_ambient_thread_id(thread_ids::host);
     const char* const thread_name = system_id_registry::lookup_thread_name(thread_ids::host);
     if (thread_name != nullptr)
@@ -85,6 +87,7 @@ bool is_clean() noexcept
 {
     return
         (debug_system::get_service() == nullptr) &&
+        (system_context::sequence_counter == &s_sequence_counter) &&
         (system_context::get_ambient_module_id() == module_ids::executable) &&
         (system_context::get_ambient_thread_id() == thread_ids::host) &&
         (memory::get_ambient_memory_context() == &s_executable_context) &&

@@ -9,6 +9,7 @@
 //  Shared Host worker for file I/O, asset conditioning and module binding.
 
 #include "framework/system/system_ids.hpp"
+#include "foundation/system/system_context.hpp"
 #include "framework/threading/messages/message_errors.hpp"
 #include "framework/module/module_messages.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
@@ -346,7 +347,8 @@ static modules::EModuleStatus perform_module_work(SModuleWork& work) noexcept
         (work.next->advertised_module_identity().version.major == modules::k_binding_abi_major))
     {
         status = modules::EModuleStatus::installation_failed;
-        if (work.next->install(*work.registry, request.module, work.memory_context, work.debug_service))
+        if (work.next->install(*work.registry, request.module, work.memory_context,
+            system_context::sequence_counter, work.debug_service))
         {
             status = modules::EModuleStatus::success;
             modules::SCoreFunctions unsupported;

@@ -28,6 +28,7 @@
 #include "debug/service.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/module/bound_module.hpp"
+#include "foundation/system/system_context.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -689,13 +690,27 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
         return;
     }
 
+    modules::SCoreFunctions core;
+    TEST_EXPECT(ctx, (module.populate_core_functions(modules::k_binding_abi_major, core) ==
+        modules::EBindingResult::success));
+    TEST_EXPECT(ctx, core.is_complete());
+    if (!core.is_complete()) return;
+    TEST_EXPECT(ctx, (core.install_sequence_counter(nullptr) == modules::EBindingResult::invalid_argument));
+    TEST_EXPECT(ctx, (core.install_ambient_thread_id(thread_ids::executive) == modules::EBindingResult::invalid_argument));
     TEST_EXPECT(ctx, !module.install(
         test_environment::system_registry_view(), module_ids::executive,
-        host_context, debug_service.operator->()));
+        executive_context, nullptr, debug_service.operator->()));
+    TEST_EXPECT(ctx, !module.is_ready());
+    TEST_EXPECT(ctx, !module.install(
+        test_environment::system_registry_view(), module_ids::executive,
+        host_context, system_context::sequence_counter, debug_service.operator->()));
     TEST_EXPECT(ctx, module.install(
         test_environment::system_registry_view(), module_ids::executive,
-        executive_context, debug_service.operator->()));
+        executive_context, system_context::sequence_counter, debug_service.operator->()));
     TEST_EXPECT(ctx, module.is_ready());
+    std::atomic<std::uint64_t> replacement_counter{ 123u };
+    TEST_EXPECT(ctx, (core.install_sequence_counter(&replacement_counter) == modules::EBindingResult::already_installed));
+    TEST_EXPECT(ctx, (core.install_sequence_counter(system_context::sequence_counter) == modules::EBindingResult::already_installed));
 
     constexpr std::size_t allocation_alignment = alignof(std::max_align_t);
     constexpr std::size_t allocation_size = 64u;

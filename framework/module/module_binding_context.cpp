@@ -37,6 +37,7 @@ bool CModuleBindingContext::is_ready() const noexcept
         m_system_registry_installed &&
         m_ambient_module_id_installed &&
         m_module_memory_context_installed &&
+        m_sequence_counter_installed &&
         m_debug_service_installed;
 }
 
@@ -184,6 +185,22 @@ EBindingResult MV_STD_ABI_CALL CModuleBindingContext::install_module_memory_cont
     return EBindingResult::success;
 }
 
+EBindingResult MV_STD_ABI_CALL CModuleBindingContext::install_sequence_counter(std::atomic<std::uint64_t>* const counter) noexcept
+{
+    if ((s_active_binding == nullptr) || !s_active_binding->m_peer_identity_installed || (counter == nullptr))
+    {
+        return EBindingResult::invalid_argument;
+    }
+    if (s_active_binding->m_sequence_counter_installed)
+    {
+        return EBindingResult::already_installed;
+    }
+
+    system_context::sequence_counter = counter;
+    s_active_binding->m_sequence_counter_installed = true;
+    return EBindingResult::success;
+}
+
 EBindingResult MV_STD_ABI_CALL CModuleBindingContext::install_debug_service(debug_system::CDebugServiceState* const service) noexcept
 {
     if ((s_active_binding == nullptr) || (service == nullptr))
@@ -295,6 +312,7 @@ EBindingResult MV_STD_ABI_CALL CModuleBindingContext::populate_core_functions(
     populated.install_system_registry_view = &install_system_registry_view;
     populated.install_ambient_module_id = &install_ambient_module_id;
     populated.install_module_memory_context = &install_module_memory_context;
+    populated.install_sequence_counter = &install_sequence_counter;
     populated.install_debug_service = &install_debug_service;
     populated.install_ambient_thread_id = &install_ambient_thread_id;
     populated.install_thread_memory_context = &install_thread_memory_context;

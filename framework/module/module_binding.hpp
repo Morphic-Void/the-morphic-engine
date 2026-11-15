@@ -13,8 +13,9 @@
 #ifndef MODULE_BINDING_ABI_HPP_INCLUDED
 #define MODULE_BINDING_ABI_HPP_INCLUDED
 
+#include <atomic>       //  std::atomic
 #include <cstddef>      //  std::size_t
-#include <cstdint>      //  std::uint32_t
+#include <cstdint>      //  std::uint32_t, std::uint64_t
 #include <type_traits>  //  std::is_standard_layout_v, std::is_trivially_copyable_v
 
 #include "foundation/platform/platform_defines.hpp"
@@ -32,8 +33,8 @@ namespace memory { class CMemoryContext; }
 namespace modules
 {
 
-inline constexpr char k_bootstrap_symbol_name[]{ "morphic_module_bootstrap_v3" };
-inline constexpr std::uint32_t k_binding_abi_major = 3u;
+inline constexpr char k_bootstrap_symbol_name[]{ "morphic_module_bootstrap_v4" };
+inline constexpr std::uint32_t k_binding_abi_major = 4u;
 
 struct SVersion
 {
@@ -96,6 +97,7 @@ using FInstallPeerIdentity = EBindingResult(MV_STD_ABI_CALL*)(const SAdvertisedI
 using FInstallAmbientModuleId = EBindingResult(MV_STD_ABI_CALL*)(const module_ids::id_type module_id) noexcept;
 using FInstallSystemRegistryView = EBindingResult(MV_STD_ABI_CALL*)(const system_id_registry::SSystemRegistryView* const view) noexcept;
 using FInstallModuleMemoryContext = EBindingResult(MV_STD_ABI_CALL*)(memory::CMemoryContext* const context) noexcept;
+using FInstallSequenceCounter = EBindingResult(MV_STD_ABI_CALL*)(std::atomic<std::uint64_t>* const counter) noexcept;
 using FInstallDebugService = EBindingResult(MV_STD_ABI_CALL*)(debug_system::CDebugServiceState* const service) noexcept;
 using FInstallAmbientThreadId = EBindingResult(MV_STD_ABI_CALL*)(const thread_ids::id_type thread_id) noexcept;
 using FInstallThreadMemoryContext = EBindingResult(MV_STD_ABI_CALL*)(memory::CMemoryContext* const context) noexcept;
@@ -107,6 +109,7 @@ struct SCoreFunctions
     FInstallSystemRegistryView install_system_registry_view{ nullptr };
     FInstallAmbientModuleId install_ambient_module_id{ nullptr };
     FInstallModuleMemoryContext install_module_memory_context{ nullptr };
+    FInstallSequenceCounter install_sequence_counter{ nullptr };
     FInstallDebugService install_debug_service{ nullptr };
     FInstallAmbientThreadId install_ambient_thread_id{ nullptr };
     FInstallThreadMemoryContext install_thread_memory_context{ nullptr };
@@ -123,6 +126,7 @@ inline bool SCoreFunctions::is_empty() const noexcept
         (install_system_registry_view == nullptr) &&
         (install_ambient_module_id == nullptr) &&
         (install_module_memory_context == nullptr) &&
+        (install_sequence_counter == nullptr) &&
         (install_debug_service == nullptr) &&
         (install_ambient_thread_id == nullptr) &&
         (install_thread_memory_context == nullptr) &&
@@ -136,6 +140,7 @@ inline bool SCoreFunctions::is_complete() const noexcept
         (install_system_registry_view != nullptr) &&
         (install_ambient_module_id != nullptr) &&
         (install_module_memory_context != nullptr) &&
+        (install_sequence_counter != nullptr) &&
         (install_debug_service != nullptr) &&
         (install_ambient_thread_id != nullptr) &&
         (install_thread_memory_context != nullptr) &&
@@ -156,10 +161,10 @@ using FBootstrap = EBindingResult(MV_STD_ABI_CALL*)(SBootstrapFunctions* const f
 
 static_assert(std::is_standard_layout_v<SVersion> && std::is_trivially_copyable_v<SVersion>);
 static_assert(std::is_standard_layout_v<SAdvertisedIdentity> && std::is_trivially_copyable_v<SAdvertisedIdentity>);
-static_assert((sizeof(SAdvertisedIdentity) == 24u), "The version-3 advertised identity must retain its fixed ABI representation.");
+static_assert((sizeof(SAdvertisedIdentity) == 24u), "The version-4 advertised identity must retain its fixed ABI representation.");
 static_assert(std::is_standard_layout_v<SCoreFunctions> && std::is_trivially_copyable_v<SCoreFunctions>);
 static_assert(std::is_standard_layout_v<SBootstrapFunctions> && std::is_trivially_copyable_v<SBootstrapFunctions>);
-static_assert((sizeof(SCoreFunctions) == (sizeof(void*) * 8u)), "Version-2 core functions must contain exactly eight ABI function pointers.");
+static_assert((sizeof(SCoreFunctions) == (sizeof(void*) * 9u)), "Version-4 core functions must contain exactly nine ABI function pointers.");
 static_assert(sizeof(SBootstrapFunctions) == (sizeof(void*) * 3u));
 
 }   //  namespace modules

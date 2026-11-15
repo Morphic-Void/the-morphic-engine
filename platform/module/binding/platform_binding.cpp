@@ -105,7 +105,7 @@ static modules::ECallStatus MV_STD_ABI_CALL deactivate(void* const runtime) noex
 
 }   //  namespace platform::module_binding
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(modules::SBootstrapFunctions* const functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(modules::SBootstrapFunctions* const functions) noexcept
 {
     return platform::module_binding::s_binding.bootstrap(functions);
 }

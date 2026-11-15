@@ -39,6 +39,7 @@ public:
         const system_id_registry::SSystemRegistryView& system_registry,
         const module_ids::id_type ambient_module_id,
         memory::CMemoryContext* const module_memory_context,
+        std::atomic<std::uint64_t>* const sequence_counter,
         debug_system::CDebugServiceState* const debug_service) noexcept;
     [[nodiscard]] bool unbind() noexcept;
 

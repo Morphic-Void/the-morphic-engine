@@ -18,6 +18,8 @@
 #include <cstring>
 #include <type_traits>
 
+#include "foundation/system/system_context.hpp"
+
 #include "debug/service.hpp"
 #include "host/runtime/asset_service.hpp"
 #include "host/module/bound_module.hpp"
@@ -90,7 +92,7 @@ struct SRealFixture
             !debug_service->open_logs() || !debug_service->start({ thread_ids::debug_service, "debug_service" }) || !path.is_ready() ||
             !module.bind(path, module_ids::rendering, identity) ||
             !module.install(test_environment::system_registry_view(), module_ids::rendering,
-                test_environment::rendering_memory_context(), debug_service.operator->()) ||
+                test_environment::rendering_memory_context(), system_context::sequence_counter, debug_service.operator->()) ||
             !module.query_function(system_type_ids::rendering_thread_function, function))
         {
             return false;

@@ -94,11 +94,13 @@ bool CBoundModule::install(
     const system_id_registry::SSystemRegistryView& system_registry,
     const module_ids::id_type ambient_module_id,
     memory::CMemoryContext* const module_memory_context,
+    std::atomic<std::uint64_t>* const sequence_counter,
     debug_system::CDebugServiceState* const debug_service) noexcept
 {
     if (!m_native_module.is_bound() || m_installed ||
         !module_ids::ops::is_valid_id(ambient_module_id) ||
         (module_memory_context == nullptr) ||
+        (sequence_counter == nullptr) ||
         !module_memory_context->is_usable() ||
         !module_memory_context->belongs_to_module(ambient_module_id) ||
         !module_memory_context->is_attribution_empty() ||
@@ -110,7 +112,8 @@ bool CBoundModule::install(
     }
 
     m_module_memory_context = module_memory_context;
-    if (m_core.install_debug_service(debug_service) != EBindingResult::success)
+    if ((m_core.install_sequence_counter(sequence_counter) != EBindingResult::success) ||
+        (m_core.install_debug_service(debug_service) != EBindingResult::success))
     {
         return false;
     }
