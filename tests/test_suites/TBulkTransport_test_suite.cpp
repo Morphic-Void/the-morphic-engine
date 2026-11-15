@@ -11,8 +11,11 @@
 
 #include "framework/system/system_ids.hpp"
 #include "threading/transports/TBulkTransport.hpp"
+#include "threading/transports/CBulkBufferTransport.hpp"
 #include "tests/test_suites/TBulkTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+
+#include <cstring>
 
 namespace
 {
@@ -147,6 +150,25 @@ static void bounded_operation_sequences(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, consistent);
 }
 
+static void opaque_endpoint_acknowledgement(tests::TTestContext& ctx)
+{
+    threading::transports::CBulkBufferTransport bulk;
+    const bool prepared = bulk.initialise(129u);
+    TEST_EXPECT(ctx, prepared);
+    if (!prepared) return;
+    threading::transports::CBulkBufferProducerEndpoint producer{ bulk };
+    threading::transports::CBulkBufferConsumerEndpoint consumer{ bulk };
+    TEST_EXPECT(ctx, !consumer.discard_and_acquire());
+    const memory::CMemoryView output = producer.producer_data();
+    TEST_EXPECT(ctx, (output.bytes() == 129u));
+    if (!output) return;
+    std::memset(output.data(), 42, output.bytes());
+    TEST_EXPECT(ctx, !producer.publish());
+    TEST_EXPECT(ctx, consumer.discard_and_acquire());
+    const memory::CMemoryConstView input = consumer.consumer_data();
+    TEST_EXPECT(ctx, (input && (*static_cast<const unsigned char*>(input.data()) == 42u)));
+}
+
 }   //  namespace
 
 int run_bulk_transport_tests()
@@ -155,5 +177,6 @@ int run_bulk_transport_tests()
     initial_publication_acknowledgement(ctx);
     quiescent_validation(ctx);
     bounded_operation_sequences(ctx);
+    opaque_endpoint_acknowledgement(ctx);
     return ctx.report("TBulkTransport");
 }

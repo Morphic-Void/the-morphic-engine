@@ -123,6 +123,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CThreadControlState.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\CWaitPredicate.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\threading.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\CBulkBufferTransport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TBulkTransport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TMpmcTransport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TOwningTransport.hpp" />

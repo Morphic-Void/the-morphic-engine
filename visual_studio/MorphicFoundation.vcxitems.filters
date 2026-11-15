@@ -447,6 +447,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\threading.hpp">
       <Filter>Foundation\include\threading</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\CBulkBufferTransport.hpp">
+      <Filter>Foundation\include\threading\transports</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\threading\transports\TBulkTransport.hpp">
       <Filter>Foundation\include\threading\transports</Filter>
     </ClInclude>
