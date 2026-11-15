@@ -62,6 +62,7 @@
 #include "tests/test_suites/TQueueTransport_test_suite.hpp"
 #include "tests/test_suites/TMpmcTransport_test_suite.hpp"
 #include "tests/test_suites/TRingTransport_test_suite.hpp"
+#include "tests/test_suites/TBulkTransport_test_suite.hpp"
 #include "tests/test_suites/TOwningTransport_test_suite.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "debug/log_path.hpp"
@@ -160,6 +161,7 @@ void print_usage()
         "  -t3          Run full expensive tests\n"
         "  --tests=<0-3>\n"
         "               Long-form equivalent of -t0..-t3\n"
+        "  --bulk-transport   Run focused TBulk transport regressions\n"
         "  --platform-window  Run focused portable window/Host tests\n"
         "  --platform-input   Run synthetic portable input/Host tests\n"
         "  --platform-native  Explicit Windows visible-window/modal acceptance\n"
@@ -319,6 +321,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("TOwningTransport", &run_owning_transport_tests);
     cumulative_result += run_isolated_suite("TQueueTransport", &run_queue_transport_tests);
     cumulative_result += run_isolated_suite("TRingTransport", &run_ring_transport_tests);
+    cumulative_result += run_isolated_suite("TBulkTransport", &run_bulk_transport_tests);
     cumulative_result += run_isolated_suite("TMpmcTransport", &run_mpmc_transport_tests);
 
     if (mode >= ETestRunMode::core)

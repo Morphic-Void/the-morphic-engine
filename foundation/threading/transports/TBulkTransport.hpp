@@ -62,6 +62,10 @@ private:
 
 public:
     TBulk() noexcept = default;
+    TBulk(const T& first, const T& second, const T& third) noexcept : m_data{ first, second, third }
+    {   //  Initialise slot identities without publishing unwritten payloads.
+        static_assert(std::is_nothrow_copy_constructible_v<T>);
+    }
     TBulk(const TBulk&) = delete;
     TBulk& operator=(const TBulk&) = delete;
     TBulk(TBulk&&) noexcept = delete;
@@ -73,7 +77,7 @@ public:
     //  - producer_data() returns the producer-owned payload currently safe to modify
     //  - publish() always publishes the current producer payload
     //  - returns true if the previously staged payload had been acquired by the consumer
-    //  - returns false if the previously staged payload was replaced before acquisition
+    //  - returns false if no previous payload exists or it was replaced before acquisition
     [[nodiscard]] T* producer_data() noexcept;
     bool publish() noexcept;
 
@@ -85,6 +89,10 @@ public:
     //    returns true if new data was acquired.
     [[nodiscard]] T* consumer_data() noexcept;
     bool discard_and_acquire() noexcept;
+    [[nodiscard]] bool has_staged_data() const noexcept
+    {
+        return (m_staged_word.load(std::memory_order_acquire) & 3u) != 0u;
+    }
 
     //  Validation
     //  - full structural validity check
@@ -97,8 +105,8 @@ private:
     //  Atomic publication word encoding:
     //  - 0 means the consumer acquired the staged payload.
     //  - 1..3 mean payload index + 1.
-    //  - 4 is the initial/null staged word; it prevents the first publish()
-    //    from reporting that a previous staged payload had been acquired.
+    //  - 4 is the initial/null staged word; empty consumer polls preserve it
+    //    so the first publish() cannot report a previous acquisition.
     //  The consumer tests (word & 3u) to accept only payload words 1..3.
     static constexpr std::uint32_t k_null_payload_index{ 3u };
     static constexpr std::uint32_t k_null_staged_word{ k_null_payload_index + 1u };
@@ -184,8 +192,8 @@ inline bool TBulk<T>::publish() noexcept
     if (received == 0u)
     {   //  Previous staged publication was acquired by the consumer
         previous_staged_was_acquired = true;
-        m_producer_locked_payload_index = m_producer_staged_payload_index;
         m_producer_output_payload_index = m_producer_locked_payload_index;
+        m_producer_locked_payload_index = m_producer_staged_payload_index;
     }
     else
     {   //  Previous staged publication was replaced before acquisition
@@ -207,6 +215,12 @@ inline bool TBulk<T>::discard_and_acquire() noexcept
 {
     bool staged_was_acquired = false;
     m_consumer_payload_index = k_null_payload_index;
+    //  Observing the initial word can precede a concurrent first publication.
+    //  Leave that publication pending rather than acknowledge unwritten data.
+    if (m_staged_word.load(std::memory_order_acquire) == k_null_staged_word)
+    {
+        return false;
+    }
     const std::uint32_t received = exchange(0u);
     if ((received & 3u) != 0u)
     {   //  Staged publication was acquired
@@ -229,18 +243,26 @@ inline T* TBulk<T>::consumer_data() noexcept
 template<typename T>
 inline bool TBulk<T>::validate() const noexcept
 {
+    const std::uint32_t staged_word = m_staged_word.load(std::memory_order_relaxed);
     if ((m_producer_output_payload_index >= k_null_payload_index) ||
         (m_producer_staged_payload_index >= k_null_payload_index) ||
         (m_producer_locked_payload_index >= k_null_payload_index) ||
-        (m_consumer_payload_index > k_null_payload_index))
+        (m_consumer_payload_index > k_null_payload_index) ||
+        (staged_word > k_null_staged_word))
     {
         return false;
     }
 
-    if ((m_consumer_payload_index != k_null_payload_index) &&
-        (m_consumer_payload_index != m_producer_locked_payload_index))
+    if (m_consumer_payload_index != k_null_payload_index)
     {
-        return false;
+        //  A zero word acknowledges the staged slot. The producer records it
+        //  as locked only at its next publication; either state can be quiescent.
+        const std::uint32_t expected_consumer_index = (staged_word == 0u) ?
+            m_producer_staged_payload_index : m_producer_locked_payload_index;
+        if ((staged_word == k_null_staged_word) || (m_consumer_payload_index != expected_consumer_index))
+        {
+            return false;
+        }
     }
 
     const std::uint32_t permutation_check =
@@ -253,7 +275,8 @@ inline bool TBulk<T>::validate() const noexcept
         return false;
     }
 
-    return m_staged_word.load(std::memory_order_relaxed) <= k_null_staged_word;
+    return (staged_word == 0u) || (staged_word == k_null_staged_word) ||
+        (staged_word == (m_producer_staged_payload_index + 1u));
 }
 
 template<typename T>

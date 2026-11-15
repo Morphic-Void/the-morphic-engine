@@ -14,6 +14,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/ShaderReflection_test_suite.hpp"
+#include "tests/test_suites/TBulkTransport_test_suite.hpp"
 
 int run_platform_window_focused();
 int run_platform_input_focused();
@@ -57,6 +58,12 @@ int main(const int argc, char** const argv)
 
     for (int i = 1; i < argc; ++i)
     {
+        if (std::strcmp(argv[i], "--bulk-transport") == 0)
+        {
+            const int result = run_bulk_transport_tests();
+            if (!test_environment::is_clean()) return 1;
+            return result;
+        }
         if (std::strcmp(argv[i], "--platform-window") == 0) return run_platform_window_focused();
         if (std::strcmp(argv[i], "--platform-input") == 0)
         {
