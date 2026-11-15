@@ -4,7 +4,6 @@
     <Filter Include="Audio"><UniqueIdentifier>{0e9d854a-1bfe-541f-9557-d28e4255c79f}</UniqueIdentifier></Filter>
     <Filter Include="Audio\include"><UniqueIdentifier>{727c486a-ffdf-5039-95f1-b7f67e444299}</UniqueIdentifier></Filter>
     <Filter Include="Audio\include\module"><UniqueIdentifier>{302fd874-9060-5087-8c02-96a63c246676}</UniqueIdentifier></Filter>
-    <Filter Include="Audio\include\module\binding"><UniqueIdentifier>{e402acf0-cb3b-5c45-818f-aada4085533a}</UniqueIdentifier></Filter>
     <Filter Include="Audio\include\module\types"><UniqueIdentifier>{83e417e5-724c-59ff-bce1-9473be88591d}</UniqueIdentifier></Filter>
     <Filter Include="Audio\include\runtime"><UniqueIdentifier>{6d1af78e-28ce-53a9-be34-0189fc94b6c6}</UniqueIdentifier></Filter>
     <Filter Include="Audio\src"><UniqueIdentifier>{85c23db4-6c35-5d18-b7cb-80dda9ee30a0}</UniqueIdentifier></Filter>

@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="Foundation\src\services"><UniqueIdentifier>{88d3d7ef-3531-4c82-9011-35a1221edb36}</UniqueIdentifier></Filter>
-    <Filter Include="Foundation\include\services">
-      <UniqueIdentifier>{85459908-f72c-42f9-a1f0-134e9b8f888b}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Foundation">
       <UniqueIdentifier>{70ea1983-c983-deac-c1b6-1805aea3d436}</UniqueIdentifier>
     </Filter>
@@ -50,9 +46,6 @@
     <Filter Include="Foundation\include\memory">
       <UniqueIdentifier>{41167c5c-9705-9596-1421-8c795605816f}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Foundation\include\module">
-      <UniqueIdentifier>{0be6dcf9-31d1-cef2-6bc7-c39de9edcd61}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Foundation\include\platform">
       <UniqueIdentifier>{f36afd28-cc18-3d90-903f-ef51ba3dd4e4}</UniqueIdentifier>
     </Filter>
@@ -83,9 +76,6 @@
     <Filter Include="Foundation\include\threading">
       <UniqueIdentifier>{59a2094b-18c2-1566-ca58-7165bd1dd062}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Foundation\include\threading\messages">
-      <UniqueIdentifier>{37289a1a-f4ee-ee95-02c0-8e6e31dca248}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Foundation\include\threading\transports">
       <UniqueIdentifier>{b67d7b99-c024-af0b-b5a9-30bff759d272}</UniqueIdentifier>
     </Filter>
@@ -107,9 +97,6 @@
     <Filter Include="Foundation\src\data_model">
       <UniqueIdentifier>{77ec940a-6393-49c4-8cb9-36fd907cf65e}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Foundation\src\filesystem">
-      <UniqueIdentifier>{7459d8e2-fad5-45eb-9d80-998ce05f86cb}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Foundation\src\image">
       <UniqueIdentifier>{820fbd0f-1f89-4472-b601-bb355730b034}</UniqueIdentifier>
     </Filter>
@@ -118,9 +105,6 @@
     </Filter>
     <Filter Include="Foundation\src\memory">
       <UniqueIdentifier>{3a8612a4-a0fc-58d5-128d-92bd50baf1e2}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Foundation\src\module">
-      <UniqueIdentifier>{978ddc24-0325-e5df-db14-fc29d29fbb3e}</UniqueIdentifier>
     </Filter>
     <Filter Include="Foundation\src\platform">
       <UniqueIdentifier>{07ec3fcc-b873-45df-b6c6-6bf930b2d8f6}</UniqueIdentifier>
@@ -151,9 +135,6 @@
     </Filter>
     <Filter Include="Foundation\src\threading">
       <UniqueIdentifier>{f336948a-e801-c87f-30e5-0d0fc0c28c86}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Foundation\src\threading\messages">
-      <UniqueIdentifier>{8c826f53-8c4a-a693-8cd9-35d80dc72616}</UniqueIdentifier>
     </Filter>
     <Filter Include="Foundation\src\text">
       <UniqueIdentifier>{b917c6a3-8f23-48f9-9a1c-6c2e3a3c90e1}</UniqueIdentifier>
