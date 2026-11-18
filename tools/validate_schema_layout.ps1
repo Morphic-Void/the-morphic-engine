@@ -34,7 +34,7 @@ foreach ($platform in $Platforms) {
     # Match the engine projects: C++ exceptions are disabled; STL warning C4530
     # is suppressed there when headers are compiled without exception handling.
     $arguments = @('/nologo', '/c', '/std:c++17', '/permissive-', '/wd4530', '/W4', '/WX',
-        "/I$repositoryRoot\core", "/I$compilerRoot\include", "/I$sdkInclude\ucrt", "/Fo$object", $sourcePath)
+        "/I$repositoryRoot\foundation", "/I$compilerRoot\include", "/I$sdkInclude\ucrt", "/Fo$object", $sourcePath)
     Write-Host "Schema C++17 layout validation: $platform"
     & $compiler @arguments
     if ($LASTEXITCODE -ne 0) {

@@ -15,6 +15,10 @@
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/ShaderReflection_test_suite.hpp"
 #include "tests/test_suites/TBulkTransport_test_suite.hpp"
+#include "tests/test_suites/SchemaReference_test_cases.hpp"
+#include "tests/test_suites/Schema_test_suite.hpp"
+#include "tests/test_suites/SchemaModel_test_cases.hpp"
+#include "tests/test_suites/SchemaTraversal_test_cases.hpp"
 
 int run_platform_window_focused();
 int run_platform_input_focused();
@@ -58,6 +62,25 @@ int main(const int argc, char** const argv)
 
     for (int i = 1; i < argc; ++i)
     {
+        if (std::strcmp(argv[i], "--schema-traversal") == 0)
+        {
+            const int result = run_schema_traversal_tests();
+            if (!test_environment::is_clean()) return 1;
+            return result;
+        }
+        if (std::strcmp(argv[i], "--schema") == 0)
+        {
+            const int model_result = run_schema_model_tests();
+            const int result = model_result + run_schema_tests();
+            if (!test_environment::is_clean()) return 1;
+            return result;
+        }
+        if (std::strcmp(argv[i], "--schema-references") == 0)
+        {
+            const int result = run_schema_reference_tests();
+            if (!test_environment::is_clean()) return 1;
+            return result;
+        }
         if (std::strcmp(argv[i], "--bulk-transport") == 0)
         {
             const int result = run_bulk_transport_tests();

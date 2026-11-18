@@ -73,7 +73,9 @@ enum class ECategory : std::uint8_t
     enumeration,
     structure,
     array,
-    bit_structure
+    bit_structure,
+    text,
+    span
 };
 
 enum class EPrimitive : std::uint8_t
@@ -105,6 +107,8 @@ enum class EDeclarationCategory : std::uint8_t
     structure,
     array,
     bit_structure,
+    text,
+    span,
     association,
     interface_type
 };
@@ -129,7 +133,9 @@ enum class EDefault : std::uint8_t
 {
     scalar = 0,
     array,
-    structure
+    structure,
+    text,
+    span
 };
 
 enum class EStage : std::uint8_t
@@ -195,7 +201,7 @@ struct SType
     std::uint64_t size{}, alignment{}, stride{};
     std::uint32_t count{};
     CTypesIndex element_or_storage;
-    bool gaps{}, internal{}, named_components{};
+    bool gaps{}, internal{}, named_components{}, nullable{}, contains_references{};
 };
 
 struct SMember
@@ -231,6 +237,8 @@ struct SDefault
     CTypesHandle source;
     SScalar scalar;
     std::uint32_t supplied_count{};
+    CStringView text;
+    bool absent{};
 };
 
 struct SDecoration
@@ -381,6 +389,7 @@ private:
         static constexpr std::uint8_t k_gaps = 1u, k_internal = 2u, k_named_components = 4u;
         static constexpr unsigned k_state_shift = 3u;
         static constexpr std::uint8_t k_state_mask = 3u << k_state_shift;
+        static constexpr std::uint8_t k_nullable = 32u, k_references = 64u;
 
         [[nodiscard]] constexpr std::uint32_t alignment() const noexcept;
         [[nodiscard]] bool flag(const std::uint8_t mask) const noexcept { return (control & mask) != 0u; }

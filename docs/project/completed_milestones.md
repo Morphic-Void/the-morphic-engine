@@ -18,6 +18,21 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Opaque Host bulk distribution
+
+The [direct bulk connection contract](../modules/direct_bulk_connections.md) records
+the 15 November 2026 checkpoint:
+
+| Commit | Delivered scope |
+| --- | --- |
+| `ea24d44` | Corrected `TBulk` ownership rotation, acknowledgement and quiescent validation. |
+| `0a1db44` | Fixed-capacity opaque triple buffers with 128-byte-aligned backing and allocation-free exchange. |
+| `2e2a8b4` | Host distribution through the shared direct POD/bulk coordinator, exact-instance policy/activation, independent POD coexistence and quiescence-protected retirement. |
+
+The reference owns recorded validation and regression details. Views remain borrowed
+within endpoint lifetime; schema acknowledgement, exact-payload handoff controls and
+independently retained acquisition records remain future shader-system design.
+
 ## Host-pumped services and first Windows window
 
 Completed, coordinator-reviewed, user-reviewed and committed through `f55d514`
@@ -155,10 +170,39 @@ separate preparation/merge APIs.
 | Common-block internal cleanup | `cf9dca6` | [Common block and assembly](#common-schema-block-and-assembly) |
 | Reduced assembly conversions and shared helpers | `ec4c54f` | [Common block and assembly](#common-schema-block-and-assembly) |
 | Aggregate/runtime document model and shared construction | 25 October 2026 delivery | [Document model](#schema-document-model-and-runtime-construction) |
+| Shared schema planning, operation ownership and validation/publication consolidation | 18 November 2026 acceptance | [Consolidation](#schema-consolidation) |
 
 Validation counts below belong to their recorded checkpoints, not a promise that
 the current suite count stays fixed. Build logs under `build/` and `development/`
 are local evidence paths and are not distributed documentation dependencies.
+
+## Schema consolidation
+
+Implemented and qualified on 17 November 2026; all six stages are reviewed, with
+independent coordinator acceptance on 18 November 2026 after the diagnostic
+follow-up. The [completion record](../schema/consolidation-validation.md)
+preserves staged delivery/review evidence and final qualification; the completed
+implementation plan is retired.
+
+The remap and operation interfaces are isolated, baked roles and complete-block
+views share structural planners, and views retain common records without duplicate
+role owners or unused indexes. Outer calls/sessions own operations; internal helpers
+borrow them. Reference validation retains construction and complete checks but
+stops before publication. Both generic bake overloads, including no-remap baking,
+and existing reference-free behaviour remain supported. Stored layouts and version
+markers are unchanged. Current contracts are in the [runtime guide](../schema/runtime-api.md)
+and [text/span contract](../schema/text-and-spans.md).
+
+Windows x64 Debug, Win32 Debug, x64 Release and Linux GCC Debug builds and ordinary
+suites passed, including BakedDocumentTransfer 629/0, SchemaModel 1,172/0 and Schema
+87,146/0 on each. Focused traversal passed 2,195 checks on a 128 KiB stack in all
+four configurations. Portable fixtures, cross-platform reads, generated layout
+assertions, isolated headers, source/include policy and source-extraction checks
+passed. Resource observations and the limited scope of the stack qualification
+are recorded with the evidence; reference-free allocation measurements are retained.
+The coordinator's invalid-limit diagnostic finding was resolved and re-reviewed;
+focused reference tests then passed 4,127 checks on Windows x64 Debug and Linux
+GCC Debug. The broad matrix was not repeated for that narrow correction.
 
 ## Schema document model and runtime construction
 
@@ -249,7 +293,7 @@ Completed, user-reviewed and committed on 24 October 2026. `CBakedDataBlock` rep
 separate storage forms with one .bsd block containing a description and independently
 addressed instance/bulk domains. The typed role interfaces, local/asset ownership,
 checked physical framing and explicit replacement assembly remain in the current
-[version-2 contract](../schema/common-binary-block.md). The 25 October document model
+[version-1 contract](../schema/common-binary-block.md). The 25 October document model
 supersedes the initial optional-binary and retained-value construction policies.
 
 Internal cleanup shared attachment/metadata handling and retained precise nested

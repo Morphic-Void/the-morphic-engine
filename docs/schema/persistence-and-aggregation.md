@@ -17,7 +17,7 @@ are retired into the [delivery record](../project/completed_milestones.md#schema
 
 ## Runtime storage and authoring storage
 
-Runtime .bsd uses the [version-2 common block](common-binary-block.md). Every
+Runtime .bsd uses the [version-1 common block](common-binary-block.md). Every
 present data domain has its binary; descriptions are always stripped. Storage
 loading/assembly neither requires nor retains a types owner. Typed attachment
 validates an existing payload and does not construct missing storage. Explicit

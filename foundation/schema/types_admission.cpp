@@ -12,6 +12,8 @@
 #include "data_model/document_copy.hpp"
 #include "schema/type_compatibility.hpp"
 
+#include "schema/operation_meter.hpp"
+
 #include <algorithm>
 
 namespace schema::detail
@@ -21,7 +23,8 @@ enum class EDefinitionShape : std::uint8_t
 {
     invalid = 0u, enumeration, structure, bit_structure, association, interface_type,
     member, field, interface_member, array, type_reference, detail, members, fields,
-    interface_members, labels, decorations, literal, string, number, boolean, target
+    interface_members, labels, decorations, literal, string, number, boolean, target,
+    text_reference, span_reference
 };
 
 [[nodiscard]] static EDefinitionShape category(const CStringView& name) noexcept
@@ -36,6 +39,16 @@ enum class EDefinitionShape : std::uint8_t
 
 [[nodiscard]] static EDefinitionShape property(const EDefinitionShape shape, const CStringView& name) noexcept
 {
+    if ((shape == EDefinitionShape::text_reference) || (shape == EDefinitionShape::span_reference))
+    {
+        if (name == CStringView{ "kind" }) return EDefinitionShape::string;
+        if (name == CStringView{ "nullable" }) return EDefinitionShape::boolean;
+        if ((shape == EDefinitionShape::span_reference) && (name == CStringView{ "element" }))
+        {
+            return EDefinitionShape::string;
+        }
+        return EDefinitionShape::invalid;
+    }
     if ((name == CStringView{ "decorations" }) && (shape != EDefinitionShape::detail)) return EDefinitionShape::decorations;
     if ((name == CStringView{ "storage" }) && ((shape == EDefinitionShape::enumeration) || (shape == EDefinitionShape::bit_structure))) return EDefinitionShape::string;
     if ((name == CStringView{ "values" }) && (shape == EDefinitionShape::enumeration)) return EDefinitionShape::labels;
@@ -106,6 +119,14 @@ enum class EDefinitionShape : std::uint8_t
     {
         if (kind == EDocumentValueKind::string) return true;
         shape = EDefinitionShape::array;
+        const SOccurrence category = source.object_child(value, CStringView{ "kind" });
+        if (category)
+        {
+            const CStringView spelling = source.string_value(category);
+            if (spelling == CStringView{ "text" }) shape = EDefinitionShape::text_reference;
+            else if (spelling == CStringView{ "span" }) shape = EDefinitionShape::span_reference;
+            else return fail(error, EReason::invalid_input, category);
+        }
     }
     if (shape == EDefinitionShape::string) return (kind == EDocumentValueKind::string) || fail(error, EReason::invalid_input, value);
     const bool list = (shape == EDefinitionShape::members) || (shape == EDefinitionShape::fields) || (shape == EDefinitionShape::interface_members);
@@ -129,10 +150,10 @@ enum class EDefinitionShape : std::uint8_t
     }
     if (names.size() > 1u)
     {
-        std::sort(names.data(), names.data() + names.size(), [&](const SOccurrence a, const SOccurrence b) noexcept
+        if (!schema::detail::data_sort(names.data(), names.data() + names.size(), [&](const SOccurrence a, const SOccurrence b) noexcept
         {
             return source.name(a).relationship(source.name(b)) < 0;
-        });
+        })) return fail(error, EReason::storage_limit, {});
         for (std::size_t i = 1u; i < names.size(); ++i)
         {
             if (source.name(names[i - 1u]) == source.name(names[i])) return fail(error, EReason::duplicate_declaration, names[i], names[i - 1u]);
@@ -195,10 +216,10 @@ enum class EDefinitionShape : std::uint8_t
     }
     if (definitions.size() > 1u)
     {
-        std::sort(definitions.data(), definitions.data() + definitions.size(), [](const SAdmittedDefinition& a, const SAdmittedDefinition& b) noexcept
+        if (!schema::detail::data_sort(definitions.data(), definitions.data() + definitions.size(), [](const SAdmittedDefinition& a, const SAdmittedDefinition& b) noexcept
         {
-            return a.name.relationship(b.name) < 0;
-        });
+            return data_bytes(std::min(a.name.length(), b.name.length())) && (a.name.relationship(b.name) < 0);
+        })) return fail(error, EReason::storage_limit, {});
         for (std::size_t i = 1u; i < definitions.size(); ++i)
         {
             if (definitions[i - 1u].name == definitions[i].name) return fail(error, EReason::duplicate_declaration, definitions[i].source, definitions[i - 1u].source);

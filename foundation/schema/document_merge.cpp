@@ -12,6 +12,8 @@
 #include "schema/document_construction.hpp"
 #include "data_model/document_copy.hpp"
 
+#include "schema/operation_meter.hpp"
+
 #include <algorithm>
 
 namespace schema::detail
@@ -312,10 +314,10 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
     }
     if (!small && (count > 1u))
     {
-        std::sort(children, (children + count), [](const SChild& a, const SChild& b) noexcept
+        if (!schema::detail::data_sort(children, (children + count), [](const SChild& a, const SChild& b) noexcept
         {
             return a.name.query_value() < b.name.query_value();
-        });
+        })) return fail(EDocumentMergeReason::construction_failed);
     }
     const auto find = [&](const CPropertyNameId name) noexcept -> SChild*
     {

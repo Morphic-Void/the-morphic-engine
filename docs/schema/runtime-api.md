@@ -10,7 +10,11 @@ Date:   25 Oct 2026
 This guide describes the implemented document model. See the
 [specification](specification.md) for value/layout rules and the
 [persistence guide](persistence-and-aggregation.md) for composition and conversion contracts.
-No compatibility aliases, old output forms or version-1 runtime reader are provided.
+No compatibility aliases, old output forms or historical schema-layout readers are provided.
+The [text/span API contract](text-and-spans.md) describes checked complete-block
+reading, bounded copy/repack, logical export and private edit transactions. Those
+APIs are required for reference-bearing values; separate raw role APIs retain
+their reference-free boundary.
 
 ## Header organisation
 
@@ -21,15 +25,46 @@ No compatibility aliases, old output forms or version-1 runtime reader are provi
 | `schema/resolved_types.hpp` | Shared resolution, type observations, canonical types output and C++ generation. |
 | `schema/document_query.hpp` | Separate types, instance and bulk query/handle families. |
 | `schema/live_instances.hpp`, `baked_instances.hpp` | Binary-backed instances and retained selection hierarchy. |
+| `schema/instance_edit_types.hpp` | Shared selection-path steps and descendant policy for live and complete-block editing. |
 | `schema/live_bulk_data.hpp`, `baked_bulk_data.hpp` | Complete bulk records, live creation and replacement. |
 | `schema/baked_data_block.hpp`, `data_block.hpp` | Common .bsd storage, assembly and diagnostics. |
+| `schema/data_block_view.hpp`, `data_operation.hpp` | Checked complete-block reading, finite operation limits and copied diagnostics. |
+| `schema/data_copy.hpp`, `data_block_edit.hpp` | Independent dependency copy/repack, logical export and private typed edit transactions. |
 | `schema/data_remap.hpp`, `unused_storage.hpp` | Exact-type remapping and explicit padding clearing. |
 
 `instance_selection`, `types_admission`, `document_construction`,
-`document_merge`, `data_reconstruction` and `data_block_construction` are
+`document_merge`, `data_reconstruction`, `data_block_construction`,
+`baked_record_plan` and `data_operation_internal` are
 internal support. General parsing, text writing, copying and generic document
 baking remain in the data-model module. The old preparation, composition,
 role-specific merge and output-form headers have been removed.
+
+Public operation limits and diagnostics are declared in `data_operation.hpp`;
+allocator routing, accounting and operation scopes stay in the internal header.
+Include `data_model/string_value_remap.hpp` when defining a remap owner; the
+generic translation header only forward-declares it.
+
+`baked_record_plan.hpp` defines shared baked records, transactional structural
+plans and planning diagnostics independently of the owning roles. Instance and
+bulk planners inspect a document, resolved types and a supplied payload extent;
+they do not read payload bytes. Planning replaces an output only on success,
+including empty plans. Record occurrences and type indices borrow the source
+document and resolved catalogue, which must remain valid while those records are
+used. Moving plan storage retains its allocation context, which must also outlive
+that storage. The baked roles map diagnostics and retain their
+payload checks, binding, indexes and readiness rules. Complete-block views retain
+the shared records directly and build only their collection-ID lookup. They keep
+their own resolved catalogue and reference/inheritance checks, without embedded
+baked-role owners, duplicate record arrays or unused role entry indexes.
+
+A bound view owns one private state whose operation outlives its checked metadata.
+Internal checked-state loaders borrow their caller's operation, allowing several
+sources to share one budget. Copy/export calls own their own operations; edit
+sessions retain one across commands and commit. Metadata is constructed under its
+operation's allocation context and destroyed first. The parent allocator must
+outlive the view/session and any output published into that allocator. Ordinary
+view queries do not install the retained binding operation as a lifetime meter.
+They still participate in an explicitly active caller operation scope.
 
 ## Aggregate authoring
 
@@ -69,12 +104,22 @@ roles. It never borrows types from the editable aggregate. Failure publishes non
 of the owners. `bake(CBakedDataBlock&, diagnostic)` performs the same contained-
 types validation and produces one complete runtime block in an empty destination.
 
-These operations share an internal validation and construction plan. `validate`
-allocates no runtime payloads. Materialisation resolves its independent types copy
-once and constructs each domain in one payload allocation. Baking writes into the
-final block's payload spans without creating temporary live roles. Authored type
+These operations share an internal validation and construction plan. For
+reference-free content, `validate` allocates no runtime payloads. Materialisation
+resolves its independent types copy once and constructs each domain in one payload
+allocation. The direct reference-free bake writes into the final block's payload
+spans without creating temporary live roles or a bounded operation. Authored type
 content and source diagnostic locations are preserved; no validation state is
 cached across edits to the aggregate.
+
+For reference-bearing content, `validate` uses the default operation limits and
+the same private construction and complete reference checks as bounded baking.
+It constructs a temporary runtime block, including relocation and inheritance
+checks, then releases it without copying it into caller-lifetime storage. The
+complete-file result limit still applies. Baking alone performs the final
+publication copy and charges its storage and work; validation can therefore
+succeed when those publication-only costs would prevent baking. The explicit
+limits bake overload remains bounded for reference-free content too.
 
 `import_from` accepts each live/baked types, instance or bulk role and replaces
 the aggregate with only that role's section; it does not merge with existing
@@ -107,8 +152,8 @@ their original document to remain alive.
 
 ## Persistence envelope
 
-The [common block contract](common-binary-block.md) specifies version 2 .bsd:
-`fileType: "morphic-schema-data"`, `version: 2`, `stripped: true`, optional
+The [common block contract](common-binary-block.md) specifies version 1 .bsd:
+`fileType: "morphic-schema-data"`, `version: 1`, `stripped: true`, optional
 sections and an exact payload length for every present data section. A present
 empty domain requires a supplied zero-length binary. A missing runtime binary is
 an error, not a request to reconstruct values. The generic baked-document header
@@ -177,7 +222,7 @@ so an incomplete editable schema can be saved without resolving it. Both outputs
 must be empty. Keep the block's backing allocation alive at a stable address
 while the baked wrapper or its clients use it; the owner object can move or be
 transferred. The additional common-block bake overload accepts a `CBakedDataBlock` and emits
-a types-only version-2 envelope. Neither overload performs full aggregate validation.
+a types-only version-1 envelope. Neither overload performs full aggregate validation.
 Both conversions retain only the `types` root member;
 `instances` and `data` in a combined source are untouched and are absent from
 the new document. Neither conversion carries client bindings into the result.
@@ -585,7 +630,7 @@ complete binaries. Use `attach_block(block, types, diagnostic)`, or
 `set_document(document)` followed by `attach_types(types, payload, diagnostic)`.
 The supplied payload is explicit, including an empty view for zero bytes. An
 absent selected section yields an empty role. A raw runtime description must have
-`stripped: true`; if it declares a common envelope, the complete version-2
+`stripped: true`; if it declares a common envelope, the complete version-1
 metadata contract applies. Baked attachment never creates binary or mutates locators.
 
 Attachment validates type/layout, selection grammar, inherited instance values,
@@ -733,7 +778,7 @@ all complete record bytes, including padding/unused bits, while zeroing newly
 created inter-entry alignment gaps and dropping abandoned storage/trailing bytes.
 It does not change source handles, selections, bytes or binding.
 
-`live.bake(CBakedDataBlock&, role_block_diagnostic)` produces complete version-2
+`live.bake(CBakedDataBlock&, role_block_diagnostic)` produces complete version-1
 role-only storage with no linked types. It writes records directly into final
 storage after preparing the description. Output is published only on success.
 Runtime output never decodes values or minimises selections. Use section import

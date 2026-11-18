@@ -7,7 +7,7 @@ Date:   25 Oct 2026
 
 # Common binary schema data block
 
-## Version-2 runtime contract
+## Version-1 runtime contract
 
 `CBakedDataBlock` owns or borrows one complete .bsd runtime block. Types,
 instances and bulk data keep separate typed interfaces. The generic MBD2 header,
@@ -15,7 +15,8 @@ reserved-zero words and document encoding are unchanged. The previous schema-dat
 envelope is replaced outright; no compatibility reader is provided.
 
 The root is an object with required `fileType: "morphic-schema-data"`, unsigned
-`version: 2` and `stripped: true`. Optional object sections are `types`,
+`version: 1`, `stripped: true` and `retainedText: []` (or its retained strings).
+Optional object sections are `types`,
 `instances` and `data`, in any combination including none. Every present data
 section requires its unsigned exact `instancePayloadSize`/`bulkPayloadSize`.
 A length without its section is invalid; an empty section cannot claim nonzero
@@ -29,6 +30,10 @@ empty containers remain. Bulk entries contain locators/counts but no record lite
 Type defaults/decorations and non-storage declarations are unaffected by stripping.
 Envelope validation is schema-independent; typed attachment checks the data grammar
 and matching values/layout. A typed role may be unusable while storage stays ready.
+Runtime bulk entries also carry unique positive `collectionId` values. Checked
+reference attachment validates this directory. The [text/span contract](text-and-spans.md)
+specifies descriptors, effective string retention, bound reading/copying and edits.
+Historical bytes do not become current merely by reusing version 1.
 
 The file consists of the baked document, instance binary and bulk binary, in that
 order. Its base and each nonempty binary are 128-byte aligned. Align the cursor
@@ -47,6 +52,8 @@ Keep the backing alive and stable while any role or view borrows it. Host binary
 saving/admission operates on the complete range, excluding spare capacity.
 
 `CBakedTypes::set_block` and the data roles' `attach_block` provide typed views.
+For reference-bearing values, use `CDataBlockView`; separate data-role attachment
+rejects layouts requiring the owning document and collection directory.
 Data attachment takes an explicitly resolved types owner and validates the complete
 supplied payload. It never constructs missing binary or edits locators. Lower-level
 read-only description plus explicit payload attachment remains available. Separate
@@ -68,6 +75,8 @@ before allocation. It refreshes envelope/length metadata, preserves supplied byt
 exactly and never constructs values. Invalid existing metadata rejects before replacement.
 Both construction and assembly require an empty destination and publish independent
 storage only on success. Inputs and borrowed owners remain unchanged on failure.
+Reference-bearing descriptions reject this raw path because document rebaking can
+change string IDs. Bound `copy_data`/`repack_data` relocate those payloads explicitly.
 
 ## Assembly staging
 

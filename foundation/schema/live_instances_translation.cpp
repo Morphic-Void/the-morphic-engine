@@ -111,7 +111,7 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
     }
     for (std::size_t i = 0u; i < source.m_records.size(); ++i)
     {
-        const CBakedInstances::SRecord& record = source.m_records[i];
+        const detail::SBakedInstanceRecord& record = source.m_records[i];
         const CBakedValueIndex baked_group = source.m_document.parent((record.parent == CBakedInstances::k_no_parent) ?
             record.entry : source.m_records[record.parent].entry);
         CNodeKey group{};

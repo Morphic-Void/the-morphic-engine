@@ -59,9 +59,14 @@ missing intrinsic fields and strict whole-definition comparison. Admission inclu
 incomplete/opaque values in the authoring depth bound. Iterative definition comparison
 avoids exponential revisiting and stack-heavy recursive projections.
 
+`--schema-traversal` isolates declaration-validation and resolver depth boundaries,
+cycles, nested defaults and continuation-allocation failures. These cases also run
+in the ordinary Schema suite. The [iterative traversal record](reference-extension-validation.md#iterative-traversal-follow-up)
+documents qualification with 128 KiB stacks on Windows and Linux.
+
 ## Runtime storage and publication coverage
 
-SchemaDataBlock constructs independent raw fixtures for version-2 envelope checking.
+SchemaDataBlock constructs independent raw fixtures for version-1 envelope checking.
 It covers all eight section combinations against every supplied-payload combination,
 required zero-byte binaries, invalid version/stripped markers, exact lengths, zero
 container padding, both alignment gaps, offset/range arithmetic and the inclusive
@@ -196,6 +201,34 @@ from private staging. The ordinary run reports allocation counts/requested bytes
 for direct baking and the equivalent workflow through live owners; these are
 observations rather than fixed allocator or timing thresholds.
 
+## Shared planning and complete-block operations
+
+`SchemaRecordPlanning_test_cases.cpp` covers transactional instance/bulk planning,
+shared record contents and ancestry, empty replacement, malformed ranges and
+selections, diagnostic mapping, payload extents and allocation failure. Structural
+plans do not admit payload contents; role and complete-block tests retain the
+separate inheritance, reference and payload checks.
+
+The reference cases cover stale/foreign handles, collection identity, copy/repack
+and export, edit rollback and cumulative budgets. Ownership cases exercise multiple
+checked states sharing one operation, nested scope restoration, allocator changes,
+output survival and queries after the binding allowance is consumed. View binding
+and both edit-session entry points have setup-allocation sweeps through uninjected
+success, with cleanup, repeated clear/cancel and same-object retry checks.
+
+Reference validation is compared with both schema bake entry points for semantic
+results and diagnostics. The complete-file result cap remains tested separately
+from payload size. A measured allocation boundary proves that validation stops
+before publication, while baking still fails cleanly if that allocation is denied.
+Validation sweeps check immediate cleanup, source preservation and retry without
+discarding more specific schema diagnostics. Generic document-transfer cases retain
+both no-remap and remap baking and preservation of caller outputs on failure.
+
+The [consolidation record](consolidation-validation.md) holds configuration results,
+resource observations and limitations. The focused `--schema-traversal` runner
+qualifies the exercised declaration/resolver paths on a 128 KiB native stack;
+other schema walkers are not covered by a universal constant-stack claim.
+
 ## Authoring sample
 
 test_schema_sample parses schema-example.json as a binary-free aggregate, validates
@@ -206,8 +239,9 @@ runtime locators are generated; none are reserved in the source authoring file.
 
 ## Validation history
 
-The [document model milestone](../project/completed_milestones.md#schema-document-model-and-runtime-construction)
-records current delivery results; the [earlier schema milestones](../project/completed_milestones.md#schema-delivery-status)
+The [consolidation record](consolidation-validation.md) records completion results;
+the [document model milestone](../project/completed_milestones.md#schema-document-model-and-runtime-construction)
+and [earlier schema milestones](../project/completed_milestones.md#schema-delivery-status)
 retain historical checkpoints. Their counts and superseded APIs are historical
 evidence, not the current contract. Local tagged build/test output supplies the
 detailed validation logs.

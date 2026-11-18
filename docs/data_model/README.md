@@ -45,6 +45,7 @@ Include the header for the operation being used:
 | `document_writer.hpp` | Text output from a checked baked view. |
 | `document_structure.hpp` | Syntax-only checking and capacity estimates for already-linted UTF-8. |
 | `document_translation.hpp` | Whole-document and selected-root-member baking and promotion. |
+| `string_value_remap.hpp` | Owned live-to-baked string index mapping for callers retaining a bake's remap. |
 | `document_copy.hpp` | Detached subtree copying and name stabilisation. |
 
 `data_model_types.hpp` supplies shared identities and value metadata;

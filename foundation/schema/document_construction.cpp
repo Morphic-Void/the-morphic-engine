@@ -11,6 +11,8 @@
 #include "schema/document_construction.hpp"
 #include "data_model/document_copy.hpp"
 
+#include "schema/operation_meter.hpp"
+
 #include <algorithm>
 
 namespace schema::detail
@@ -90,12 +92,16 @@ bool CDocumentStrings::preload_domain(CLiveDocument& target, TPodVector<CStringV
 {
     if (values.size() > 1u)
     {
-        std::sort(values.data(), (values.data() + values.size()),
-            [](const CStringView& a, const CStringView& b) noexcept { return a.relationship(b) < 0; });
+        if (!schema::detail::data_sort(values.data(), (values.data() + values.size()),
+            [](const CStringView& a, const CStringView& b) noexcept
+            {
+                return data_bytes(std::min(a.length(), b.length())) && (a.relationship(b) < 0);
+            })) return fail(EDocumentBuildReason::storage_limit);
     }
     std::size_t count{}, bytes{};
     for (std::size_t i = 0u; i < values.size(); ++i)
     {
+        if (!data_work() || !data_bytes(values[i].length())) return fail(EDocumentBuildReason::storage_limit);
         if (!values[i].length() || (count && (values[i] == values[count - 1u])))
         {
             continue;

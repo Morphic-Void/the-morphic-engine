@@ -39,14 +39,17 @@ requires those files; compilation does not require a GPU or graphics device.
 The DXC adapter uses the engine's exception-free settings and checked engine
 containers for temporary storage. Compiler interfaces return HRESULTs; adapter
 allocation failures return explicit engine statuses. The private SPIRV-Reflect
-adapter uses a growing per-operation `CBumpBuffer` and has no exception
-compiler allowance. Initial arena allocation failure is recoverable; a failed bump
-during vendor execution terminates with a best-effort diagnostic. See the
+adapter uses a per-operation `CHybridAllocator32` with chained buddy managers
+and tracked allocations, with no exception compiler allowance. Initial manager
+preparation failure is recoverable; allocation failure during vendor execution
+terminates with a best-effort diagnostic. Valid frees reclaim individual
+allocations; cleanup auditing and an independent sweep precede result publication.
+An invalid free or outstanding allocation prevents schema publication. See the
 [reflection checkpoint](../modules/shader_reflection_design.md#initial-adapter-checkpoint).
 Ordinary suites include shader compilation and transport cases, so the compiler
 must be deployed when running them. See the
 [shader design](../modules/shader_compilation_design.md) for request/result use,
-defaults and deferred reflection work.
+defaults and implemented reflection/deferred library work.
 
 ## Windows controller dependency
 
@@ -271,10 +274,13 @@ requiring the expected fatal exit and matching panic fields. Every invocation
 retains logs and captured output in
 a fresh UUID directory, so previous logs cannot satisfy a new run. Do not invoke
 the `--reflection-arena-fatal` test executable switch in the ordinary runner.
-The ordinary suite covers recoverable initial allocation failure, no-op frees,
-whole-arena reclamation, nested/concurrent routing and usage measurements.
-It also covers structural sizing, power-of-two block reservation and full usable
-capacity, successful growth with stable pointers and zeroing, reclamation of all
-blocks, real vendor reflection with an underestimated initial block, bootstrap and
-final working-memory rejection before arena allocation, 32-bit counter limits,
-source-copy accumulation, sparse IDs and repeated nested type expansion.
+The ordinary suites cover recoverable initial preparation failure, alignment and
+zeroing, mixed buddy/tracked storage, chain growth, valid reclamation,
+interior/foreign/double frees, cleanup omissions, audit failure preventing schema
+publication, captured-context isolation, nested/concurrent routing and fallback
+reclamation. Reflection cases also cover sparse IDs, nested/shared types, source
+replacement and continuations, generated large shaders, oversized preflight
+storage and invalid root references. Structural arena sizing, bump reservation
+and aggregate estimated-working-memory admission are no longer production
+contracts; reflection retains explicit artifact/count/depth/result and individual
+allocation limits without an aggregate reflection memory cap.

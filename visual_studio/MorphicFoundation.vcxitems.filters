@@ -144,6 +144,36 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\operation_meter.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_edit.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_candidate.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_copy_internal.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_copy.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_construction.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reference_context.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_view.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_operation.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_operation_internal.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\internal\bundle_builder_io.hpp"><Filter>Foundation\include\assets\internal</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.hpp"><Filter>Foundation\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\filesystem\logical_path.hpp"><Filter>Foundation\include\filesystem</Filter></ClInclude>
@@ -242,6 +272,9 @@
       <Filter>Foundation\include\data_model</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_translation.hpp">
+      <Filter>Foundation\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\string_value_remap.hpp">
       <Filter>Foundation\include\data_model</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_findings.hpp">
@@ -488,6 +521,30 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_export.cpp">
+      <Filter>Foundation\source\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_edit.cpp">
+      <Filter>Foundation\source\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_candidate.cpp">
+      <Filter>Foundation\source\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_copy.cpp">
+      <Filter>Foundation\source\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_construction.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reference_context.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_view.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_operation.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.cpp"><Filter>Foundation\src\assets</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle.cpp"><Filter>Foundation\src\assets</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document.cpp">
@@ -651,6 +708,12 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\document_query.hpp">
       <Filter>Foundation\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_types.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_value.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block.hpp">
       <Filter>Foundation\include\schema</Filter>
     </ClInclude>
@@ -723,7 +786,13 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.hpp">
       <Filter>Foundation\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\instance_edit_types.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.hpp">
+      <Filter>Foundation\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_record_plan.hpp">
       <Filter>Foundation\include\schema</Filter>
     </ClInclude>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\schema.cpp">
@@ -789,6 +858,9 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.cpp">
       <Filter>Foundation\src\schema</Filter>
     </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_plan.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.cpp">
       <Filter>Foundation\src\schema</Filter>
     </ClCompile>
@@ -802,6 +874,9 @@
       <Filter>Foundation\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.cpp">
+      <Filter>Foundation\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instance_plan.cpp">
       <Filter>Foundation\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_declarations.cpp">

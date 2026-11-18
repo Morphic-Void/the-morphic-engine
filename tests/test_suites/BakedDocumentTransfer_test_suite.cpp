@@ -19,6 +19,7 @@
 
 #include "host/assets/asset_repository.hpp"
 #include "data_model/document_translation.hpp"
+#include "data_model/string_value_remap.hpp"
 #include "data_model/live_document.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
@@ -88,6 +89,41 @@ static void bake(TTestContext& ctx, CBakedDocumentBlock& block)
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     TEST_EXPECT(ctx, block.is_ready() && block.document().check_integrity());
     TEST_EXPECT(ctx, block.memory_attribution().allocation_count == 1u);
+}
+
+static void test_string_value_remap(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, source.initialise());
+    const CNodeKey z = source.create_string(CStringView{ "zebra" }, CStringView{ "last" });
+    const CNodeKey a = source.create_string(CStringView{ "alpha" }, CStringView{ "first" });
+    const CNodeKey unused = source.create_string(CStringView{ "detached" });
+    TEST_EXPECT(ctx, source.append_child(source.root(), z).succeeded());
+    TEST_EXPECT(ctx, source.append_child(source.root(), a).succeeded());
+    CBakedDocumentBlock output;
+    document_translation::CStringValueRemap strings;
+    TEST_EXPECT(ctx, document_translation::bake(source, output, strings));
+    std::uint32_t mapped_z{}, mapped_a{};
+    TEST_EXPECT(ctx, strings.translate_index(source.string_value_id(z).query_value(), mapped_z));
+    TEST_EXPECT(ctx, strings.translate_index(source.string_value_id(a).query_value(), mapped_a));
+    TEST_EXPECT(ctx, (mapped_a < mapped_z));
+    const CBakedDocument& baked = output.document();
+    TEST_EXPECT(ctx, (baked.string_value(baked.string_value_id_at_rank(mapped_z)) == CStringView{ "zebra" }));
+    TEST_EXPECT(ctx, (baked.string_value(baked.string_value_id_at_rank(mapped_a)) == CStringView{ "alpha" }));
+    std::uint32_t unchanged = mapped_z;
+    TEST_EXPECT(ctx, !strings.translate_index(source.string_value_id(unused).query_value(), unchanged));
+    TEST_EXPECT(ctx, (unchanged == mapped_z));
+    TEST_EXPECT(ctx, !strings.translate_index(UINT32_MAX, unchanged));
+    TEST_EXPECT(ctx, (unchanged == mapped_z));
+    TEST_EXPECT(ctx, strings.translate_index(0u, unchanged));
+    TEST_EXPECT(ctx, (unchanged == 0u));
+
+    const std::uint8_t* const original = output.bytes().data();
+    CLiveDocument invalid;
+    TEST_EXPECT(ctx, !document_translation::bake(invalid, output, strings));
+    TEST_EXPECT(ctx, (output.bytes().data() == original));
+    TEST_EXPECT(ctx, strings.translate_index(source.string_value_id(z).query_value(), unchanged));
+    TEST_EXPECT(ctx, (unchanged == mapped_z));
 }
 
 static void expect_bytes(TTestContext& ctx, const CBakedDocumentBlock& block,
@@ -499,6 +535,7 @@ static void test_complete_buffer_request(TTestContext& ctx)
 int run_baked_document_transfer_tests()
 {
     tests::TTestContext ctx;
+    baked_document_transfer_tests::test_string_value_remap(ctx);
     baked_document_transfer_tests::test_block_attribution(ctx);
     baked_document_transfer_tests::test_owner_attribution(ctx);
     baked_document_transfer_tests::test_message_and_repository(ctx);

@@ -17,6 +17,7 @@
 #include "schema/baked_instances.hpp"
 #include "schema/baked_bulk_data.hpp"
 #include "schema/data_block.hpp"
+#include "schema/data_operation.hpp"
 
 namespace schema
 {
@@ -107,7 +108,8 @@ enum class ESchemaReason : std::uint8_t
     conflicting_value,
     allocation_failed,
     storage_limit,
-    construction_failed
+    construction_failed,
+    reference_context_required
 };
 
 struct SSchemaDiagnostic
@@ -121,6 +123,7 @@ struct SSchemaDiagnostic
     SInstanceDiagnostic instances;
     SBulkDataDiagnostic bulk_data;
     SDataBlockDiagnostic block;
+    SDataOperationDiagnostic operation;
 };
 
 class CSchema
@@ -153,6 +156,8 @@ public:
         class CLiveBulkData& bulk_data, SSchemaDiagnostic& diagnostic,
         class CValueWorkBudget& work_budget, const std::uint64_t payload_limit = UINT64_MAX) const noexcept;
     [[nodiscard]] bool bake(class CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool bake(class CBakedDataBlock& destination, const SDataOperationLimits limits,
+        SSchemaDiagnostic& diagnostic) const noexcept;
     //  Replace this aggregate with only the source role's section; do not merge.
     //  Data imports require usable binary, reconstruct literals without minimising
     //  selections and never include linked types. The source remains unchanged.

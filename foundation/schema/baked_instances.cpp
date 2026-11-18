@@ -10,13 +10,9 @@
 
 #include "schema/baked_instances.hpp"
 #include "schema/baked_data_block.hpp"
-#include "schema/data_block_format.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/instance_selection.hpp"
-#include "schema/data_document_validation.hpp"
-#include "schema/data_storage_validation.hpp"
-#include "memory/memory_policies.hpp"
 
 #include <cstring>
 #include <utility>
@@ -362,7 +358,7 @@ bool CBakedInstances::entry(const CInstanceHandle handle, SInstanceEntryView& re
     {
         return false;
     }
-    const SRecord& record = m_records[index];
+    const detail::SBakedInstanceRecord& record = m_records[index];
     SInstanceEntryView value;
     value.type = record.type;
     value.parent = (record.parent == k_no_parent) ? CInstanceHandle{} :
@@ -388,140 +384,24 @@ bool CBakedInstances::entry(const CInstanceHandle handle, SInstanceEntryView& re
 //==============================================================================
 
 bool CBakedInstances::plan(const std::size_t supplied_size,
-    TPodVector<SRecord>& records, std::size_t& payload_size, SInstanceDiagnostic& diagnostic) const noexcept
+    TPodVector<detail::SBakedInstanceRecord>& records, std::size_t& payload_size,
+    SInstanceDiagnostic& diagnostic) const noexcept
 {
-    payload_size = 0u;
     const CResolvedTypes* const schema = m_binding.resolved();
-    if (!document_ready() || !schema)
+    if (!schema)
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_input, {});
     }
-    detail::SDataBlockRoot metadata;
-    SDataBlockDiagnostic root_error;
-    const bool envelope = static_cast<bool>(m_document.object_child(m_document.root(), CStringView{ "fileType" }));
-    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error, envelope))
+    detail::SBakedInstancePlan staged;
+    detail::SBakedRecordPlanDiagnostic error;
+    if (!detail::plan_baked_instances(m_document, *schema, supplied_size, staged, error))
     {
-        return fail(diagnostic, EInstanceLoadReason::invalid_input, root_error.location.baked_value);
+        const EInstanceLoadReason reason = (error.reason == detail::EBakedRecordPlanReason::invalid_declaration) ?
+            EInstanceLoadReason::invalid_declaration : detail::baked_record_plan_reason<EInstanceLoadReason>(error.reason);
+        return fail(diagnostic, reason, error.occurrence);
     }
-    if (metadata.instance_size && (metadata.instance_bytes != supplied_size)) return fail(diagnostic, EInstanceLoadReason::invalid_range, metadata.instance_size.baked);
-    if (!metadata.stripped)
-    {
-        return fail(diagnostic, EInstanceLoadReason::invalid_input, m_document.root());
-    }
-    const CBakedValueIndex instances = metadata.instances.baked;
-    if (!instances.is_valid())
-    {
-        return true;
-    }
-    std::uint64_t cursor{};
-    for (CBakedValueIndex group = m_document.first_child(instances); group.is_valid(); group = m_document.next_sibling(group))
-    {
-        if (!m_document.is_object_entry(group) || (m_document.value_type(group) != EBakedValueType::object))
-        {
-            return fail(diagnostic, EInstanceLoadReason::invalid_input, group);
-        }
-        const CTypesIndex type = schema->find_type(m_document.name(group));
-        SType layout;
-        if (!type.is_valid() || !schema->type(type, layout))
-        {
-            return fail(diagnostic, EInstanceLoadReason::unknown_type, group);
-        }
-        TPodVector<SFrame> frames;
-        SFrame frame{ m_document.first_child(group), k_no_parent };
-        while (frame.next.is_valid() || (frames.size() != 0u))
-        {
-            if (!frame.next.is_valid())
-            {
-                if (!frames.pop_back(frame))
-                {
-                    return fail(diagnostic, EInstanceLoadReason::invalid_input, group);
-                }
-                continue;
-            }
-            const CBakedValueIndex instance = frame.next;
-            frame.next = m_document.next_sibling(instance);
-            if (!m_document.is_object_entry(instance) || (m_document.value_type(instance) != EBakedValueType::object))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_input, instance);
-            }
-            for (CBakedValueIndex property = m_document.first_child(instance); property.is_valid(); property = m_document.next_sibling(property))
-            {
-                const CStringView name = m_document.name(property);
-                if (!detail::data_entry_property(name, false, true))
-                {
-                    return fail(diagnostic, EInstanceLoadReason::unknown_property, property);
-                }
-            }
-            const CBakedValueIndex declaration = m_document.object_child(instance, CStringView{ "declaration" });
-            const CBakedValueIndex specialisations = m_document.object_child(instance, CStringView{ "specialisation" });
-            const CBakedValueIndex locator = m_document.object_child(instance, CStringView{ "locator" });
-            detail::SValueDiagnostic selection_error;
-            const detail::CDocumentRead selection_document{ m_document };
-            if (!detail::validate_selection(*schema, type, { &selection_document, detail::SOccurrence{ declaration } }, selection_error))
-            {
-                return fail(diagnostic, detail::value_failure(selection_error, EInstanceLoadReason::invalid_declaration),
-                    selection_error.occurrence ? selection_error.occurrence.baked : declaration);
-            }
-            if (specialisations.is_valid() && (m_document.value_type(specialisations) != EBakedValueType::object))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_input, specialisations);
-            }
-            if (!locator.is_valid() || (m_document.value_type(locator) != EBakedValueType::object))
-            {
-                return fail(diagnostic, EInstanceLoadReason::missing_property, instance);
-            }
-            detail::SDataLocator parsed;
-            detail::SOccurrence failure;
-            EInstanceLoadReason reason{};
-            if (!detail::read_data_locator(detail::CDocumentRead{ m_document }, detail::SOccurrence{ locator },
-                false, layout.size, parsed, reason, failure))
-            {
-                return fail(diagnostic, reason, failure.baked);
-            }
-            const CBakedValueIndex valid_node = parsed.valid_node.baked;
-            const std::uint64_t raw_offset = parsed.offset;
-            const bool prior_valid = parsed.valid;
-            if (!prior_valid)
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_locator, valid_node);
-            }
-            std::uint64_t offset = raw_offset;
-            if (!detail::check_data_range(offset, layout.size, layout.alignment, cursor, supplied_size, reason))
-            {
-                return fail(diagnostic, reason, locator);
-            }
-            const std::uint64_t end = offset + layout.size;
-            if (records.size() >= k_no_parent)
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_range, instance);
-            }
-            SRecord record;
-            record.entry = instance;
-            record.declaration = declaration;
-            record.type = type;
-            record.parent = frame.parent;
-            record.offset = static_cast<std::uint32_t>(offset);
-            record.extent = static_cast<std::uint32_t>(layout.size);
-            if (!records.push_back(record))
-            {
-                return fail(diagnostic, EInstanceLoadReason::allocation_failed, instance);
-            }
-            if ((layout.size != 0u) || (offset != 0u))
-            {
-                cursor = end;
-            }
-            const CBakedValueIndex child = m_document.first_child(specialisations);
-            if (child.is_valid())
-            {
-                if (!frames.push_back(frame))
-                {
-                    return fail(diagnostic, EInstanceLoadReason::allocation_failed, specialisations);
-                }
-                frame = { child, static_cast<std::uint32_t>(records.size() - 1u) };
-            }
-        }
-    }
-    payload_size = static_cast<std::size_t>(cursor);
+    records = std::move(staged.records);
+    payload_size = staged.payload_size;
     return true;
 }
 
@@ -529,7 +409,7 @@ bool CBakedInstances::plan(const std::size_t supplied_size,
 //  Inherited-value consistency
 //==============================================================================
 
-bool CBakedInstances::check_inheritance(const TPodVector<SRecord>& records, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) const noexcept
+bool CBakedInstances::check_inheritance(const TPodVector<detail::SBakedInstanceRecord>& records, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) const noexcept
 {
     detail::SValueDiagnostic error;
     const auto checked = detail::check_selected_records(*m_binding.resolved(), detail::CDocumentRead{ m_document }, records,
@@ -557,12 +437,20 @@ bool CBakedInstances::load_supplied(const CByteConstView& payload, SInstanceDiag
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_range, {});
     }
-    TPodVector<SRecord> staged;
+    TPodVector<detail::SBakedInstanceRecord> staged;
     std::size_t payload_size{};
     if (!plan(payload.size(), staged, payload_size, diagnostic) || ((payload_size != 0u) && !payload.is_ready()))
     {
         return (diagnostic.reason == EInstanceLoadReason::none) ?
             fail(diagnostic, EInstanceLoadReason::invalid_range, {}) : false;
+    }
+    for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
+    {
+        SType layout;
+        if (!m_binding.resolved()->type(staged[ordinal].type, layout) || layout.contains_references)
+        {
+            return fail(diagnostic, EInstanceLoadReason::reference_context_required, staged[ordinal].entry);
+        }
     }
     if (!this->check_inheritance(staged, payload, diagnostic))
     {

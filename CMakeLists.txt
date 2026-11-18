@@ -74,7 +74,7 @@ add_custom_target(MorphicPolicyCheck
 )
 
 morphic_sources(pump_fixture_sources visual_studio/MorphicPumpFixture.vcxproj)
-foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform MorphicTests
+foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform MorphicTests MorphicSchemaFixture
         MorphicPumpProvider MorphicPumpExecutive MorphicPumpReplacement MorphicInputPlatform MorphicInputExecutive MorphicInputSecondary)
     if(target MATCHES "^MorphicPump")
         set(target_sources ${pump_fixture_sources})

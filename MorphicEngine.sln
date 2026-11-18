@@ -78,6 +78,17 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Docs", "Docs", "{7AF023C4-3
 		docs\README.md = docs\README.md
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "allocators", "allocators", "{2C7642C2-DE97-451F-86E3-19BFA38D93C6}"
+	ProjectSection(SolutionItems) = preProject
+		docs\allocators\buddy_index.md = docs\allocators\buddy_index.md
+		docs\allocators\CTrackedAllocator.md = docs\allocators\CTrackedAllocator.md
+		docs\allocators\README.md = docs\allocators\README.md
+		docs\allocators\reflection_memory_findings.md = docs\allocators\reflection_memory_findings.md
+		docs\allocators\TBuddyAllocator.md = docs\allocators\TBuddyAllocator.md
+		docs\allocators\TBuddyAllocatorChain.md = docs\allocators\TBuddyAllocatorChain.md
+		docs\allocators\THybridAllocator.md = docs\allocators\THybridAllocator.md
+	EndProjectSection
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "architecture", "architecture", "{A1440ED4-93DE-4C9E-BC15-49167E863FA8}"
 	ProjectSection(SolutionItems) = preProject
 		docs\architecture\architectural-principles.md = docs\architecture\architectural-principles.md
@@ -100,6 +111,27 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "modules", "modules", "{81C5
 		docs\modules\asynchronous_module_lifecycle.md = docs\modules\asynchronous_module_lifecycle.md
 		docs\modules\batch_runners.md = docs\modules\batch_runners.md
 		docs\modules\texture_codec.md = docs\modules\texture_codec.md
+		docs\modules\audio_module_design.md = docs\modules\audio_module_design.md
+		docs\modules\audio_module_validation.md = docs\modules\audio_module_validation.md
+		docs\modules\controller_input.md = docs\modules\controller_input.md
+		docs\modules\desktop_input.md = docs\modules\desktop_input.md
+		docs\modules\direct_bulk_connections.md = docs\modules\direct_bulk_connections.md
+		docs\modules\direct_pod_connections.md = docs\modules\direct_pod_connections.md
+		docs\modules\host_pump_foundation.md = docs\modules\host_pump_foundation.md
+		docs\modules\host_restriction_maintenance.md = docs\modules\host_restriction_maintenance.md
+		docs\modules\host_timed_wait.md = docs\modules\host_timed_wait.md
+		docs\modules\input_configuration_installation.md = docs\modules\input_configuration_installation.md
+		docs\modules\input_connections.md = docs\modules\input_connections.md
+		docs\modules\input_host_integration.md = docs\modules\input_host_integration.md
+		docs\modules\input_host_latency_2026-11-10.csv = docs\modules\input_host_latency_2026-11-10.csv
+		docs\modules\input_mapping.md = docs\modules\input_mapping.md
+		docs\modules\platform_contracts_v1.md = docs\modules\platform_contracts_v1.md
+		docs\modules\platform_first_window.md = docs\modules\platform_first_window.md
+		docs\modules\platform_host_pumped_design.md = docs\modules\platform_host_pumped_design.md
+		docs\modules\service_borrow_lifetimes.md = docs\modules\service_borrow_lifetimes.md
+		docs\modules\service_notifications.md = docs\modules\service_notifications.md
+		docs\modules\shader_compilation_design.md = docs\modules\shader_compilation_design.md
+		docs\modules\shader_reflection_design.md = docs\modules\shader_reflection_design.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "image", "image", "{9D85204B-EFE3-4623-A619-C2A46ADFB2CF}"
@@ -115,6 +147,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backlog", "backlog", "{ACB9
 		docs\backlog\engine_backlog.md = docs\backlog\engine_backlog.md
 		docs\backlog\schema_follow_on.md = docs\backlog\schema_follow_on.md
 		docs\backlog\testing_framework_consolidation.md = docs\backlog\testing_framework_consolidation.md
+		docs\backlog\core_foundation_reconfiguration.md = docs\backlog\core_foundation_reconfiguration.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "containers", "containers", "{126AEA5E-4235-1656-C710-B9DD2F447707}"
@@ -128,6 +161,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "containers", "containers", 
 		docs\containers\TVector.md = docs\containers\TVector.md
 		docs\containers\MovableSlots.md = docs\containers\MovableSlots.md
 		docs\containers\TUnorderedCollection.md = docs\containers\TUnorderedCollection.md
+		docs\containers\memory_contexts.md = docs\containers\memory_contexts.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "slots", "slots", "{C001F1CB-F352-AF39-2D43-2D28A9BC93CE}"
@@ -168,6 +202,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "project", "project", "{0469
 		docs\project\linux_ci.md = docs\project\linux_ci.md
 		docs\project\policy_validator.md = docs\project\policy_validator.md
 		docs\project\windows_ci.md = docs\project\windows_ci.md
+		docs\project\timed_predicate_waiting.md = docs\project\timed_predicate_waiting.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "system", "system", "{001BAEAA-14DD-C7EA-B743-3F1BF233CA14}"
@@ -202,6 +237,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "schema", "schema", "{ADD2F4
 		docs\schema\schema-example-notes.md = docs\schema\schema-example-notes.md
 		docs\schema\header-survey.md = docs\schema\header-survey.md
 		docs\schema\schema-example.json = docs\schema\schema-example.json
+		docs\schema\common-binary-block.md = docs\schema\common-binary-block.md
+		docs\schema\prepared-schema.md = docs\schema\prepared-schema.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "development", "development", "{1C19EABD-B22B-5ED9-8990-DC9F4039B171}"
@@ -320,6 +357,7 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{2C7642C2-DE97-451F-86E3-19BFA38D93C6} = {7AF023C4-3013-B9A5-3FBF-F7DD4B582158}
 		{0BF5D948-138E-45A7-915F-AA8C3D6DBA08} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{D02DC606-1D6D-4D98-BC9A-A447D956FC1E} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{B665F890-8A20-4F5C-958B-475BFFB1FDEA} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}

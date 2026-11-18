@@ -285,6 +285,8 @@ bool CLiveBulkData::mutable_entry(const CBulkDataHandle handle, SMutableBulkData
     {
         return false;
     }
+    SType layout;
+    if (!m_binding.resolved()->type(value.type, layout) || layout.contains_references) return false;
     SMutableBulkDataEntryView mutable_value;
     mutable_value.type = value.type;
     mutable_value.count = value.count;
@@ -331,6 +333,11 @@ CBulkDataHandle CLiveBulkData::store(const CStringView& type, const CStringView&
     if (!extent_for(layout, count, extent))
     {
         diagnostic.reason = EBulkDataLoadReason::invalid_range;
+        return {};
+    }
+    if (layout.contains_references)
+    {
+        diagnostic.reason = EBulkDataLoadReason::reference_context_required;
         return {};
     }
     if (!unpopulated && (extent != 0u) && (!source.is_ready() || (source.size() < extent) ||
@@ -616,7 +623,7 @@ bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDataDiagnost
         }
         for (CBakedValueIndex baked_entry = baked.first_child(group); baked_entry.is_valid(); baked_entry = baked.next_sibling(baked_entry))
         {
-            const CBakedBulkData::SRecord* record = nullptr;
+            const detail::SBakedBulkRecord* record = nullptr;
             std::uint32_t ordinal{};
             if (source.m_record_index.find(source.m_records, baked_entry, ordinal))
             {

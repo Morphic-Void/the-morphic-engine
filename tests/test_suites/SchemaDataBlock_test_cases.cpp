@@ -102,8 +102,14 @@ struct SFixture
     bool build(const std::string& json, const std::size_t payload_size = 0u)
     {
         CLiveDocument live;
-        if (!document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(json.data()), json.size(), 1u }, live).accepted() ||
-            !document_translation::bake(live, prefix)) return false;
+        if (!document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(json.data()), json.size(), 1u }, live).accepted()) return false;
+        if ((live.value_type(live.root()) == ELiveValueType::object) &&
+            !live.object_child(live.root(), CStringView{ "retainedText" }))
+        {
+            const CNodeKey retained = live.create_array(CStringView{ "retainedText" });
+            if (!retained || !live.append_child(live.root(), retained).succeeded()) return false;
+        }
+        if (!document_translation::bake(live, prefix)) return false;
         //  Independent assembly: no persistence layout/validation helper is used.
         const std::size_t document_size = prefix.bytes().size();
         payload_offset = (payload_size == 0u) ? document_size : ((document_size + 127u) / 128u) * 128u;
@@ -119,7 +125,7 @@ static std::string envelope(const EDataDomain kind, const std::string& size = "0
     const std::string& section = "{}", const std::string& extra = {})
 {
     const bool instances = kind == EDataDomain::instances;
-    return std::string{ "{\"fileType\":\"morphic-schema-data\",\"version\":2,\"" } +
+    return std::string{ "{\"fileType\":\"morphic-schema-data\",\"version\":1,\"" } +
         (instances ? "instancePayloadSize" : "bulkPayloadSize") + "\":" + size + ",\"" +
         (instances ? "instances" : "data") + "\":" + section +
         (extra.find("\"stripped\"") == std::string::npos ? ",\"stripped\":true" : "") + extra + "}";
@@ -181,7 +187,7 @@ static void test_valid(TTestContext& ctx)
         //  Root order is not canonical; nested structure is the role's concern.
         const bool instances = kind == EDataDomain::instances;
         const std::string reordered = std::string{ "{\"" } + (instances ? "instances" : "data") +
-            "\":{\"opaque\":{}},\"" + std::string{ instances ? "instancePayloadSize" : "bulkPayloadSize" } + "\":7,\"stripped\":true,\"version\":2,\"fileType\":\"" +
+            "\":{\"opaque\":{}},\"" + std::string{ instances ? "instancePayloadSize" : "bulkPayloadSize" } + "\":7,\"stripped\":true,\"version\":1,\"fileType\":\"" +
             (instances ? "morphic-schema-data" : "morphic-schema-data") + "\"}";
         SFixture fixture;
         if (!fixture.build(reordered, 7u)) { TEST_EXPECT(ctx, false); continue; }
@@ -205,31 +211,31 @@ static void test_metadata(TTestContext& ctx)
     const SCase cases[] = {
         { R"([])", EDataBlockReason::invalid_input, "" },
         { R"({})", EDataBlockReason::missing_property, "" },
-        { R"({"version":2,"stripped":true,"instancePayloadSize":0,"instances":{}})", EDataBlockReason::missing_property, "" },
+        { R"({"version":1,"stripped":true,"instancePayloadSize":0,"instances":{}})", EDataBlockReason::missing_property, "" },
         { R"({"fileType":"morphic-schema-data","instances":{}})", EDataBlockReason::missing_property, "" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":0})", EDataBlockReason::missing_property, "instancePayloadSize" },
-        { R"({"fileType":7,"version":2,"stripped":true})", EDataBlockReason::invalid_property_type, "fileType" },
-        { R"({"fileType":"morphic-instance-data","version":2,"stripped":true})", EDataBlockReason::wrong_content_type, "fileType" },
-        { R"({"fileType":"morphic-bulk-data","version":2,"stripped":true})", EDataBlockReason::wrong_content_type, "fileType" },
-        { R"({"fileType":"","version":2,"stripped":true})", EDataBlockReason::wrong_content_type, "fileType" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":0})", EDataBlockReason::missing_property, "instancePayloadSize" },
+        { R"({"fileType":7,"version":1,"stripped":true})", EDataBlockReason::invalid_property_type, "fileType" },
+        { R"({"fileType":"morphic-instance-data","version":1,"stripped":true})", EDataBlockReason::wrong_content_type, "fileType" },
+        { R"({"fileType":"morphic-bulk-data","version":1,"stripped":true})", EDataBlockReason::wrong_content_type, "fileType" },
+        { R"({"fileType":"","version":1,"stripped":true})", EDataBlockReason::wrong_content_type, "fileType" },
         { R"({"fileType":"morphic-schema-data","version":+2})", EDataBlockReason::invalid_property_type, "version" },
-        { R"({"fileType":"morphic-schema-data","version":2.0})", EDataBlockReason::invalid_property_type, "version" },
+        { R"({"fileType":"morphic-schema-data","version":1.0})", EDataBlockReason::invalid_property_type, "version" },
         { R"({"fileType":"morphic-schema-data","version":true})", EDataBlockReason::invalid_property_type, "version" },
         { R"({"fileType":"morphic-schema-data","version":0})", EDataBlockReason::unsupported_format_version, "version" },
-        { R"({"fileType":"morphic-schema-data","version":1})", EDataBlockReason::unsupported_format_version, "version" },
+        { R"({"fileType":"morphic-schema-data","version":2})", EDataBlockReason::unsupported_format_version, "version" },
         { R"({"fileType":"morphic-schema-data","version":3})", EDataBlockReason::unsupported_format_version, "version" },
-        { R"({"fileType":"morphic-schema-data","version":2})", EDataBlockReason::missing_property, "" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":false})", EDataBlockReason::invalid_input, "stripped" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":+0,"instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":0.0,"instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":"0","instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instances":[]})", EDataBlockReason::invalid_property_type, "instances" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":0})", EDataBlockReason::invalid_property_type, "stripped" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"payloadSize":0})", EDataBlockReason::unknown_property, "payloadSize" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"extension":null})", EDataBlockReason::unknown_property, "extension" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":1,"instances":{}})", EDataBlockReason::invalid_input, "instancePayloadSize" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":18446744073709551615,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "instancePayloadSize" },
-        { R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"instancePayloadSize":2147483648,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "" }
+        { R"({"fileType":"morphic-schema-data","version":1})", EDataBlockReason::missing_property, "" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":false})", EDataBlockReason::invalid_input, "stripped" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":+0,"instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":0.0,"instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":"0","instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instances":[]})", EDataBlockReason::invalid_property_type, "instances" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":0})", EDataBlockReason::invalid_property_type, "stripped" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"payloadSize":0})", EDataBlockReason::unknown_property, "payloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"extension":null})", EDataBlockReason::unknown_property, "extension" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":1,"instances":{}})", EDataBlockReason::invalid_input, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":18446744073709551615,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"instancePayloadSize":2147483648,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "" }
     };
     for (const auto& item : cases)
     {
@@ -1126,10 +1132,10 @@ static void test_common_root_diagnostic_order(TTestContext& ctx, CBakedTypes& sc
 {
     using T = SBlockTraits<Instances>;
     for (const char* text : {
-        R"({"fileType":"morphic-schema-data","version":2,"types":{}})",
-        R"({"fileType":"morphic-schema-data","version":2,"stripped":false,"types":{}})",
-        R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"types":{},"instances":{}})",
-        R"({"fileType":"morphic-schema-data","version":2,"stripped":true,"types":{},"data":{}})" })
+        R"({"fileType":"morphic-schema-data","version":1,"types":{}})",
+        R"({"fileType":"morphic-schema-data","version":1,"stripped":false,"types":{}})",
+        R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"types":{},"instances":{}})",
+        R"({"fileType":"morphic-schema-data","version":1,"stripped":true,"types":{},"data":{}})" })
     {
         CLiveDocument source;
         CBakedDocumentBlock baked;
@@ -1254,7 +1260,7 @@ static void test_assembly_allocation_failures(TTestContext& ctx, const TDocument
 static void test_assembly_staging(TTestContext& ctx)
 {
     CLiveDocument source;
-    TEST_EXPECT(ctx, tests::parse_document(R"({"bulkPayloadSize":1,"data":{"opaque":[3,2,1]},"version":2,
+    TEST_EXPECT(ctx, tests::parse_document(R"({"bulkPayloadSize":1,"data":{"opaque":[3,2,1]},"version":1,
         "stripped":true,"types":{},"instancePayloadSize":1,"instances":{"z":"zeta","a":"alpha"},
         "fileType":"morphic-schema-data"})", source));
     const CNodeKey root = source.root();

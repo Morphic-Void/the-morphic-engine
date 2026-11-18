@@ -9,6 +9,7 @@
 //  Metadata preparation and contiguous document-plus-payload assembly.
 
 #include "schema/data_block_construction.hpp"
+#include "schema/operation_meter.hpp"
 #include "data_model/document_translation.hpp"
 
 #include <cstring>
@@ -33,8 +34,9 @@ static bool append_metadata(CLiveDocument& document, const CNodeKey value, SData
     return true;
 }
 
-bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* instance_size,
-    const std::size_t* bulk_size, CByteBuffer& storage, SDataBlockLayout& layout, SDataBlockDiagnostic& diagnostic) noexcept
+bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* const instance_size,
+    const std::size_t* const bulk_size, CByteBuffer& storage, SDataBlockLayout& layout, SDataBlockDiagnostic& diagnostic,
+    document_translation::CStringValueRemap* const strings) noexcept
 {
     diagnostic = {};
     layout = {};
@@ -65,9 +67,46 @@ bool prepare_common_data_block_storage(CLiveDocument& description, const std::si
     {
         return false;
     }
+    if (!description.object_child(description.root(), CStringView{ "retainedText" }) &&
+        !append_metadata(description, description.create_array(CStringView{ "retainedText" }), diagnostic))
+    {
+        return false;
+    }
+    std::uint64_t collection_id{};
+    const CNodeKey data = description.object_child(description.root(), CStringView{ "data" });
+    for (CNodeKey group = description.first_child(data); group; group = description.next_sibling(group))
+    {
+        if (description.value_type(group) != ELiveValueType::object) continue;
+        for (CNodeKey entry = description.first_child(group); entry; entry = description.next_sibling(entry))
+        {
+            if ((description.value_type(entry) != ELiveValueType::object) ||
+                !description.object_child(entry, CStringView{ "locator" }))
+            {
+                continue;
+            }
+            if (!data_work() || (++collection_id > INT32_MAX))
+            {
+                return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::storage_limit);
+            }
+            if (!description.object_child(entry, CStringView{ "collectionId" }))
+            {
+                const CNodeKey id = description.create_unsigned_integer(collection_id, CStringView{ "collectionId" });
+                if (!id || !description.append_child(entry, id).succeeded())
+                {
+                    return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::allocation_failed);
+                }
+            }
+        }
+    }
     if (!read_data_block_root(CDocumentRead{ description }, root, diagnostic, true)) return false;
+    //  The generic baker is schema-independent. Account for its bounded whole-
+    //  tree planning, analysis, emission and validation passes here.
+    if (!prepare_data_document_bake(description))
+    {
+        return construction_failure(diagnostic, EDataBlockStage::document_bake, EDataBlockReason::storage_limit);
+    }
     CBakedDocumentBlock prefix;
-    if (!document_translation::bake(description, prefix))
+    if (!(strings ? document_translation::bake(description, prefix, *strings) : document_translation::bake(description, prefix)))
     {
         return construction_failure(diagnostic, EDataBlockStage::document_bake, EDataBlockReason::document_bake_failed);
     }
@@ -76,11 +115,16 @@ bool prepare_common_data_block_storage(CLiveDocument& description, const std::si
     {
         return construction_failure(diagnostic, EDataBlockStage::assembly, reason);
     }
+    if (!data_output(layout.file_size))
+    {
+        return construction_failure(diagnostic, EDataBlockStage::assembly, EDataBlockReason::storage_limit);
+    }
     if (!storage.allocate(layout.file_size, k_data_block_alignment) || !storage.set_size(layout.file_size))
     {
         return construction_failure(diagnostic, EDataBlockStage::assembly, EDataBlockReason::allocation_failed);
     }
     const CByteConstView document_bytes = prefix.bytes();
+    if (!data_bytes(document_bytes.size())) return construction_failure(diagnostic, EDataBlockStage::assembly, EDataBlockReason::storage_limit);
     std::memcpy(storage.data(), document_bytes.data(), document_bytes.size());
     std::size_t cursor = document_bytes.size();
     if (root.instance_bytes)

@@ -9,7 +9,8 @@
 //  Non-owning baked instance role with independent specialisation snapshots.
 
 //  Public entry point for borrowed instance data. Includes shared schema/query types.
-//  record_index.hpp supplies private storage required by the class definition.
+//  baked_record_plan.hpp and record_index.hpp supply private storage required
+//  by the class definition.
 
 #pragma once
 
@@ -17,6 +18,7 @@
 #define SCHEMA_BAKED_INSTANCES_HPP_INCLUDED
 
 #include "schema/types_wrappers.hpp"
+#include "schema/baked_record_plan.hpp"
 #include "schema/record_index.hpp"
 #include "containers/ByteBuffers.hpp"
 
@@ -43,7 +45,8 @@ enum class EInstanceLoadReason : std::uint8_t
     unrepresentable_value,
     allocation_failed,
     incompatible_schema,
-    binary_required
+    binary_required,
+    reference_context_required
 };
 
 struct SInstanceDiagnostic
@@ -138,20 +141,6 @@ private:
     friend class CSchema;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
 
-    struct SRecord
-    {
-        CBakedValueIndex entry, declaration;
-        CTypesIndex type;
-        std::uint32_t parent{ k_no_parent };
-        std::uint32_t offset{}, extent{};
-    };
-
-    struct SFrame
-    {
-        CBakedValueIndex next;
-        std::uint32_t parent{ k_no_parent };
-    };
-
     [[nodiscard]] bool fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
     void take_from(CBakedInstances& source) noexcept;
@@ -164,9 +153,9 @@ private:
         CByteBuffer* replacement = nullptr, const bool source_validated = false) noexcept;
     [[nodiscard]] bool record_index(const CInstanceHandle handle, std::uint32_t& result) const noexcept;
     [[nodiscard]] bool plan(const std::size_t supplied_size,
-        TPodVector<SRecord>& records, std::size_t& payload_size,
+        TPodVector<detail::SBakedInstanceRecord>& records, std::size_t& payload_size,
         SInstanceDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool check_inheritance(const TPodVector<SRecord>& records, const CByteConstView& payload,
+    [[nodiscard]] bool check_inheritance(const TPodVector<detail::SBakedInstanceRecord>& records, const CByteConstView& payload,
         SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool load_supplied(const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept;
 
@@ -177,7 +166,7 @@ private:
     CBakedDocument m_document;
     CTypesBinding m_binding;
     CByteConstView m_payload;
-    TPodVector<SRecord> m_records;
+    TPodVector<detail::SBakedInstanceRecord> m_records;
     CBakedRecordIndex m_record_index;
     bool m_loaded{};
 };

@@ -17,14 +17,13 @@
 #define SCHEMA_LIVE_INSTANCES_HPP_INCLUDED
 
 #include "schema/baked_instances.hpp"
+#include "schema/instance_edit_types.hpp"
 #include "schema/unused_storage.hpp"
 
 namespace schema
 {
 
 namespace detail { class CSchemaConstruction; }
-
-enum class EInstanceDescendantPolicy : std::uint8_t { preserve = 0u, propagate };
 
 class CInstanceEditToken
 {
@@ -41,20 +40,8 @@ struct SInstancesBlockDiagnostic;
 struct SDataBlockDiagnostic;
 
 //==============================================================================
-//  Selection paths and mutable views
+//  Mutable views
 //==============================================================================
-
-enum class EInstanceSelectionStepKind : std::uint8_t { member = 0u, element };
-
-//  Member steps name structure members or bit fields; element steps use zero-based
-//  fixed-array indices. An empty path addresses the whole instance. Binary field
-//  input is the unshifted logical scalar, with valid range and sign extension.
-struct SInstanceSelectionStep
-{
-    EInstanceSelectionStepKind kind{ EInstanceSelectionStepKind::member };
-    CStringView member;
-    std::uint32_t element{};
-};
 
 struct SMutableInstanceEntryView
 {

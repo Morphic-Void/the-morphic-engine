@@ -30,10 +30,10 @@ ordering are unchanged by this source-layout reconfiguration.
   with the [messaging completion record](project/completed_milestones.md#message-and-ownership-consolidation).
 - [Document model](data_model/README.md): semantic model, text grammar,
   parsing/reporting and baked storage format.
-- [Schema system](schema/README.md): live/baked schema and data roles, resolution,
-  schema-independent persistence blocks, attachment/switching, generated
-  declarations, editing, reconciliation, output, remapping, unused-storage clearing,
-  type/data merging, document preparation and composition.
+- [Schema system](schema/README.md): live/baked types and data roles, resolution,
+  schema-independent persistence blocks, checked rebinding, generated declarations,
+  explicit editing, remapping, unused-storage clearing, aggregate merging/composition
+  and checked text/span reading, copy/export and private edit transactions.
 - [Image view](image/image_view.md): drawing, copying, access and TGA metadata.
 - [Asynchronous asset services](assets/asynchronous_asset_services.md): requests,
   ownership, conditioning, results, diagnostics and disposal.
@@ -71,6 +71,11 @@ ordering are unchanged by this source-layout reconfiguration.
   on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of
   coarse module work, return channels and requester lifetime rules.
+- [Direct POD connections](modules/direct_pod_connections.md): ordered module
+  conversations, exact-instance establishment and two-sided retirement.
+- [Opaque bulk connections](modules/direct_bulk_connections.md): Host-owned aligned
+  fixed-capacity latest-state buffers sharing the direct-connection lifecycle;
+  acquired views remain bounded by endpoint quiescence.
 - [Module binding ABI](system/module_bootstrap.md), [type identity](system/type_identity.md)
   and [erased ownership](system/erased_owner.md).
 - [Debug interface](debug/debug_system_interface.md) and
@@ -111,12 +116,16 @@ ordering are unchanged by this source-layout reconfiguration.
   [implementation and validation record](modules/audio_module_validation.md).
 - [Shader compilation direction](modules/shader_compilation_design.md): DXC
   integration findings, source bundles, renderer-owned reports, publication,
-  agreed defaults and configurable limits, remaining design choices, deferred
-  reflection and the decision not to plan stream output.
-- [Shader reflection and component libraries](modules/shader_reflection_design.md):
-  agreed schema mappings, resource and stage interfaces, naming and explicit type
-  sharing, combined reports/publication, live library assembly and remaining
-  decisions before implementation.
+  agreed defaults and configurable limits, the current compile/reflection boundary,
+  deferred pipeline work and the decision not to plan stream output.
+- [Shader staged development](backlog/shader_system_stages.md): seven work areas,
+  small Rendering-local initial scope and coordinator/design/implementation review.
+  The first [PSO scope proposal](modules/pso_creation_stage1.md) awaits refinement.
+- [Combined shader-system reference](modules/shader_reflection_design.md): overall
+  intent, implemented checkpoints, agreed policies and earlier draft proposals for
+  reflection, libraries, semantic/provider binding and generic Host support. Focused
+  stages establish implementation-ready contracts; detailed transform profiles remain
+  deliberately deferred.
 - [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
   representations, typed serialisation, selectable generation, ingestion and
   optional orchestration beyond the completed aggregation APIs.

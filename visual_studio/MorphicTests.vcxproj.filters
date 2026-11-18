@@ -33,6 +33,18 @@
     <Filter Include="Rendering services"><UniqueIdentifier>{adc11984-59ef-52e9-842e-76b559aad135}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\tests\test_suites\SchemaTraversal_test_cases.cpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tests\test_suites\SchemaRecordPlanning_test_cases.cpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tests\test_suites\SchemaReference_validation_cases.cpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tests\test_suites\SchemaReference_test_cases.cpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClCompile>
     <ClCompile Include="..\host\config\module_extension.cpp" />
     <ClCompile Include="..\host\module\bound_module.cpp" />
     <ClCompile Include="..\host\filesystem\filesystem_image.cpp" />
@@ -138,6 +150,15 @@
     <ClCompile Include="..\tests\test_suites\TextLinter_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\tests\test_suites\SchemaTraversal_test_cases.hpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tests\test_suites\SchemaRecordPlanning_test_cases.hpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tests\test_suites\SchemaReference_test_cases.hpp">
+      <Filter>Tests\test_suites</Filter>
+    </ClInclude>
     <ClInclude Include="..\host\filesystem\mount_rules.hpp" />
     <ClInclude Include="..\host\config\module_extension.hpp" />
     <ClInclude Include="..\host\assets\asset_repository.hpp" />

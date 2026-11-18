@@ -474,7 +474,8 @@ template<class TQuery, class THandle>
             for (CBulkDataHandle property = query.first_child(entry); property; property = query.next_sibling(property))
             {
                 const CStringView name = query.name(property);
-                if (!(name == CStringView{ "locator" }) && !(name == CStringView{ "data" }))
+                if (!(name == CStringView{ "locator" }) && !(name == CStringView{ "data" }) &&
+                    !(name == CStringView{ "collectionId" }))
                 {
                     return false;
                 }

@@ -74,7 +74,7 @@ bool CTypeCompatibility::same_header(const SType& a, const SType& b) const noexc
         (a.size == b.size) && (a.alignment == b.alignment) && (a.stride == b.stride) &&
         (a.count == b.count) && (a.gaps == b.gaps) &&
         ((m_rule == ETypeMatch::representation) || (a.internal == b.internal)) &&
-        (a.named_components == b.named_components) &&
+        (a.named_components == b.named_components) && (a.nullable == b.nullable) &&
         (m_source.name(a.name) == m_destination.name(b.name)) &&
         (a.element_or_storage.is_valid() == b.element_or_storage.is_valid());
 }
@@ -118,6 +118,12 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
     }
     if (!same_header(a, b) || !same_decorations(pair.source, pair.destination) || ((m_rule != ETypeMatch::representation) &&
         ((da.kind != db.kind) || ((da.kind == EDefault::scalar) && !same_scalar(da.scalar, db.scalar)))))
+    {
+        return ETypeMatchResult::mismatch;
+    }
+    if ((m_rule != ETypeMatch::representation) &&
+        ((a.category == ECategory::text) || (a.category == ECategory::span)) &&
+        ((da.absent != db.absent) || !(da.text == db.text)))
     {
         return ETypeMatchResult::mismatch;
     }

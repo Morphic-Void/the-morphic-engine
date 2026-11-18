@@ -114,6 +114,7 @@ bool CGenerator::run(CByteBuffer& output) noexcept
     }
     m_global_std_shadow = false;
     bool mixed_namespace = false;
+    bool references = false;
     for (std::uint32_t definition_ordinal = 0u; definition_ordinal < m_schema.definition_count(); ++definition_ordinal)
     {
         SType type_info;
@@ -122,9 +123,11 @@ bool CGenerator::run(CByteBuffer& output) noexcept
             return fail(EReason::invalid_input);
         }
         mixed_namespace |= type_info.size != 0u;
+        references |= type_info.contains_references;
         m_global_std_shadow |= (type_info.size != 0u) && (m_schema.name(type_info.name) == CStringView{ "std" });
     }
-    if (!collect_arrays() || !text("#pragma once\n#include <cstdint>\n#include \"types/fp16data_t.hpp\"\n\nnamespace ") ||
+    if (!collect_arrays() || !text("#pragma once\n#include <cstdint>\n#include \"types/fp16data_t.hpp\"\n") ||
+        (references && !text("#include \"schema/reference_types.hpp\"\n")) || !text("\nnamespace ") ||
         !text(m_namespace) || !text("\n{\n"))
     {
         return false;
@@ -383,6 +386,8 @@ bool CGenerator::type_name(const CTypesIndex type_index) noexcept
     {
         return primitive(type_info.primitive);
     }
+    if (type_info.category == ECategory::text) return text("::schema::STextReference");
+    if (type_info.category == ECategory::span) return text("::schema::SSpanReference");
     if (type_info.category == ECategory::array)
     {
         const SArrayHelpers* const helpers = array_helpers(type_index);
@@ -434,7 +439,8 @@ bool CGenerator::dependency(const CTypesIndex type_index, const unsigned depth) 
     {
         return true;
     }
-    if (type_info.category == ECategory::primitive)
+    if ((type_info.category == ECategory::primitive) || (type_info.category == ECategory::text) ||
+        (type_info.category == ECategory::span))
     {
         return true;
     }

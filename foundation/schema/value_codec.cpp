@@ -9,6 +9,9 @@
 //  Decode scalars, construct schema values and compare addressable encodings.
 
 #include "schema/value_codec.hpp"
+#include "schema/reference_types.hpp"
+#include "schema/reference_value.hpp"
+#include "schema/operation_meter.hpp"
 #include "schema/value_conversion.hpp"
 #include "schema/integer_notation.hpp"
 #include "data_model/live_document.hpp"
@@ -262,8 +265,10 @@ class CValueWriter
 {
 public:
     CValueWriter(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
-        const EWriteMode mode, SValueDiagnostic& diagnostic, const bool checking = false) noexcept :
-        m_work_budget(work_budget), m_schema(schema), m_document(document), m_mode(mode), m_diagnostic(diagnostic), m_checking(checking) {}
+        const EWriteMode mode, SValueDiagnostic& diagnostic, const bool checking = false,
+        const SReferenceEncoding* const references = nullptr) noexcept :
+        m_work_budget(work_budget), m_schema(schema), m_document(document), m_mode(mode), m_diagnostic(diagnostic),
+        m_references(references), m_checking(checking) {}
 
     [[nodiscard]] bool matches() const noexcept { return m_matches; }
 
@@ -292,6 +297,8 @@ private:
     [[nodiscard]] bool field_scalar(const SField& field, const SOccurrence& source, SScalar& result) noexcept;
     [[nodiscard]] bool scalar_value(const CTypesIndex type, const CTypesIndex description, const SType& layout,
         const SOccurrence& source, const SValueStorage& storage) noexcept;
+    [[nodiscard]] bool reference_value(const CTypesIndex type, const CTypesIndex description, const SType& layout,
+        const SOccurrence source, const SValueStorage& storage, const bool named_marker) noexcept;
     [[nodiscard]] bool structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
         const SValueStorage& storage, const std::size_t destination_size,
         const unsigned depth, const bool singleton_element) noexcept;
@@ -305,6 +312,7 @@ private:
     const CDocumentRead& m_document;
     const EWriteMode m_mode;
     SValueDiagnostic& m_diagnostic;
+    const SReferenceEncoding* const m_references;
     bool m_checking{};
     bool m_matches{ true };
 };
@@ -363,11 +371,11 @@ bool CObjectSelection::prepare(const CResolvedTypes& schema, const CDocumentRead
                 return fail(EReason::allocation_failed, source, type);
             }
         }
-        std::sort(m_named.data(), (m_named.data() + m_named.size()),
+        if (!schema::detail::data_sort(m_named.data(), (m_named.data() + m_named.size()),
             [](const SNamedInput& a, const SNamedInput& b)
             {
                 return a.selected.query_value() < b.selected.query_value();
-            });
+            })) return fail(EReason::storage_limit, source, type);
         m_cursor = m_named[0u].source;
         m_selected = m_named[0u].selected;
     }
@@ -590,6 +598,47 @@ bool CValueWriter::scalar_value(const CTypesIndex type, const CTypesIndex descri
     return true;
 }
 
+bool CValueWriter::reference_value(const CTypesIndex type, const CTypesIndex description, const SType& layout,
+    const SOccurrence source, const SValueStorage& storage, const bool named_marker) noexcept
+{
+    if (!m_references || !m_references->encode)
+    {
+        return fail(EReason::unsupported_feature, source, type);
+    }
+    SReferenceValue value;
+    if (source)
+    {
+        if (!read_reference_value(m_document, source, layout.category, layout.nullable, value, named_marker))
+        {
+            return fail(EReason::invalid_input, source, type);
+        }
+    }
+    else
+    {
+        if (m_mode == EWriteMode::bulk_data)
+        {
+            return fail(EReason::missing_property, source, type);
+        }
+        SDefault fallback;
+        if (!m_schema.default_value(type, description, fallback))
+        {
+            return fail(EReason::invalid_default, source, type);
+        }
+        value.text = fallback.text;
+        value.absent = fallback.absent;
+    }
+    EReason reason{};
+    if (m_checking)
+    {
+        std::uint8_t expected[sizeof(SSpanReference)]{};
+        if (!m_references->encode(m_references->context, layout, value, expected, reason)) return fail(reason, source, type);
+        m_matches &= std::memcmp(expected, storage.bytes, static_cast<std::size_t>(layout.size)) == 0;
+        return true;
+    }
+    return m_references->encode(m_references->context, layout, value, storage.writable, reason) ||
+        fail(reason, source, type);
+}
+
 bool CValueWriter::structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
     const SValueStorage& storage, const std::size_t destination_size,
     const unsigned depth, const bool singleton_element) noexcept
@@ -643,7 +692,8 @@ bool CValueWriter::structure(const CTypesIndex type, const SType& layout, const 
             SType member_layout;
             if (!m_schema.type(member.type, member_layout) ||
                 ((member_layout.category != ECategory::structure) &&
-                    (member_layout.category != ECategory::bit_structure)))
+                    (member_layout.category != ECategory::bit_structure) &&
+                    (member_layout.category != ECategory::text) && (member_layout.category != ECategory::span)))
             {
                 return fail(EReason::invalid_input, child, member.type);
             }
@@ -682,7 +732,8 @@ bool CValueWriter::structure(const CTypesIndex type, const SType& layout, const 
         for (SOccurrence child = document.first_child(source); child.is_valid(); child = document.next_sibling(child))
         {
             if (document.is_object_entry(child) &&
-                ((element.category != ECategory::structure) && (element.category != ECategory::bit_structure)))
+                ((element.category != ECategory::structure) && (element.category != ECategory::bit_structure) &&
+                    (element.category != ECategory::text) && (element.category != ECategory::span)))
             {
                 return value_fail(diagnostic, EReason::invalid_input, child, type);
             }
@@ -837,7 +888,7 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
     {
         return fail(EReason::storage_limit, source, type);
     }
-    if (depth >= document_limits::k_max_recursion_depth)
+    if (!data_depth(depth) || (depth >= document_limits::k_max_recursion_depth))
     {
         return fail(EReason::storage_limit, source, type);
     }
@@ -862,15 +913,30 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
     {
         case ECategory::primitive:
         case ECategory::enumeration:
+        {
             return scalar_value(type, description, layout, source, storage);
+        }
+        case ECategory::text:
+        case ECategory::span:
+        {
+            return reference_value(type, description, layout, source, storage, singleton_element);
+        }
         case ECategory::structure:
+        {
             return structure(type, layout, source, storage, destination_size, depth, singleton_element);
+        }
         case ECategory::array:
+        {
             return array(type, description, layout, source, storage, destination_size, depth);
+        }
         case ECategory::bit_structure:
+        {
             return bit_structure(type, layout, source, storage, singleton_element);
+        }
         default:
+        {
             return fail(EReason::unknown_type, source, type);
+        }
     }
 }
 
@@ -912,15 +978,66 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
 //  Declaration-only validation
 //==============================================================================
 
-[[nodiscard]] static bool validate_declared_value(const CResolvedTypes& schema, const CDocumentRead& document,
-    const CTypesIndex type, const SOccurrence source, const bool complete,
-    const unsigned depth, const bool singleton_element, SValueDiagnostic& diagnostic) noexcept
+//  Leaf scratch is transient; parent continuations retain only traversal state.
+[[nodiscard]] static bool validate_declared_scalar(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence source, SValueDiagnostic& diagnostic) noexcept
 {
+    SScalar scalar;
+    return source ? read_scalar(schema, document, type, source, scalar, diagnostic) :
+        value_fail(diagnostic, EReason::missing_property, source, type);
+}
+
+[[nodiscard]] static bool validate_declared_field(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const CTypesIndex selected, const SOccurrence source, SValueDiagnostic& diagnostic) noexcept
+{
+    SField field;
+    SScalar scalar;
+    if (!schema.field(selected, field))
+    {
+        return value_fail(diagnostic, EReason::invalid_layout, source, type);
+    }
+    return read_field_scalar(schema, document, field, source, scalar, diagnostic);
+}
+
+[[nodiscard]] static bool named_declared_type(const CResolvedTypes& schema, const CTypesIndex type) noexcept
+{
+    SType layout;
+    return schema.type(type, layout) &&
+        ((layout.category == ECategory::structure) || (layout.category == ECategory::bit_structure) ||
+        (layout.category == ECategory::text) || (layout.category == ECategory::span));
+}
+
+[[nodiscard]] static bool validate_declared_reference(const CDocumentRead& document, const SOccurrence source,
+    const CTypesIndex type, const SType& layout, SValueDiagnostic& diagnostic, const bool named_marker) noexcept
+{
+    SReferenceValue value;
+    return read_reference_value(document, source, layout.category, layout.nullable, value, named_marker) ||
+        value_fail(diagnostic, (source ? EReason::invalid_input : EReason::missing_property), source, type);
+}
+
+struct SDeclarationFrame
+{
+    CTypesIndex type, element;
+    SOccurrence source, next;
+    SCompoundShape shape;
+    unsigned depth{};
+    std::uint32_t ordinal{};
+    ECategory category{};
+    bool singleton{};
+};
+
+static_assert(sizeof(SDeclarationFrame) <= 80u);
+
+[[nodiscard]] static bool enter_declaration(const CResolvedTypes& schema, const CDocumentRead& document,
+    SDeclarationFrame& frame, const bool complete, SValueDiagnostic& diagnostic) noexcept
+{
+    const CTypesIndex type = frame.type;
+    const SOccurrence source = frame.source;
     if (!source && !complete)
     {
         return true;
     }
-    if (depth >= document_limits::k_max_recursion_depth)
+    if (!data_work() || !data_depth(frame.depth) || (frame.depth >= document_limits::k_max_recursion_depth))
     {
         return value_fail(diagnostic, EReason::storage_limit, source, type);
     }
@@ -931,9 +1048,11 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
     }
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
-        SScalar scalar;
-        return source ? read_scalar(schema, document, type, source, scalar, diagnostic) :
-            value_fail(diagnostic, EReason::missing_property, source, type);
+        return validate_declared_scalar(schema, document, type, source, diagnostic);
+    }
+    if ((layout.category == ECategory::text) || (layout.category == ECategory::span))
+    {
+        return validate_declared_reference(document, source, type, layout, diagnostic, frame.singleton);
     }
     if (layout.category == ECategory::array)
     {
@@ -943,51 +1062,62 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
         {
             return false;
         }
-        for (SOccurrence child = document.first_child(source); child; child = document.next_sibling(child))
-        {
-            if (!complete && inherited_hole(document, child))
-            {
-                continue;
-            }
-            if (!validate_declared_value(schema, document, layout.element_or_storage, child, complete,
-                (depth + 1u), document.is_object_entry(child), diagnostic))
-            {
-                return false;
-            }
-        }
+        frame.category = layout.category;
+        frame.element = layout.element_or_storage;
+        frame.next = document.first_child(source);
         return true;
     }
     if ((layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure))
     {
         return value_fail(diagnostic, EReason::unknown_type, source, type);
     }
-    SCompoundShape input;
-    if (!compound_shape(schema, document, type, layout, source, singleton_element, complete, input, nullptr, diagnostic))
+    if (!compound_shape(schema, document, type, layout, source, frame.singleton, complete, frame.shape, nullptr, diagnostic))
     {
         return false;
     }
-    const bool single = singleton_element || input.shorthand;
-    SOccurrence child = single ? source : document.first_child(source);
-    for (std::uint32_t ordinal = 0u; ordinal < input.supplied; ++ordinal)
+    frame.category = layout.category;
+    if (frame.shape.supplied)
     {
-        if (!complete && !single && (input.kind == EDocumentValueKind::array) && inherited_hole(document, child))
+        frame.next = (frame.singleton || frame.shape.shorthand) ? source : document.first_child(source);
+    }
+    return true;
+}
+
+[[nodiscard]] static bool next_declaration(const CResolvedTypes& schema, const CDocumentRead& document,
+    SDeclarationFrame& frame, const bool complete, SDeclarationFrame& child_frame,
+    bool& available, SValueDiagnostic& diagnostic) noexcept
+{
+    available = false;
+    while (frame.next)
+    {
+        const SOccurrence child = frame.next;
+        child_frame.source = child;
+        if (frame.category == ECategory::array)
         {
-            child = document.next_sibling(child);
+            frame.next = document.next_sibling(child);
+            if (!complete && inherited_hole(document, child))
+            {
+                continue;
+            }
+            child_frame.type = frame.element;
+            child_frame.singleton = document.is_object_entry(child);
+            available = true;
+            break;
+        }
+        const bool single = frame.singleton || frame.shape.shorthand;
+        const std::uint32_t ordinal = frame.ordinal++;
+        frame.next = (!single && (frame.ordinal < frame.shape.supplied)) ? document.next_sibling(child) : SOccurrence{};
+        if (!complete && !single && (frame.shape.kind == EDocumentValueKind::array) && inherited_hole(document, child))
+        {
             continue;
         }
-        const bool bit_structure = layout.category == ECategory::bit_structure;
-        const CTypesIndex selected = singleton_element ? input.singleton :
-            ((input.kind == EDocumentValueKind::object) ? selected_component(schema, document, type, layout.category, child) :
-                (bit_structure ? schema.field_at(type, ordinal) : schema.member_at(type, ordinal)));
+        const bool bit_structure = frame.category == ECategory::bit_structure;
+        const CTypesIndex selected = frame.singleton ? frame.shape.singleton :
+            ((frame.shape.kind == EDocumentValueKind::object) ? selected_component(schema, document, frame.type, frame.category, child) :
+                (bit_structure ? schema.field_at(frame.type, ordinal) : schema.member_at(frame.type, ordinal)));
         if (bit_structure)
         {
-            SField field;
-            SScalar scalar;
-            if (!schema.field(selected, field))
-            {
-                return value_fail(diagnostic, EReason::invalid_layout, child, type);
-            }
-            if (!read_field_scalar(schema, document, field, child, scalar, diagnostic))
+            if (!validate_declared_field(schema, document, frame.type, selected, child, diagnostic))
             {
                 return false;
             }
@@ -997,28 +1127,69 @@ bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, 
             SMember member;
             if (!schema.member(selected, member))
             {
-                return value_fail(diagnostic, EReason::invalid_layout, child, type);
+                return value_fail(diagnostic, EReason::invalid_layout, child, frame.type);
             }
-            const bool named_position = !singleton_element && (input.kind == EDocumentValueKind::array) &&
+            const bool named_position = !frame.singleton && (frame.shape.kind == EDocumentValueKind::array) &&
                 document.is_object_entry(child);
-            if (named_position)
+            if (named_position && !named_declared_type(schema, member.type))
             {
-                SType member_layout;
-                if (!schema.type(member.type, member_layout) ||
-                    ((member_layout.category != ECategory::structure) && (member_layout.category != ECategory::bit_structure)))
-                {
-                    return value_fail(diagnostic, EReason::invalid_input, child, member.type);
-                }
+                return value_fail(diagnostic, EReason::invalid_input, child, member.type);
             }
-            if (!validate_declared_value(schema, document, member.type, child, complete,
-                (depth + 1u), named_position, diagnostic))
+            child_frame.type = member.type;
+            child_frame.singleton = named_position;
+            available = true;
+            break;
+        }
+    }
+    if (available)
+    {
+        child_frame.depth = frame.depth + 1u;
+    }
+    return true;
+}
+
+[[nodiscard]] static bool validate_declared_value(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence source, const bool complete,
+    const bool singleton_element, SValueDiagnostic& diagnostic) noexcept
+{
+    TPodVector<SDeclarationFrame> parents;
+    SDeclarationFrame frame;
+    frame.type = type;
+    frame.source = source;
+    frame.singleton = singleton_element;
+    if (!enter_declaration(schema, document, frame, complete, diagnostic))
+    {
+        return false;
+    }
+    for (;;)
+    {
+        SDeclarationFrame child;
+        bool available{};
+        if (!next_declaration(schema, document, frame, complete, child, available, diagnostic))
+        {
+            return false;
+        }
+        if (available)
+        {
+            if (!enter_declaration(schema, document, child, complete, diagnostic))
             {
                 return false;
             }
+            if (child.next)
+            {
+                if (!parents.push_back(frame))
+                {
+                    return value_fail(diagnostic, EReason::allocation_failed, child.source, child.type);
+                }
+                frame = child;
+            }
         }
-        if (!single) child = document.next_sibling(child);
+        else
+        {
+            if (parents.is_empty()) return true;
+            (void)parents.pop_back(frame);
+        }
     }
-    return true;
 }
 
 bool validate_declaration(const CResolvedTypes& schema, const CDocumentRead& document,
@@ -1030,12 +1201,13 @@ bool validate_declaration(const CResolvedTypes& schema, const CDocumentRead& doc
     {
         return false;
     }
-    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure))
+    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure) &&
+        (layout.category != ECategory::text) && (layout.category != ECategory::span))
     {
         return value_fail(diagnostic, EReason::invalid_input, declaration, type);
     }
     return validate_declared_value(schema, document, type, declaration, (mode == EConstructionMode::complete_bulk_data),
-        0u, singleton_element, diagnostic);
+        singleton_element, diagnostic);
 }
 
 //==============================================================================
@@ -1064,6 +1236,12 @@ bool validate_declaration(const CResolvedTypes& schema, const CDocumentRead& doc
         const std::uint64_t left = read_scalar_bits(expected, static_cast<std::size_t>(layout.size));
         const std::uint64_t right = read_scalar_bits(actual, static_cast<std::size_t>(layout.size));
         return (left == right) || (is_nan_bits(layout.primitive, left) && is_nan_bits(layout.primitive, right));
+    }
+    if ((layout.category == ECategory::text) || (layout.category == ECategory::span))
+    {
+        //  Used only for selection/inheritance within one reference context.
+        //  Cross-context semantic comparison must resolve the descriptors first.
+        return std::memcmp(expected, actual, static_cast<std::size_t>(layout.size)) == 0;
     }
     if (layout.category == ECategory::bit_structure)
     {
@@ -1127,26 +1305,29 @@ bool validate_declaration(const CResolvedTypes& schema, const CDocumentRead& doc
 
 bool construct_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,
-    const EConstructionMode mode, SValueDiagnostic& diagnostic, const bool singleton_element) noexcept
+    const EConstructionMode mode, SValueDiagnostic& diagnostic, const bool singleton_element,
+    const SReferenceEncoding* const references) noexcept
 {
     SType layout;
     if (!preflight(schema, document, type, declaration, destination, destination_size, diagnostic, layout))
     {
         return false;
     }
-    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure))
+    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure) &&
+        (layout.category != ECategory::text) && (layout.category != ECategory::span))
     {
         diagnostic = { EReason::invalid_input, declaration, type };
         return false;
     }
     CValueWriter writer{ work_budget, schema, document,
-        ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic };
+        ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic, false, references };
     return writer.write(type, {}, declaration, { destination, destination, nullptr }, static_cast<std::size_t>(layout.size), 0u, singleton_element);
 }
 
 bool construct_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence declaration, const std::uint8_t* const base, const std::size_t base_size,
-    std::uint8_t* const destination, const std::size_t destination_size, SValueDiagnostic& diagnostic) noexcept
+    std::uint8_t* const destination, const std::size_t destination_size, SValueDiagnostic& diagnostic,
+    const SReferenceEncoding* const references) noexcept
 {
     SType layout;
     if (!preflight(schema, document, type, declaration, base, base_size, diagnostic, layout) ||
@@ -1168,14 +1349,14 @@ bool construct_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& 
     {
         std::memcpy(destination, base, static_cast<std::size_t>(layout.size));
     }
-    CValueWriter writer{ work_budget, schema, document, EWriteMode::alternative, diagnostic };
+    CValueWriter writer{ work_budget, schema, document, EWriteMode::alternative, diagnostic, false, references };
     return writer.write(type, {}, declaration, { destination, destination, nullptr }, static_cast<std::size_t>(layout.size), 0u);
 }
 
 bool check_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t size, const EConstructionMode mode, bool& matches, SValueDiagnostic& diagnostic,
-    const bool singleton_element) noexcept
+    const bool singleton_element, const SReferenceEncoding* const references) noexcept
 {
     matches = false;
     SType layout;
@@ -1183,13 +1364,14 @@ bool check_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, co
     {
         return false;
     }
-    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure))
+    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure) &&
+        (layout.category != ECategory::text) && (layout.category != ECategory::span))
     {
         diagnostic = { EReason::invalid_input, declaration, type };
         return false;
     }
     CValueWriter writer{ work_budget, schema, document,
-        ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic, true };
+        ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic, true, references };
     if (!writer.write(type, {}, declaration, { nullptr, bytes, nullptr }, static_cast<std::size_t>(layout.size), 0u, singleton_element))
     {
         return false;
@@ -1201,7 +1383,7 @@ bool check_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, co
 bool check_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, const std::uint8_t* const bytes, const std::size_t size,
-    bool& matches, SValueDiagnostic& diagnostic) noexcept
+    bool& matches, SValueDiagnostic& diagnostic, const SReferenceEncoding* const references) noexcept
 {
     matches = false;
     SType layout;
@@ -1210,7 +1392,7 @@ bool check_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& sche
     {
         return false;
     }
-    CValueWriter writer{ work_budget, schema, document, EWriteMode::alternative, diagnostic, true };
+    CValueWriter writer{ work_budget, schema, document, EWriteMode::alternative, diagnostic, true, references };
     if (!writer.write(type, {}, declaration, { nullptr, bytes, base }, static_cast<std::size_t>(layout.size), 0u))
     {
         return false;

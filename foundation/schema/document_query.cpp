@@ -9,6 +9,7 @@
 //  Read-only adapter over existing live and baked document queries.
 
 #include "schema/document_query.hpp"
+#include "schema/operation_meter.hpp"
 #include "data_model/live_document.hpp"
 
 namespace schema
@@ -31,16 +32,19 @@ CDocumentRead::CDocumentRead(const CBakedDocument& document) noexcept : m_baked(
 
 bool CDocumentRead::is_ready() const noexcept
 {
+    if (!data_work()) return false;
     return (m_backing == EBacking::live) ? m_live->is_ready() : ((m_backing == EBacking::baked) && m_baked.is_ready());
 }
 
 bool CDocumentRead::live_value(const SOccurrence value) const noexcept
 {
+    if (!data_work()) return false;
     return (m_backing == EBacking::live) && value.live.is_valid() && !value.baked.is_valid();
 }
 
 bool CDocumentRead::baked_value(const SOccurrence value) const noexcept
 {
+    if (!data_work()) return false;
     return (m_backing == EBacking::baked) && value.baked.is_valid() && !value.live.is_valid();
 }
 
@@ -112,18 +116,25 @@ CPropertyNameId CDocumentRead::name_id(const SOccurrence value) const noexcept
 
 CStringView CDocumentRead::name(const SOccurrence value) const noexcept
 {
-    return live_value(value) ? m_live->name(value.live) :
+    const CStringView result = live_value(value) ? m_live->name(value.live) :
         (baked_value(value) ? m_baked.name(value.baked) : CStringView{});
+    return data_bytes(result.length()) ? result : CStringView{};
 }
 
 CStringView CDocumentRead::property_name(const CPropertyNameId id) const noexcept
 {
-    return (m_backing == EBacking::live) ? m_live->property_name(id) :
+    if (!data_work()) return {};
+    const CStringView result = (m_backing == EBacking::live) ? m_live->property_name(id) :
         ((m_backing == EBacking::baked) ? m_baked.property_name(id) : CStringView{});
+    return data_bytes(result.length()) ? result : CStringView{};
 }
 
 CPropertyNameId CDocumentRead::find_property_name_id(const CStringView& name) const noexcept
 {
+    //  Both domains search at most 2^31 entries. Precharge the generic query's
+    //  worst-case comparisons and byte probes without adding schema hooks to it.
+    const std::uint64_t chunks = (static_cast<std::uint64_t>(name.length()) + 63u) >> 6u;
+    if (!data_work((chunks + 1u) << 5u)) return {};
     return (m_backing == EBacking::live) ? m_live->find_property_name_id(name) :
         ((m_backing == EBacking::baked) ? m_baked.find_property_name_id(name) : CPropertyNameId{});
 }
@@ -166,6 +177,7 @@ SOccurrence CDocumentRead::array_at(const SOccurrence array, const std::uint32_t
     CNodeKey element = m_live->first_child(array.live);
     for (std::uint32_t index = 0u; index < ordinal; ++index)
     {
+        if (!data_work()) return {};
         element = m_live->next_sibling(element);
     }
     return SOccurrence{ element };
@@ -173,8 +185,13 @@ SOccurrence CDocumentRead::array_at(const SOccurrence array, const std::uint32_t
 
 SOccurrence CDocumentRead::object_child(const SOccurrence object, const CStringView& name) const noexcept
 {
-    return live_value(object) ? SOccurrence{ m_live->object_child(object.live, name) } :
-        (baked_value(object) ? SOccurrence{ m_baked.object_child(object.baked, name) } : SOccurrence{});
+    const CPropertyNameId id = find_property_name_id(name);
+    if (!id) return {};
+    for (SOccurrence child = first_child(object); child; child = next_sibling(child))
+    {
+        if (name_id(child) == id) return child;
+    }
+    return {};
 }
 
 bool CDocumentRead::boolean_value(const SOccurrence value, bool& result) const noexcept
@@ -209,8 +226,9 @@ bool CDocumentRead::floating_point_value(const SOccurrence value, double& result
 
 CStringView CDocumentRead::string_value(const SOccurrence value) const noexcept
 {
-    return live_value(value) ? m_live->string_value(value.live) :
+    const CStringView result = live_value(value) ? m_live->string_value(value.live) :
         (baked_value(value) ? m_baked.string_value(value.baked) : CStringView{});
+    return data_bytes(result.length()) ? result : CStringView{};
 }
 
 }   // namespace detail

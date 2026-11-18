@@ -14,6 +14,16 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\operation_meter.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_edit.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_candidate.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_copy_internal.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_copy.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_construction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reference_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_view.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_operation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_operation_internal.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\internal\bundle_builder_io.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\filesystem\logical_path.hpp" />
@@ -50,6 +60,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document_format.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\data_model_types.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_translation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\string_value_remap.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_findings.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_parser.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\document_structure.hpp" />
@@ -77,13 +88,17 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\unused_storage.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_wrappers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_value.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_data_block.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_construction.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_format.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_record_plan.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\schema\instance_edit_types.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\data_model\live_document_node.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\debug\event_arguments.hpp" />
@@ -137,6 +152,14 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\foundation\types\fp16data_t.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_export.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_edit.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_candidate.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_copy.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\reference_construction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_reference_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_view.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_operation.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle_builder.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\assets\bundle.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\data_model\baked_document.cpp" />
@@ -166,11 +189,13 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\unused_storage.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\types_wrappers.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_data.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_bulk_plan.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_data_block.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_construction.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\data_block_format.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_bulk_data.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instances.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\baked_instance_plan.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances_edit.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\foundation\schema\live_instances_translation.cpp" />

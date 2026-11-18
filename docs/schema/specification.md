@@ -18,7 +18,10 @@ Future work and unresolved proposals live in the
 Completed delivery history is summarised in the
 [project milestones](../project/completed_milestones.md#schema-delivery-status).
 
-Runtime persistence uses the version-2 [common .bsd block](common-binary-block.md).
+Runtime persistence uses the version-1 [common .bsd block](common-binary-block.md).
+Inline text and typed variable-length spans follow the
+[text/span declaration and value contract](text-and-spans.md), including nullability,
+atomic selection semantics, runtime retention and context-bound operations.
 It contains any combination of types, instances and bulk data; every present data
 section has its complete binary, including explicit zero bytes. Runtime instance
 and bulk values are always stripped from descriptions. Selections, hierarchy,
@@ -28,7 +31,7 @@ type defaults, decorations and non-storage declarations remain.
 incomplete documents for copying, merging, composition and saving. Full validation,
 live materialisation and baking require contained types as the sole type authority.
 Runtime attachment uses existing complete binaries and an explicitly bound types
-owner; it never reconstructs a missing binary. No version-1 compatibility is provided.
+owner; it never reconstructs a missing binary. Historical layouts are not supported; the current version-1 metadata and layout are required.
 
 Storage and typed readiness remain independent. Live roles own working binaries;
 baked roles borrow stable storage. Generic Host persistence retains complete bytes.
@@ -414,7 +417,7 @@ logical types are integer primitives, `b8` or named enums. `internal` is Boolean
 Defaults and explicit-layout metadata obey their additional rules below.
 
 Authoring documents have no runtime envelope/version; persisted runtime blocks
-use the common version-2 envelope. No permitted-name allow-list is required. Declaration names use the ASCII subset
+use the common version-1 envelope. No permitted-name allow-list is required. Declaration names use the ASCII subset
 of C++17 identifiers, with applicable keyword and implementation-reserved-identifier
 checks. Non-ASCII
 declaration names are rejected, not transliterated or renamed. This is a syntax

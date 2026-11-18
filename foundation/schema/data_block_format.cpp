@@ -9,6 +9,7 @@
 //  Bounded validation of instance and bulk data persistence envelopes.
 
 #include "schema/data_block_format.hpp"
+#include "schema/operation_meter.hpp"
 
 #include <cstring>
 #include <limits>
@@ -87,6 +88,7 @@ bool read_data_block_root(const CDocumentRead& document, SDataBlockRoot& output,
         else if (text_is(name, "instances")) staged.instances = child;
         else if (text_is(name, "data")) staged.bulk_data = child;
         else if (text_is(name, "stripped")) stripped = child;
+        else if (text_is(name, "retainedText")) staged.retained_text = child;
         else return root_failure(diagnostic, EDataBlockReason::unknown_property, child);
     }
     const bool envelope = file_type || version || staged.instance_size || staged.bulk_size;
@@ -116,6 +118,28 @@ bool read_data_block_root(const CDocumentRead& document, SDataBlockRoot& output,
         if (section && (document.value_kind(section) != EDocumentValueKind::object))
         {
             return root_failure(diagnostic, EDataBlockReason::invalid_property_type, section);
+        }
+    }
+    if (require_envelope && !staged.retained_text)
+    {
+        return root_failure(diagnostic, EDataBlockReason::missing_property, root);
+    }
+    if (staged.retained_text)
+    {
+        if (document.value_kind(staged.retained_text) != EDocumentValueKind::array)
+        {
+            return root_failure(diagnostic, EDataBlockReason::invalid_property_type, staged.retained_text);
+        }
+        CStringView previous;
+        for (SOccurrence value = document.first_child(staged.retained_text); value; value = document.next_sibling(value))
+        {
+            const CStringView text = document.string_value(value);
+            if (document.is_object_entry(value) || (document.value_kind(value) != EDocumentValueKind::string) || !text.length() ||
+                (!previous.empty() && (previous.relationship(text) >= 0)))
+            {
+                return root_failure(diagnostic, EDataBlockReason::invalid_input, value);
+            }
+            previous = text;
         }
     }
     if (stripped && !document.boolean_value(stripped, staged.stripped))
@@ -151,6 +175,7 @@ bool read_data_block_root(const CDocumentRead& document, SDataBlockRoot& output,
             return root_failure(diagnostic, EDataBlockReason::invalid_input, sizes[index]);
         }
     }
+    if (!data_healthy()) return root_failure(diagnostic, EDataBlockReason::storage_limit, root);
     output = staged;
     return true;
 }
@@ -223,6 +248,7 @@ bool validate_data_block(const void* const bytes, const std::size_t size,
         return fail_at_byte(diagnostic, EDataBlockReason::file_length_mismatch, offsetof(SBakedDocumentHeader, total_size));
     }
     CBakedDocument document;
+    if (!data_work(header.value_count) || !data_bytes(header.total_size)) return fail(diagnostic, EDataBlockReason::storage_limit);
     if (!document.reset(bytes, header.total_size)) return fail(diagnostic, EDataBlockReason::invalid_document);
     SDataBlockRoot root;
     if (!read_data_block_root(CDocumentRead{ document }, root, diagnostic, true)) return false;
@@ -253,6 +279,7 @@ bool validate_data_block(const void* const bytes, const std::size_t size,
         *views[index] = CByteConstView{ (storage + cursor), static_cast<std::size_t>(sizes[index]), k_data_block_alignment };
         cursor += static_cast<std::size_t>(sizes[index]);
     }
+    if (!data_healthy()) return fail(diagnostic, EDataBlockReason::storage_limit);
     staged.document = document;
     staged.has_instances = static_cast<bool>(root.instance_size);
     staged.has_bulk_data = static_cast<bool>(root.bulk_size);

@@ -91,6 +91,10 @@
     <ClCompile><PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\tests\test_suites\SchemaReference_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\SchemaReference_validation_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\SchemaTraversal_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\SchemaRecordPlanning_test_cases.cpp" />
     <ClCompile Include="..\host\config\module_extension.cpp" />
     <ClCompile Include="..\host\module\bound_module.cpp" />
     <ClCompile Include="..\host\filesystem\filesystem_image.cpp" />
@@ -134,6 +138,9 @@
     <ClCompile Include="..\rendering\runtime\shader_compiler.cpp">
       <AdditionalIncludeDirectories>$(ProjectDir)..\build\dependencies\dxc\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <ClInclude Include="..\tests\test_suites\SchemaReference_test_cases.hpp" />
+    <ClInclude Include="..\tests\test_suites\SchemaTraversal_test_cases.hpp" />
+    <ClInclude Include="..\tests\test_suites\SchemaRecordPlanning_test_cases.hpp" />
     <ClInclude Include="..\host\filesystem\mount_rules.hpp" />
     <ClInclude Include="..\host\config\module_extension.hpp" />
     <ClInclude Include="..\host\assets\asset_repository.hpp" />

@@ -324,7 +324,7 @@ void runtime_conversion(tests::TTestContext& ctx)
     const auto query = block.document();
     std::uint64_t version{};
     bool stripped{};
-    TEST_EXPECT(ctx, query.unsigned_integer_value(query.object_child(query.root(), CStringView{ "version" }), version) && version == 2u &&
+    TEST_EXPECT(ctx, query.unsigned_integer_value(query.object_child(query.root(), CStringView{ "version" }), version) && (version == 1u) &&
         query.boolean_value(query.object_child(query.root(), CStringView{ "stripped" }), stripped) && stripped);
     CBakedTypes baked_types;
     SDiagnostic type_error;

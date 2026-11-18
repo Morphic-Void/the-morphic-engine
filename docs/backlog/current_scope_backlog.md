@@ -32,6 +32,9 @@ The subsequent input and communication stages are implemented:
 
 - [Direct POD connections](../modules/direct_pod_connections.md): Host-owned
   growable TQueue transports, readiness, exact-instance ownership and safe retirement.
+- [Opaque bulk connections](../modules/direct_bulk_connections.md): fixed-capacity
+  aligned latest-state endpoints, either-role initiation, POD coexistence and
+  Host backing retained through two-sided quiescence, committed in `2e2a8b4`.
 - [Host timed waiting](../modules/host_timed_wait.md): aggregate wake and the
   anchored 120 Hz cadence on Windows and the current Linux shell.
 - [Portable input connections](../modules/input_connections.md): typed Platform-owned
@@ -124,35 +127,46 @@ selected by this documentation closeout.
 
 ## Other future work
 
-Vulkan is the primary rendering API planned for first implementation; DirectX
-is deferred. The rendering DLL already performs
-[Basis texture conditioning](../modules/texture_codec.md) through batch runners.
-[Shader compilation](../modules/shader_compilation_design.md) now provides:
-six stages, bundle-local includes and renderer-owned groups containing one report
-per compilation and a summary. Ordinary shader failures allow other jobs to
-continue. Compile-only operations publish the completed group to the Host;
-future conditioning operations may retain intermediate results within rendering
-and publish a finished package instead.
-Reflection is separate; CPU readback is deferred and stream output is not planned.
-Compilation runs in-process with exceptions contained at the boundary.
-Vector-relaxed buffer layout is the agreed default; CPU and shader representations
-may differ. A small bundled shader support include provides binding/location
-macros and controlled target defines; richer binding descriptions are deferred
-to reflection and pipeline conditioning. Request/result structure choices,
-development defaults, feature restrictions and configurable service limits are
-implemented. Remaining binding conventions and platform validation are recorded
-in the design; reflection and subsequent conditioning remain future work.
-The agreed [reflection/component-library design](../modules/shader_reflection_design.md)
-uses schema associations, interfaces and decorations, explicit shared-type
-mappings, per-vertex/per-patch declarations and combined diagnostic reports.
-Intermediate live results stay in rendering for library aggregation before
-baking/assembly. Generic schema composition and version-2 `.bsd` persistence are
-implemented. Explicit shader/variant entries, reversible qualified identities,
-deterministic binary packing and the initial unsupported-feature policy are agreed
-starting points. Their detailed grammar/encoding, packing records, additional
-producer/consumer convention metadata and public API limits remain to settle.
-The reflection design distinguishes semantic binding from
-concrete CPU buffer layouts and records the agreed compact storage terminology.
+The [combined shader-system reference](../modules/shader_reflection_design.md)
+retains overall intent and draft resolutions. The user's review found missing detail,
+ambiguity and over/under-specification. The [stage plan](shader_system_stages.md)
+now guides focused clarification, implementation and review one increment at a time;
+the [PSO scope proposal](../modules/pso_creation_stage1.md) is the first candidate.
+The [scope inventory](../modules/shader_reflection_design.md#scope-inventory-and-remaining-specification-work)
+records draft coverage rather than implementation readiness; the
+[ownership glossary](../modules/shader_reflection_design.md#ownership-and-lifecycle-glossary)
+distinguishes storage, decision authority, leases and cleanup custody. An overarching
+coordinator reviews stage designs; each design chat coordinates its implementation
+review once that work is selected. Library assembly, semantic/PSO/provider binding and generic
+Host/Framework support are distinct work areas with explicit dependencies; runtime
+facilities are not automatically prerequisites for assembly. No implementation is
+selected here.
+
+Vulkan is the primary first rendering API; DirectX and CPU readback are deferred,
+and stream output is not planned. Rendering already performs
+[Basis texture conditioning](../modules/texture_codec.md) and in-process
+[DXC shader compilation](../modules/shader_compilation_design.md) through batch
+runners. Compilation supports six conventional stages, bundle-local includes,
+renderer-owned reports, agreed defaults/restrictions and configurable limits.
+Ordinary job failures retain diagnostics and let other jobs continue. Compile-only
+groups return to Rendering; Host retains explicitly exported generic bytes/documents.
+Individual reflection and renderer-local compile/reflect jobs/reports are implemented.
+Generic schema composition and version-1 persistence are implemented; production
+combined groups, component-library assembly and payload packing/relocation remain
+unimplemented.
+
+The review draft specifies component authoring/catalogues, reusable semantic
+contracts/mappings, packing/reports, PSO construction/library persistence and provider
+preparation, plus observation/bulk extension controls. The detailed finite transform/
+interpolation repertoire is deliberately deferred; no general numerical-proof system
+is required. User configuration still selects materials/resources and
+resolves eligible-provider ambiguity. Host-owned opaque bulk distribution is now
+implemented; schema-aware acknowledgement, independent acquisition protection and
+generic observation leases remain proposed extensions. Current views expire with
+endpoint quiescence and are not those independent leases. Detailed decisions live
+in the combined specification. Specialization constants remain unsupported by reflection/
+conditioning, with support not planned and compile-only behaviour unchanged.
+
 Final deployment/platform bindings, UGC providers, general document navigation,
 save-game integration, automatic cache reclamation and trust/layers remain future
 work. [Module batch runners](../modules/batch_runners.md) now provide coarse

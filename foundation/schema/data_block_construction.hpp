@@ -18,13 +18,16 @@
 
 #include <utility>
 
+namespace document_translation { class CStringValueRemap; }
+
 namespace schema::detail
 {
 
 //  Prepare final storage for either or both domains. Null sizes omit a domain;
 //  a pointer to zero retains its empty section. The caller fills payload spans.
-[[nodiscard]] bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* instance_size,
-    const std::size_t* bulk_size, CByteBuffer& storage, SDataBlockLayout& layout, SDataBlockDiagnostic& diagnostic) noexcept;
+[[nodiscard]] bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* const instance_size,
+    const std::size_t* const bulk_size, CByteBuffer& storage, SDataBlockLayout& layout, SDataBlockDiagnostic& diagnostic,
+    document_translation::CStringValueRemap* const strings = nullptr) noexcept;
 
 //  Allocate the final file after preparing its description. The caller fills
 //  the returned payload directly, then adopts the complete storage.

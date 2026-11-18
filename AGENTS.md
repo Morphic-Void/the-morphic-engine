@@ -18,6 +18,41 @@ also obtain coordinator review and address findings before committing; permissio
 to commit does not waive review. No coordinator means no coordinator review is
 required. The user performs pushes; do not push.
 
+## Versioning and compatibility
+
+The engine is before product release version 1. Internal API, schema and file-format
+version numbers are separate from the product release and do not establish it.
+
+Versioning mechanisms are always allowed. Before product release 1, temporary
+version numbers and transitional handling may be used within an authorised task.
+Backward compatibility for earlier engine-owned interfaces, module contracts,
+schemas and stored formats is not required unless explicitly requested.
+
+Before a pre-release implementation task changing such a contract is complete:
+
+- Remove legacy implementations, compatibility paths and temporary transition code;
+  retain the versioning mechanism itself.
+- Set the affected contract/format version markers to version 1.
+- Rebuild the engine and all affected consumers against the final current code.
+- Remove affected legacy data/artifacts and rebuild or regenerate their current
+  replacements with that rebuilt code. Update maintained authored data, fixtures,
+  examples and generators; preserve required information during any conversion.
+- Validate the final version-1 code and regenerated data, with no legacy support
+  code or maintained legacy artifacts left in the task's scope.
+
+Apply the final reset before the completion build and validation; a temporary
+version or a promise to rebuild later does not satisfy completion. Keep explicit
+version/contract checks and clear rejection of unsupported layouts. A reused
+version-1 marker alone does not prove that historical bytes match the current
+schema. This policy does not authorise unrelated version changes or data cleanup.
+
+Before product release 1 ships, define the supported API/ABI and stored-data
+versions, compatibility guarantees, deprecation rules and data preservation/upgrade
+paths. From that release onward, honour those published commitments and handle
+breaking changes explicitly. This does not promise indefinite support for every
+historical version. Supported external standards, protocols and platform/API
+requirements remain governed by their separately agreed contracts.
+
 ## Text files
 
 Follow `.gitattributes` and end text files with a newline unless explicitly exempt.

@@ -61,6 +61,8 @@ enum class EScalarDecodeReason : std::uint8_t { none = 0u, invalid_type, unrepre
 namespace detail
 {
 
+struct SReferenceEncoding;
+
 //==============================================================================
 //  Internal construction and diagnostics
 //==============================================================================
@@ -126,7 +128,7 @@ private:
 [[nodiscard]] bool construct_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, std::uint8_t* const destination,
     const std::size_t destination_size, const EConstructionMode mode, SValueDiagnostic& diagnostic,
-    const bool singleton_element = false) noexcept;
+    const bool singleton_element = false, const SReferenceEncoding* const references = nullptr) noexcept;
 
 //  The base is preserved; the independent destination receives its complete
 //  bytes before selected values are changed, preserving inherited padding and
@@ -134,7 +136,7 @@ private:
 [[nodiscard]] bool construct_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, std::uint8_t* const destination, const std::size_t destination_size,
-    SValueDiagnostic& diagnostic) noexcept;
+    SValueDiagnostic& diagnostic, const SReferenceEncoding* const references = nullptr) noexcept;
 
 //  Run the same construction rules against existing bytes, without writing or
 //  allocating a reconstructed value. A valid declaration can still mismatch;
@@ -142,11 +144,11 @@ private:
 [[nodiscard]] bool check_value(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t size, const EConstructionMode mode, bool& matches, SValueDiagnostic& diagnostic,
-    const bool singleton_element = false) noexcept;
+    const bool singleton_element = false, const SReferenceEncoding* const references = nullptr) noexcept;
 [[nodiscard]] bool check_alternative(CValueWorkBudget& work_budget, const CResolvedTypes& schema, const CDocumentRead& document,
     const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, const std::uint8_t* const bytes, const std::size_t size,
-    bool& matches, SValueDiagnostic& diagnostic) noexcept;
+    bool& matches, SValueDiagnostic& diagnostic, const SReferenceEncoding* const references = nullptr) noexcept;
 
 enum class EValueCheck : std::uint8_t { match = 0u, mismatch, invalid };
 

@@ -9,7 +9,7 @@
 //  Non-owning baked bulk data role with explicit schema and payload associations.
 
 //  Public entry point for borrowed bulk data. Includes shared schema/query types.
-//  record_index.hpp supplies private storage required by the class definition.
+//  Internal record and index headers supply storage required by the class definition.
 
 #pragma once
 
@@ -17,6 +17,7 @@
 #define SCHEMA_BAKED_BULK_DATA_HPP_INCLUDED
 
 #include "schema/types_wrappers.hpp"
+#include "schema/baked_record_plan.hpp"
 #include "schema/record_index.hpp"
 #include "containers/ByteBuffers.hpp"
 
@@ -42,7 +43,8 @@ enum class EBulkDataLoadReason : std::uint8_t
     incompatible_schema,
     unrepresentable_value,
     allocation_failed,
-    binary_required
+    binary_required,
+    reference_context_required
 };
 
 struct SBulkDataDiagnostic
@@ -124,14 +126,6 @@ private:
     friend class CLiveBulkData;
     friend class CSchema;
 
-    struct SRecord
-    {
-        CBakedValueIndex entry;
-        CTypesIndex type;
-        std::uint32_t count{}, offset{}, extent{};
-        std::uint32_t stride{};
-    };
-
     [[nodiscard]] bool fail(SBulkDataDiagnostic& diagnostic, const EBulkDataLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
     void take_from(CBakedBulkData& source) noexcept;
@@ -142,7 +136,7 @@ private:
     template<class TSchema>
     [[nodiscard]] bool switch_to(TSchema& schema, const ETypeBindMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool plan(const std::size_t payload_size,
-        TPodVector<SRecord>& records, std::size_t& total_size, SBulkDataDiagnostic& diagnostic) const noexcept;
+        TPodVector<detail::SBakedBulkRecord>& records, std::size_t& total_size, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool load_supplied(const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
@@ -152,7 +146,7 @@ private:
     CBakedDocument m_document;
     CTypesBinding m_binding;
     CByteConstView m_payload;
-    TPodVector<SRecord> m_records;
+    TPodVector<detail::SBakedBulkRecord> m_records;
     CBakedRecordIndex m_record_index;
     bool m_loaded{};
 };

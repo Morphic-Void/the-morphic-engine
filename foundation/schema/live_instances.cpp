@@ -339,6 +339,8 @@ bool CLiveInstances::mutable_entry(const CInstanceHandle handle, SMutableInstanc
     {
         return false;
     }
+    SType layout;
+    if (!m_binding.resolved()->type(value.type, layout) || layout.contains_references) return false;
     SMutableInstanceEntryView mutable_value;
     mutable_value.type = value.type;
     mutable_value.parent = value.parent;
@@ -375,6 +377,11 @@ CInstanceHandle CLiveInstances::append_instance(const CTypesIndex type, const st
         ((parent != k_no_parent) && (parent >= m_records.size())))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return {};
+    }
+    if (layout.contains_references)
+    {
+        diagnostic.reason = EInstanceLoadReason::reference_context_required;
         return {};
     }
     if ((layout.alignment == 0u) || (layout.alignment > k_max_alignment) ||

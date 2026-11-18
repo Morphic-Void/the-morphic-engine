@@ -18,6 +18,8 @@
 namespace schema::detail
 {
 
+struct SReferenceDecoding;
+
 struct SSelectionView
 {
     const CDocumentRead* document{};
@@ -40,7 +42,7 @@ struct SSelectionView
     SValueDiagnostic& diagnostic) noexcept;
 [[nodiscard]] CNodeKey export_selection(CLiveDocument& target, const CResolvedTypes& types,
     const CTypesIndex type, const SSelectionView selection, const std::uint8_t* bytes,
-    const CStringView& name, SValueDiagnostic& diagnostic) noexcept;
+    const CStringView& name, SValueDiagnostic& diagnostic, const SReferenceDecoding* const references = nullptr) noexcept;
 
 //  Union the old selections with meaningful differences in scope, or explicitly
 //  select every scope leaf. An absent result with no diagnostic means no selection.
@@ -65,7 +67,8 @@ class CDefaultBaseline
 public:
     [[nodiscard]] bool get(const CResolvedTypes& types, const CDocumentRead& document,
         const CTypesIndex type, const std::size_t extent, const std::uint8_t*& bytes,
-        SValueDiagnostic& error) noexcept
+        SValueDiagnostic& error, const SReferenceEncoding* const references = nullptr,
+        CValueWorkBudget* const operation_work = nullptr) noexcept
     {
         if (type != m_type)
         {
@@ -75,7 +78,8 @@ public:
                 return false;
             }
             CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
-            if (!construct_value(work_budget, types, document, type, {}, m_bytes.data(), extent, EConstructionMode::instance, error))
+            if (!construct_value(operation_work ? *operation_work : work_budget, types, document, type, {},
+                m_bytes.data(), extent, EConstructionMode::instance, error, false, references))
             {
                 return false;
             }
@@ -92,7 +96,8 @@ private:
 
 template<class TRecords, class TType>
 [[nodiscard]] static EValueCheck check_selected_records(const CResolvedTypes& types, const CDocumentRead& document,
-    const TRecords& records, const std::uint8_t* payload, const TType& type_at, SValueDiagnostic& error) noexcept
+    const TRecords& records, const std::uint8_t* const payload, const TType& type_at, SValueDiagnostic& error,
+    const SReferenceEncoding* const references = nullptr, CValueWorkBudget* const operation_work = nullptr) noexcept
 {
     CDefaultBaseline defaults;
     for (std::size_t i = 0u; i < records.size(); ++i)
@@ -109,7 +114,7 @@ template<class TRecords, class TType>
         const std::uint8_t* baseline{};
         if (record.parent == UINT32_MAX)
         {
-            if (!defaults.get(types, document, type, record.extent, baseline, error))
+            if (!defaults.get(types, document, type, record.extent, baseline, error, references, operation_work))
             {
                 error.occurrence = SOccurrence{ record.entry };
                 return EValueCheck::invalid;

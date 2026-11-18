@@ -17,7 +17,8 @@ namespace schema::detail
 
 bool data_entry_property(const CStringView& name, const bool bulk, const bool stored) noexcept
 {
-    return (stored && (name == CStringView{ "locator" })) || (bulk ? (name == CStringView{ "data" }) :
+    return (stored && ((name == CStringView{ "locator" }) || (bulk && (name == CStringView{ "collectionId" })))) ||
+        (bulk ? (name == CStringView{ "data" }) :
         ((name == CStringView{ "declaration" }) || (name == CStringView{ "specialisation" })));
 }
 

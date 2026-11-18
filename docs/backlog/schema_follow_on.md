@@ -25,6 +25,14 @@ The [delivery record](../project/completed_milestones.md#schema-delivery-status)
 owns history and verification; the [persistence and aggregation contract](../schema/persistence-and-aggregation.md)
 owns implemented behaviour. This backlog does not repeat those completed plans.
 
+## Operation ownership follow-on
+
+The completed consolidation retains operation-owned allocation contexts and
+ambient metering. A separate allocator-lifetime abstraction, or explicit operation
+parameters throughout shared helpers, remains unselected future work. Neither is
+required to use the current ownership contract; any proposal must preserve shared
+budgets, allocator lifetimes and the direct reference-free paths.
+
 ## Direction discussed on 4 October 2026
 
 ### Typed serialisation

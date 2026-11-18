@@ -18,6 +18,8 @@
 
 #include "containers/TPodVector.hpp"
 
+#include "schema/operation_meter.hpp"
+
 #include <algorithm>
 #include <utility>
 
@@ -107,8 +109,8 @@ public:
             {
                 order[i] = static_cast<std::uint32_t>(i);
             }
-            std::sort(order.data(), (order.data() + order.size()), [&](const std::uint32_t a, const std::uint32_t b) noexcept
-                { return records[a].entry.query_value() < records[b].entry.query_value(); });
+            if (!schema::detail::data_sort(order.data(), (order.data() + order.size()), [&](const std::uint32_t a, const std::uint32_t b) noexcept
+                { return records[a].entry.query_value() < records[b].entry.query_value(); })) return false;
         }
         m_order = std::move(order);
         return true;

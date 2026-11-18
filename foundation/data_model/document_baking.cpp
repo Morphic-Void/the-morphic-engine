@@ -9,6 +9,7 @@
 //  Translation from a live document to an immutable baked block.
 
 #include "data_model/document_translation.hpp"
+#include "data_model/string_value_remap.hpp"
 
 #include <cstring>
 #include <utility>
@@ -25,7 +26,7 @@ public:
     CBakedDocumentBaker(const CLiveDocument& source, const CStringView& member_name) noexcept;
 
     [[nodiscard]] bool build() noexcept;
-    void publish(CBakedDocumentBlock& destination) noexcept;
+    void publish(CBakedDocumentBlock& destination, document_translation::CStringValueRemap* const strings = nullptr) noexcept;
 
 private:
     enum class EStringDomain : std::uint8_t
@@ -405,9 +406,13 @@ bool CBakedDocumentBaker::validate_output() noexcept
     return m_block.adopt(std::move(m_bytes));
 }
 
-void CBakedDocumentBaker::publish(CBakedDocumentBlock& destination) noexcept
+void CBakedDocumentBaker::publish(CBakedDocumentBlock& destination, document_translation::CStringValueRemap* const strings) noexcept
 {
     destination = std::move(m_block);
+    if (strings)
+    {
+        strings->initialise(std::move(m_string_analysis.string_value_references));
+    }
 }
 
 bool document_translation::bake(const CLiveDocument& source, CBakedDocumentBlock& destination) noexcept
@@ -419,6 +424,14 @@ bool document_translation::bake(const CLiveDocument& source, CBakedDocumentBlock
     }
 
     baker.publish(destination);
+    return true;
+}
+
+bool document_translation::bake(const CLiveDocument& source, CBakedDocumentBlock& destination, CStringValueRemap& strings) noexcept
+{
+    CBakedDocumentBaker baker{ source };
+    if (!baker.build()) return false;
+    baker.publish(destination, &strings);
     return true;
 }
 

@@ -11,6 +11,9 @@
 
 #include "tests/test_suites/Schema_test_suite.hpp"
 #include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
+#include "tests/test_suites/SchemaReference_test_cases.hpp"
+#include "tests/test_suites/SchemaRecordPlanning_test_cases.hpp"
+#include "tests/test_suites/SchemaTraversal_test_cases.hpp"
 #include "tests/test_suites/SchemaMerge_test_cases.hpp"
 #include "tests/test_suites/DataMerge_test_cases.hpp"
 #include "tests/test_suites/DocumentBoundary_test_cases.hpp"
@@ -28,6 +31,7 @@
 #include "schema/schema.hpp"
 #include "tests/support/schema_fixtures.hpp"
 #include "schema/baked_data_block.hpp"
+#include "schema/data_copy.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -1814,7 +1818,7 @@ static void test_failures(TTestContext& ctx)
     expect_failure(ctx, one("\"missing\"", ""), EReason::unknown_type);
     expect_failure(ctx, one("\"Test\"", ""), EReason::cycle);
     expect_failure(ctx, one("{\"element\":\"u8\",\"count\":0}", ""), EReason::invalid_range);
-    expect_failure(ctx, one("{\"kind\":\"array\",\"element\":\"u8\",\"count\":1}", ""), EReason::unknown_property);
+    expect_failure(ctx, one("{\"kind\":\"array\",\"element\":\"u8\",\"count\":1}", ""), EReason::invalid_input);
     expect_failure(ctx, one("{\"element\":\"u8\"}", ""), EReason::missing_property);
     expect_failure(ctx, one("{\"element\":{\"element\":\"u64\",\"count\":4294967295},\"count\":4294967295}", ""),
         EReason::storage_limit);
@@ -1973,9 +1977,32 @@ static void test_schema_sample(TTestContext& ctx)
         live_triangle) && live_triangle.count == triangle.count && live_triangle.byte_count == triangle.byte_count &&
         live_triangle.bytes != triangle.bytes &&
         std::memcmp(live_triangle.bytes, triangle.bytes, static_cast<std::size_t>(triangle.byte_count)) == 0);
+    CDataBlockView complete;
+    SDataOperationDiagnostic reference_error;
+    TEST_EXPECT(ctx, complete.bind(runtime, {}, reference_error));
+    CDataValueView report, vertices;
+    SDataRangeView range;
+    TEST_EXPECT(ctx, complete.value(complete.find_instance(CStringView{ "GeometryReport" }, CStringView{ "triangle_report" }), 0u, report) &&
+        complete.member(report, CStringView{ "vertices" }, vertices) && complete.span(vertices, range) && (range.count == 3u));
+    //  Keep exercising the independent reference-free role lifecycle after
+    //  selecting its entries through the complete context.
+    TPodVector<SDataCopyRoot> roots;
+    for (std::uint32_t ordinal = 0u; ordinal < complete.entry_count(EDataEntryKind::instance); ++ordinal)
+    {
+        const CDataEntryHandle entry = complete.entry_at(EDataEntryKind::instance, ordinal);
+        SDataEntryInfo info;
+        TEST_EXPECT(ctx, complete.entry(entry, info));
+        if (!(info.type_name == CStringView{ "GeometryReport" }))
+        {
+            TEST_EXPECT(ctx, roots.push_back({ 0u, entry }));
+        }
+    }
+    const CDataBlockView* const sources[]{ &complete };
+    CBakedDataBlock reference_free;
+    TEST_EXPECT(ctx, copy_data(sources, 1u, roots.data(), roots.size(), nullptr, 0u, {}, reference_free, reference_error));
     CBakedInstances instances;
     SInstanceDiagnostic instance_error;
-    TEST_EXPECT(ctx, instances.attach_block(runtime, sample_schema, instance_error));
+    TEST_EXPECT(ctx, instances.attach_block(reference_free, sample_schema, instance_error));
     const CInstanceHandle vector = instances.find_base(CStringView{ "Vector4" }, CStringView{ "base" });
     const CInstanceHandle padded = instances.find_specialisation(vector, CStringView{ "padded" });
     const CInstanceHandle vertex = instances.find_base(CStringView{ "Vertex" }, CStringView{ "base" });
@@ -9995,6 +10022,9 @@ int run_schema_tests()
 {
     tests::TTestContext ctx;
     run_schema_data_block_cases(ctx);
+    run_schema_reference_cases(ctx);
+    run_schema_record_planning_cases(ctx);
+    run_schema_traversal_cases(ctx);
     run_types_merge_cases(ctx);
     run_data_merge_cases(ctx);
     run_document_boundary_cases(ctx);

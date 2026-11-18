@@ -17,6 +17,11 @@
 #include "schema/instance_selection.hpp"
 #include "schema/data_reconstruction.hpp"
 #include "schema/data_document_validation.hpp"
+#include "schema/reference_construction.hpp"
+#include "schema/data_reference_context.hpp"
+#include "schema/data_operation_internal.hpp"
+#include "schema/operation_meter.hpp"
+#include "data_model/string_value_remap.hpp"
 #include "data_model/document_copy.hpp"
 
 #include <cstring>
@@ -108,11 +113,12 @@ class CSchemaConstruction
 {
 public:
     explicit CSchemaConstruction(const CLiveDocument& document, CValueWorkBudget& work_budget,
-        const std::uint64_t payload_limit = UINT64_MAX) noexcept :
-        m_document(document), m_source(document), m_work_budget(work_budget), m_payload_limit(payload_limit) {}
+        const std::uint64_t payload_limit = UINT64_MAX, CDataOperation* const operation = nullptr) noexcept :
+        m_document(document), m_source(document), m_work_budget(work_budget), m_payload_limit(payload_limit), m_operation(operation) {}
     [[nodiscard]] bool prepare(const EAggregateConstruction target, SSchemaDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBulkData& bulk,
         SSchemaDiagnostic& diagnostic) noexcept;
+    //  Build complete storage; bounded callers publish independently.
     [[nodiscard]] bool bake(CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) noexcept;
 
 private:
@@ -120,7 +126,9 @@ private:
     [[nodiscard]] bool build_section(SDataConstructionPlan& plan, const bool bulk, CLiveDocument& target,
         SSchemaDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool encode(const SDataConstructionPlan& plan, const bool bulk, std::uint8_t* bytes,
-        SSchemaDiagnostic& diagnostic) const noexcept;
+        SSchemaDiagnostic& diagnostic, const SReferenceEncoding* const references = nullptr) const noexcept;
+    [[nodiscard]] bool bake_references(CLiveDocument& description, CBakedDataBlock& destination,
+        SSchemaDiagnostic& diagnostic) noexcept;
     [[nodiscard]] static bool construction_failure(const bool bulk, const SOccurrence source,
         const EReason reason, SSchemaDiagnostic& diagnostic) noexcept;
     [[nodiscard]] static bool block_failure(SSchemaDiagnostic& diagnostic) noexcept;
@@ -135,6 +143,7 @@ private:
     SDataConstructionPlan m_instances, m_bulk;
     CValueWorkBudget& m_work_budget;
     const std::uint64_t m_payload_limit;
+    CDataOperation* const m_operation;
 };
 
 void CSchemaConstruction::map_types_diagnostic(SDiagnostic& diagnostic) const noexcept
@@ -294,6 +303,14 @@ bool CSchemaConstruction::build_section(SDataConstructionPlan& plan, const bool 
             {
                 return construction_failure(bulk, entry.source, EReason::allocation_failed, diagnostic);
             }
+            if (bulk)
+            {
+                const CNodeKey id = target.create_unsigned_integer((i + 1u), CStringView{ "collectionId" });
+                if ((i >= INT32_MAX) || !id || !CDocumentConstruction::append(target, entry.target, id))
+                {
+                    return construction_failure(true, entry.source, EReason::allocation_failed, diagnostic);
+                }
+            }
             if (!bulk && entry.declaration)
             {
                 SValueDiagnostic error;
@@ -317,7 +334,7 @@ bool CSchemaConstruction::build_section(SDataConstructionPlan& plan, const bool 
 }
 
 bool CSchemaConstruction::encode(const SDataConstructionPlan& plan, const bool bulk, std::uint8_t* bytes,
-    SSchemaDiagnostic& diagnostic) const noexcept
+    SSchemaDiagnostic& diagnostic, const SReferenceEncoding* const references) const noexcept
 {
     //  Authored construction starts with zero padding and gaps. Alternatives
     //  subsequently copy complete immediate-parent snapshots before applying changes.
@@ -339,7 +356,7 @@ bool CSchemaConstruction::encode(const SDataConstructionPlan& plan, const bool b
                 {
                     if (!construct_value(m_work_budget, *m_types, m_source, group.type, value,
                         layout.size ? destination + layout.size * ordinal : nullptr, static_cast<std::size_t>(layout.size),
-                        EConstructionMode::complete_bulk_data, error, m_source.is_object_entry(value)))
+                        EConstructionMode::complete_bulk_data, error, m_source.is_object_entry(value), references))
                     {
                         return construction_failure(true, entry.source, error.reason, diagnostic);
                     }
@@ -349,9 +366,10 @@ bool CSchemaConstruction::encode(const SDataConstructionPlan& plan, const bool b
             else
             {
                 const bool built = entry.parent == UINT32_MAX ?
-                    construct_value(m_work_budget, *m_types, m_source, group.type, entry.declaration, destination, entry.extent, EConstructionMode::instance, error) :
+                    construct_value(m_work_budget, *m_types, m_source, group.type, entry.declaration, destination, entry.extent,
+                        EConstructionMode::instance, error, false, references) :
                     construct_alternative(m_work_budget, *m_types, m_source, group.type, entry.declaration,
-                        entry.extent ? bytes + plan.entries[entry.parent].offset : nullptr, entry.extent, destination, entry.extent, error);
+                        entry.extent ? bytes + plan.entries[entry.parent].offset : nullptr, entry.extent, destination, entry.extent, error, references);
                 if (!built) return construction_failure(false, entry.source, error.reason, diagnostic);
             }
         }
@@ -433,12 +451,17 @@ bool CSchemaConstruction::block_failure(SSchemaDiagnostic& diagnostic) noexcept
 
 bool CSchemaConstruction::bake(CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) noexcept
 {
+    if (!prepare(EAggregateConstruction::baked, diagnostic))
+    {
+        return false;
+    }
     diagnostic.stage = ESchemaStage::materialisation;
     CLiveDocument description;
     const CDocumentRead* sources[]{ &m_source, nullptr, nullptr };
     if (!copy_sections(sources, description, diagnostic) ||
         (m_instance_section && !build_section(m_instances, false, description, diagnostic)) ||
         (m_bulk_section && !build_section(m_bulk, true, description, diagnostic))) return false;
+    if (m_operation) return bake_references(description, destination, diagnostic);
     CByteBuffer storage;
     SDataBlockLayout layout;
     if (!prepare_common_data_block_storage(description, m_instance_section ? &m_instances.payload_size : nullptr,
@@ -457,10 +480,116 @@ bool CSchemaConstruction::bake(CBakedDataBlock& destination, SSchemaDiagnostic& 
     return true;
 }
 
+bool CSchemaConstruction::bake_references(CLiveDocument& description, CBakedDataBlock& destination,
+    SSchemaDiagnostic& diagnostic) noexcept
+{
+    CDataOperation& operation = *m_operation;
+    operation.stage(EDataOperationStage::construction);
+    if (!admit_data_document(description)) return false;
+    std::uint64_t records = m_instances.entries.size();
+    for (std::size_t index = 0u; index < m_bulk.entries.size(); ++index)
+    {
+        if (!operation.work()) return false;
+        records += m_bulk.entries[index].count;
+    }
+    if (!operation.records(records)) return false;
+    CReferenceConstruction references{ description, operation };
+    for (std::size_t group_index = 0u; group_index < m_bulk.groups.size(); ++group_index)
+    {
+        const SDataConstructionGroup& group = m_bulk.groups[group_index];
+        for (std::uint32_t index = group.first; index < (group.first + group.count); ++index)
+        {
+            const SDataConstructionEntry& entry = m_bulk.entries[index];
+            if (!operation.work() || !references.add_collection(group.type, entry.target, (index + 1u), entry.count)) return false;
+        }
+    }
+    const SReferenceEncoding encoding = references.encoding();
+    CByteBuffer instances, bulk;
+    if (!allocate_payload(m_instances.payload_size, instances) || !allocate_payload(m_bulk.payload_size, bulk))
+    {
+        return operation.fail(EDataOperationReason::allocation_failed);
+    }
+    if (!encode(m_instances, false, instances.data(), diagnostic, &encoding) ||
+        !encode(m_bulk, true, bulk.data(), diagnostic, &encoding) || !references.finish()) return false;
+    operation.stage(EDataOperationStage::baking);
+    document_translation::CStringValueRemap strings;
+    CByteBuffer storage;
+    SDataBlockLayout layout;
+    if (!operation.nodes(5u) || !prepare_common_data_block_storage(description, (m_instance_section ? &m_instances.payload_size : nullptr),
+        (m_bulk_section ? &m_bulk.payload_size : nullptr), storage, layout, diagnostic.block, &strings)) return false;
+    if (!operation.output(layout.file_size)) return false;
+    for (const bool is_bulk : { false, true })
+    {
+        const SDataConstructionPlan& plan = is_bulk ? m_bulk : m_instances;
+        CByteBuffer& payload = is_bulk ? bulk : instances;
+        for (std::size_t group_index = 0u; group_index < plan.groups.size(); ++group_index)
+        {
+            const SDataConstructionGroup& group = plan.groups[group_index];
+            SType type;
+            (void)m_types->type(group.type, type);
+            for (std::uint32_t index = group.first; index < (group.first + group.count); ++index)
+            {
+                const SDataConstructionEntry& entry = plan.entries[index];
+                for (std::uint32_t record = 0u; record < entry.count; ++record)
+                {
+                    std::uint8_t* const bytes = type.size ? payload.data() + entry.offset + (type.size * record) : nullptr;
+                    if (!references.relocate_text(*m_types, group.type, bytes, strings)) return false;
+                }
+            }
+        }
+        if (!operation.bytes_work(payload.size())) return false;
+        if (payload.size())
+        {
+            std::memcpy((storage.data() + (is_bulk ? layout.bulk_offset : layout.instance_offset)), payload.data(), payload.size());
+        }
+    }
+    CBakedDocumentBlock block;
+    CBakedDataBlock complete;
+    if (!block.adopt_buffer(std::move(storage)) || !complete.adopt_local(std::move(block), diagnostic.block)) return false;
+    SDataViewState checked{ operation };
+    if (!checked.load(complete, false)) return false;
+    if (!complete.release_local(block) || !destination.adopt_local(std::move(block), diagnostic.block)) return false;
+    return true;
+}
+
+[[nodiscard]] static bool finish_schema_operation(const bool success, const CDataOperation& operation,
+    SSchemaDiagnostic& diagnostic) noexcept
+{
+    if (!success)
+    {
+        operation.diagnose(diagnostic.operation);
+        if (diagnostic.reason == ESchemaReason::none)
+        {
+            diagnostic.reason = (diagnostic.operation.reason == EDataOperationReason::limit_exceeded) ? ESchemaReason::storage_limit :
+                ((diagnostic.operation.reason == EDataOperationReason::allocation_failed) ? ESchemaReason::allocation_failed : ESchemaReason::construction_failed);
+        }
+        return false;
+    }
+    diagnostic = {};
+    return true;
+}
+
 }   // namespace detail
 
 bool CSchema::validate(SSchemaDiagnostic& diagnostic) const noexcept
 {
+    if (detail::has_reference_declarations(CDocumentRead{ m_document }))
+    {
+        diagnostic = {};
+        detail::CDataOperation operation{ SDataOperationLimits{} };
+        const detail::CDataOperationScope scope{ operation };
+        operation.stage(EDataOperationStage::construction);
+        const bool source_valid = (operation.valid() || operation.fail(EDataOperationReason::invalid_input)) &&
+            detail::admit_data_document(m_document) && admit(CDocumentRead{ m_document }, diagnostic);
+        bool success{};
+        if (source_valid)
+        {
+            detail::CSchemaConstruction context{ m_document, operation.value_work(), operation.limits().result_bytes, &operation };
+            CBakedDataBlock checked;
+            success = context.bake(checked, diagnostic);
+        }
+        return detail::finish_schema_operation(success, operation, diagnostic);
+    }
     if (!admit(CDocumentRead{ m_document }, diagnostic)) return false;
     CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
     detail::CSchemaConstruction context{ m_document, work_budget };
@@ -478,6 +607,12 @@ bool CSchema::materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBul
     SSchemaDiagnostic& diagnostic, CValueWorkBudget& work_budget, const std::uint64_t payload_limit) const noexcept
 {
     diagnostic = {};
+    if (detail::has_reference_declarations(CDocumentRead{ m_document }))
+    {
+        diagnostic.stage = ESchemaStage::materialisation;
+        diagnostic.reason = ESchemaReason::reference_context_required;
+        return false;
+    }
     if (types.document_ready() || types.reference_count() || instances.document_ready() || bulk_data.document_ready())
     {
         diagnostic.stage = ESchemaStage::materialisation;
@@ -491,6 +626,7 @@ bool CSchema::materialise(CLiveTypes& types, CLiveInstances& instances, CLiveBul
 
 bool CSchema::bake(CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) const noexcept
 {
+    if (detail::has_reference_declarations(CDocumentRead{ m_document })) return bake(destination, SDataOperationLimits{}, diagnostic);
     diagnostic = {};
     if (destination.backing() != EEntityBacking::none)
     {
@@ -501,7 +637,31 @@ bool CSchema::bake(CBakedDataBlock& destination, SSchemaDiagnostic& diagnostic) 
     if (!admit(CDocumentRead{ m_document }, diagnostic)) return false;
     CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
     detail::CSchemaConstruction context{ m_document, work_budget };
-    return context.prepare(detail::EAggregateConstruction::baked, diagnostic) && context.bake(destination, diagnostic);
+    return context.bake(destination, diagnostic);
+}
+
+bool CSchema::bake(CBakedDataBlock& destination, const SDataOperationLimits limits, SSchemaDiagnostic& diagnostic) const noexcept
+{
+    diagnostic = {};
+    if (destination.loaded_ready())
+    {
+        diagnostic.reason = ESchemaReason::invalid_source;
+        diagnostic.operation.reason = EDataOperationReason::destination_not_empty;
+        return false;
+    }
+    detail::CDataOperation operation{ limits };
+    const detail::CDataOperationScope scope{ operation };
+    operation.stage(EDataOperationStage::construction);
+    const bool source_valid = (operation.valid() || operation.fail(EDataOperationReason::invalid_input)) &&
+        detail::admit_data_document(m_document) && admit(CDocumentRead{ m_document }, diagnostic);
+    bool success{};
+    if (source_valid)
+    {
+        detail::CSchemaConstruction context{ m_document, operation.value_work(), limits.result_bytes, &operation };
+        CBakedDataBlock staged;
+        success = context.bake(staged, diagnostic) && detail::publish_data_block(staged, operation, destination);
+    }
+    return detail::finish_schema_operation(success, operation, diagnostic);
 }
 
 

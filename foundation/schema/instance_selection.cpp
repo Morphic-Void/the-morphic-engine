@@ -9,6 +9,8 @@
 //  Selected paths are independent of the values held in runtime binary storage.
 
 #include "schema/instance_selection.hpp"
+#include "schema/reference_value.hpp"
+#include "schema/operation_meter.hpp"
 #include "data_model/document_copy.hpp"
 
 #include <algorithm>
@@ -132,8 +134,8 @@ class CSelectionBuilder
 {
 public:
     CSelectionBuilder(CLiveDocument* target, const CResolvedTypes& types, const EBuild mode,
-        SValueDiagnostic& error, const bool select_scope = false) noexcept :
-        m_target(target), m_types(types), m_mode(mode), m_error(error), m_select_scope(select_scope) {}
+        SValueDiagnostic& error, const bool select_scope = false, const SReferenceDecoding* const references = nullptr) noexcept :
+        m_target(target), m_types(types), m_mode(mode), m_error(error), m_select_scope(select_scope), m_references(references) {}
 
     [[nodiscard]] CNodeKey build(const CTypesIndex type, const SSelectionView input, const SSelectionView scope,
         const std::uint8_t* baseline, const std::uint8_t* bytes, const CStringView& name, const unsigned depth = 0u) noexcept;
@@ -147,13 +149,19 @@ private:
     EBuild m_mode;
     SValueDiagnostic& m_error;
     bool m_select_scope;
+    const SReferenceDecoding* m_references;
 };
 
 CNodeKey CSelectionBuilder::leaf(const CTypesIndex type, const SSelectionView input, const SSelectionView scope,
     const std::uint8_t* baseline, const std::uint8_t* bytes, const CStringView& name,
     const unsigned width, const SField* field, const std::size_t word_size) noexcept
 {
-    if (input.singleton || (present(input) && (m_mode != EBuild::strip) && !marker(input)))
+    //  A single-property absent/empty literal inside an array is represented as
+    //  a named entry. Value admission has checked that marker before stripping.
+    SType layout;
+    const bool reference_literal = (m_mode == EBuild::strip) && m_types.type(type, layout) &&
+        ((layout.category == ECategory::text) || (layout.category == ECategory::span));
+    if ((input.singleton && !reference_literal) || (present(input) && (m_mode != EBuild::strip) && !marker(input)))
     {
         (void)fail(m_error, EReason::invalid_input, type, input);
         return {};
@@ -177,6 +185,18 @@ CNodeKey CSelectionBuilder::leaf(const CTypesIndex type, const SSelectionView in
     CNodeKey result;
     if (m_mode == EBuild::export_values)
     {
+        SType layout;
+        if (!m_types.type(type, layout)) return {};
+        if ((layout.category == ECategory::text) || (layout.category == ECategory::span))
+        {
+            EReason reason = EReason::unsupported_feature;
+            if (m_references && m_references->decode)
+            {
+                result = m_references->decode(m_references->context, *m_target, type, bytes, name, reason);
+            }
+            if (!result) (void)fail(m_error, reason, type, input);
+            return result;
+        }
         EScalarDecodeReason error;
         const std::uint64_t bits = field ? ((read_scalar_bits(bytes, word_size) & field->mask) >> field->shift) :
             read_scalar_bits(bytes, width / 8u);
@@ -195,6 +215,11 @@ CNodeKey CSelectionBuilder::leaf(const CTypesIndex type, const SSelectionView in
 CNodeKey CSelectionBuilder::build(const CTypesIndex type, const SSelectionView input, const SSelectionView scope,
     const std::uint8_t* baseline, const std::uint8_t* bytes, const CStringView& name, const unsigned depth) noexcept
 {
+    if (!data_work() || !data_depth(depth) || (m_target && !data_nodes(1u)))
+    {
+        (void)fail(m_error, EReason::storage_limit, type, input);
+        return {};
+    }
     if (!present(input) && ((m_mode != EBuild::extend) || !present(scope))) return {};
     SType layout;
     if ((depth >= document_limits::k_max_recursion_depth) || !m_types.type(type, layout))
@@ -202,7 +227,8 @@ CNodeKey CSelectionBuilder::build(const CTypesIndex type, const SSelectionView i
         (void)fail(m_error, (depth >= document_limits::k_max_recursion_depth) ? EReason::storage_limit : EReason::unknown_type, type, input);
         return {};
     }
-    if (layout.category == ECategory::primitive || layout.category == ECategory::enumeration)
+    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration) ||
+        (layout.category == ECategory::text) || (layout.category == ECategory::span))
     {
         return leaf(type, input, scope, baseline, bytes, name, static_cast<unsigned>(layout.size * 8u));
     }
@@ -293,13 +319,15 @@ CNodeKey CSelectionBuilder::build(const CTypesIndex type, const SSelectionView i
     const SSelectionView selection, const SSelectionView scope, const std::uint8_t* baseline,
     const std::uint8_t* bytes, std::uint8_t* writable, bool& matches, SValueDiagnostic& error, const unsigned depth) noexcept
 {
+    if (!data_work() || !data_depth(depth)) return fail(error, EReason::storage_limit, type, selection);
     if (!present(scope)) return true;
     SType layout;
     if (depth >= document_limits::k_max_recursion_depth) return fail(error, EReason::storage_limit, type, selection);
     if (!types.type(type, layout)) return fail(error, EReason::unknown_type, type, selection);
     if (!layout.size) return true;
     if (!baseline || !bytes) return fail(error, EReason::invalid_input, type, selection);
-    if (layout.category == ECategory::primitive || layout.category == ECategory::enumeration)
+    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration) ||
+        (layout.category == ECategory::text) || (layout.category == ECategory::span))
     {
         if (!present(selection))
         {
@@ -383,7 +411,8 @@ CNodeKey copy_selection(CLiveDocument& target, const CResolvedTypes& types, cons
 }
 
 CNodeKey export_selection(CLiveDocument& target, const CResolvedTypes& types, const CTypesIndex type,
-    const SSelectionView selection, const std::uint8_t* bytes, const CStringView& name, SValueDiagnostic& diagnostic) noexcept
+    const SSelectionView selection, const std::uint8_t* bytes, const CStringView& name, SValueDiagnostic& diagnostic,
+    const SReferenceDecoding* const references) noexcept
 {
     diagnostic = {};
     SType layout;
@@ -392,7 +421,7 @@ CNodeKey export_selection(CLiveDocument& target, const CResolvedTypes& types, co
         (void)fail(diagnostic, EReason::invalid_input, type, selection);
         return {};
     }
-    CSelectionBuilder builder{ &target, types, EBuild::export_values, diagnostic };
+    CSelectionBuilder builder{ &target, types, EBuild::export_values, diagnostic, false, references };
     CNodeKey result = builder.build(type, selection, {}, nullptr, bytes, name);
     if (result)
     {
@@ -400,7 +429,7 @@ CNodeKey export_selection(CLiveDocument& target, const CResolvedTypes& types, co
         bool matches{};
         CValueWorkBudget work_budget = CValueWorkBudget::unbounded();
         if (!check_alternative(work_budget, types, output, type, SOccurrence{ result }, bytes, static_cast<std::size_t>(layout.size),
-            bytes, static_cast<std::size_t>(layout.size), matches, diagnostic) || !matches)
+            bytes, static_cast<std::size_t>(layout.size), matches, diagnostic, (references ? references->encoding : nullptr)) || !matches)
         {
             (void)target.erase(result);
             result = {};

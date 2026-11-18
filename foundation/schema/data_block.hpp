@@ -59,7 +59,8 @@ enum class EDataBlockReason : std::uint8_t
     description_preparation_failed,
     document_promotion_failed,
     document_bake_failed,
-    assembly_failed
+    assembly_failed,
+    reference_context_required
 };
 
 enum class EDataBlockLocationKind : std::uint8_t

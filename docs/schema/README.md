@@ -18,13 +18,15 @@ interpret its current contracts.
 | [Prepared schemas](prepared-schema.md) | Bounded Host conditioning and acquisition-scoped immutable results. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
-| [Common binary block](common-binary-block.md) | Version-2 .bsd storage, required data binaries and explicit assembly. |
+| [Common binary block](common-binary-block.md) | Version-1 .bsd storage, required data binaries and explicit assembly. |
+| [Text and spans](text-and-spans.md) | Logical references, retained text, checked views, bounded copy/export and edit transactions. |
 | [Persistence and aggregation](persistence-and-aggregation.md) | Implemented aggregate merging/composition, import, persistence and diagnostic rules. |
 | [Delivery status](../project/completed_milestones.md#schema-delivery-status) | Completed capabilities, reviewed commit checkpoints and validation evidence; completed implementation plans are retired. |
 | [Document model milestone](../project/completed_milestones.md#schema-document-model-and-runtime-construction) | Binary-free aggregates, stripped runtime owners, explicit edits and shared construction, with final validation evidence. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |
 | [Role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction) | Historical block, attachment, indexed lookup and construction milestones; later document-model changes supersede its old switching/reconciliation APIs. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |
+| [Consolidation validation](consolidation-validation.md) | Shared planning, operation ownership and validation/publication delivery, staged reviews and final qualification. |
 | [Header survey](header-survey.md) | Historical source research supporting the ingestion discussion. |
 
 Start with the runtime guide for C++ use and the specification for authoring.
@@ -37,10 +39,12 @@ Live/baked runtime data documents are always stripped. Instances retain hierarch
 and selected-field masks; actual values live in complete binaries. Whole-instance
 and component edits explicitly preserve or propagate into descendants. Equal pins
 and empty selections survive conversion. Scoped direct edits require explicit
-completion. Bulk arrays remain directly writable without reconciliation.
+completion. Reference-free bulk arrays remain directly writable without reconciliation.
+Text/span payloads use the complete-block checked reader and private edit transaction
+described in [text and spans](text-and-spans.md).
 
 Runtime .bsd blocks require complete backing for each present data section. Storage
-assembly copies bytes; typed attachment checks them. Promotion preserves bytes and
+assembly copies reference-free bytes; typed attachment checks them. Promotion preserves bytes and
 masks. Explicit import into `CSchema` reconstructs only the source role's section,
 without linked types, and rejects values lacking faithful literal representation.
 The previous runtime envelope and superseded APIs have no compatibility layer.

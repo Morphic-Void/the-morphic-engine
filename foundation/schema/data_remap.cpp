@@ -132,6 +132,12 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
         return false;
     }
 
+    if (destination.contains_references)
+    {
+        diagnostic.reason = ERemapReason::reference_context_required;
+        return false;
+    }
+
     //  Resolved layouts already satisfy the single-allocation size ceiling.
     m_destination = { static_cast<std::uint32_t>(destination.size), static_cast<std::uint32_t>(destination.stride),
         static_cast<std::uint32_t>(destination.alignment) };
@@ -165,6 +171,12 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
         if (!input.schema->type(input.type, source) || (source.category != ECategory::structure))
         {
             diagnostic.reason = ERemapReason::unknown_type;
+            clear();
+            return false;
+        }
+        if (source.contains_references)
+        {
+            diagnostic.reason = ERemapReason::reference_context_required;
             clear();
             return false;
         }

@@ -81,7 +81,9 @@ notifications and bounded modal maintenance. Linux currently has the portable
 shell with unsupported native creation, not a native window backend.
 
 The input and communication foundation is complete: [direct POD connections](../modules/direct_pod_connections.md)
-use Host-owned growable TQueue transports; [Host timed waiting](../modules/host_timed_wait.md)
+use Host-owned growable TQueue transports, and [opaque bulk connections](../modules/direct_bulk_connections.md)
+add fixed-capacity aligned latest-state exchange under the same retirement lifecycle.
+[Host timed waiting](../modules/host_timed_wait.md)
 provides aggregate wake and an anchored 120 Hz cadence on Windows and the Linux
 shell. [Input connections](../modules/input_connections.md),
 [Host schema conditioning and incremental configuration installation](../modules/input_configuration_installation.md),
@@ -157,42 +159,50 @@ remain potential consumers, to be selected as separate work.
 
 ## Image and graphics work
 
+The [combined shader-system reference](../modules/shader_reflection_design.md) retains
+overall intent and draft proposals. Follow [staged development](shader_system_stages.md):
+clarify, implement and review one small selected increment, then adapt affected earlier
+stages. The first candidate is [Rendering-local PSO creation](../modules/pso_creation_stage1.md),
+with Host file access and no initial Executive data requirement. Its scope is still
+under refinement. The [scope inventory](../modules/shader_reflection_design.md#scope-inventory-and-remaining-specification-work)
+records draft coverage; the [ownership glossary](../modules/shader_reflection_design.md#ownership-and-lifecycle-glossary)
+defines terms. This inventory selects no implementation.
+
 - Expand TGA validation across representative decode/encode, orientation,
   grayscale, 24/32-bit and RLE cases. The existing asynchronous TGA flow is a
   baseline; broader format coverage remains open. Prefer manual validation
   initially unless defects or tooling justify an automated suite.
-- Extend [DXC shader compilation](../modules/shader_compilation_design.md), now providing
-  bundle-local includes and renderer-owned reports for all six conventional stages.
-  Publish a completed compile-only group to the Host; keep intermediate results
-  within rendering when an enclosing operation performs further conditioning.
-  Request/result structure choices, development defaults, feature restrictions
-  and configurable service limits are implemented. Remaining binding conventions
-  and platform validation are recorded in the design. Reflection is a separate
-  operation. Use the small bundled shader support
-  include for binding/location macros; defer richer binding descriptions to
-  reflection/pipeline conditioning.
-  Follow the agreed [reflection/component-library design](../modules/shader_reflection_design.md)
-  for schema mappings, explicit type sharing, stage regions, retained failure
-  reports and live assembly. Generic schema composition and version-2 `.bsd`
-  persistence are implemented; library payload packing/locator relocation and
-  remaining authoring/public contracts still need design. Preserve the distinction
-  between semantic binding, matrix interpretation and concrete CPU buffer layout.
-  Neither document composition nor raw block assembly relocates component payloads.
-  CPU readback is deferred. Stream output/transform feedback is not
-  planned; prefer compute for future GPU data-generation work.
-- Condition and validate graphics pipelines: shader reflection, PSO metadata,
-  pipeline descriptions, graphics state and API-specific/agnostic processing.
-  Runtime rendering must accept both offline and on-demand conditioned data.
-- Shader variant policy: use explicit compile-time variants through named targets,
-  defines and compilation settings as the baseline, without automatic permutation
-  expansion. Specialization constants are currently unsupported by reflection and
-  conditioning, and support is **not planned**. The reflector rejects them with
-  diagnostics; compile-only behaviour is unchanged. This supersedes the previous
-  required follow-up: support is not a blocker to completing the agreed shader work
-  and is not scheduled as part of PSO construction. Reconsider only if a concrete
-  future use case warrants a separate design decision covering metadata, value
-  selection, validation and
-  shape/execution dependencies.
+- Extend [shader conditioning](../modules/shader_compilation_design.md) from the
+  implemented six-stage compile-only and individual compile/reflect paths to
+  production combined groups and component-library assembly. Rendering owns
+  intermediate reports/results; Host retains only explicit generic exports.
+  Generic schema composition/version-1 persistence exist; review the draft catalogue,
+  logical APIs and multi-source payload packing/locator relocation. Follow the
+  combined specification for component identities, contextual asset resolution,
+  explicit type sharing and retained diagnostics. Existing defaults, limits and
+  support-include macros remain applicable; platform qualification remains separate
+  from the draft binding/layout design.
+- Review the pipeline-conditioning draft: explicit reusable-component composition, vertex/
+  stage validation, supported connection optimisation and PSO introspection. Use
+  explicit semantic contracts/mappings, registered providers and user configuration
+  to eliminate binding boilerplate. Provider preparation/lifecycle and generic
+  Host observation/bulk support are distinct design areas, not automatic assembly
+  prerequisites. Opaque Host bulk distribution is implemented; schema-aware and
+  independent-acquisition extensions plus observation services remain future work.
+  Runtime rendering must accept offline and on-demand conditioned data. CPU readback
+  is deferred; stream output is not planned, with compute preferred for future GPU
+  data generation.
+- Persist compiled PSOs as [library files](../modules/shader_reflection_design.md#compiled-pso-library-persistence)
+  with compilation-environment metadata, including hardware and driver identity.
+  Validate against the loading system and regenerate incompatible/unusable libraries;
+  the review draft selects embedded dependency snapshots and a shared Vulkan cache
+  alongside portable recipes. This is specification, not delivered persistence.
+- Shader variants use explicit compile-time named targets, defines and settings,
+  without automatic permutation expansion. Specialization constants reject in
+  reflection/conditioning; support is **not planned**, is not an assembly blocker
+  or scheduled PSO feature, and leaves compile-only behaviour unchanged. Reconsider
+  only through a separate decision justified by a concrete use case, covering
+  metadata, selection, validation and shape/execution dependencies.
 - Keep image conversion, compression/decompression and graphics asset
   conditioning separable from pipeline conditioning, for runtime and offline use.
 - Build a swappable renderer/RHI with Vulkan as the primary first implementation.

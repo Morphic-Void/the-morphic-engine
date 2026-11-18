@@ -9,6 +9,8 @@
 //  Resolve live/baked definitions, references, defaults and physical layouts.
 
 #include "schema/resolved_types.hpp"
+#include "schema/operation_meter.hpp"
+#include "schema/reference_value.hpp"
 #include "schema/data_block_format.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_conversion.hpp"
@@ -268,21 +270,23 @@ const CResolvedTypes::STypeRecord* CResolvedTypes::type_record(const CTypesIndex
 //  Name IDs belong to one document. Keep declaration records in their original
 //  order and search small ordinal permutations with integer comparisons.
 template<class T>
-static void order_names(const TPodVector<T>& records, TPodVector<std::uint32_t>& order,
+[[nodiscard]] static bool order_names(const TPodVector<T>& records, TPodVector<std::uint32_t>& order,
     const std::uint32_t first, const std::uint32_t count) noexcept
 {
     for (std::uint32_t i = 0u; i < count; ++i)
     {
+        if (!detail::data_work()) return false;
         order[first + i] = first + i;
     }
     if (count > 1u)
     {
-        std::sort((order.data() + first), (order.data() + first + count),
+        if (!detail::data_sort((order.data() + first), (order.data() + first + count),
             [&records](const std::uint32_t a, const std::uint32_t b)
             {
                 return records[a].name.query_value() < records[b].name.query_value();
-            });
+            })) return false;
     }
+    return true;
 }
 
 template<class T>
@@ -464,6 +468,7 @@ bool CResolvedTypes::definition_ordinal(const CTypesIndex type, std::uint32_t& r
 
 bool CResolvedTypes::type(const CTypesIndex index, SType& result) const noexcept
 {
+    if (!detail::data_work()) return false;
     const STypeRecord* const record = type_record(index);
     if (!m_ready || !record)
     {
@@ -472,7 +477,8 @@ bool CResolvedTypes::type(const CTypesIndex index, SType& result) const noexcept
     result = {
         record->category, record->primitive, record->name, record->source, record->size,
         record->alignment(), record->stride, record->count, record->related,
-        record->flag(STypeRecord::k_gaps), record->flag(STypeRecord::k_internal), record->flag(STypeRecord::k_named_components) };
+        record->flag(STypeRecord::k_gaps), record->flag(STypeRecord::k_internal), record->flag(STypeRecord::k_named_components),
+        record->flag(STypeRecord::k_nullable), record->flag(STypeRecord::k_references) };
     return true;
 }
 
@@ -510,6 +516,7 @@ CTypesIndex CResolvedTypes::field_at(const CTypesIndex i, const std::uint32_t n)
 
 bool CResolvedTypes::member(const CTypesIndex i, SMember& r) const noexcept
 {
+    if (!detail::data_work()) return false;
     if (!m_ready || !is_kind(i, resolver_util::k_member, m_members.size()))
     {
         return false;
@@ -531,6 +538,7 @@ bool CResolvedTypes::label(const CTypesIndex i, SLabel& r) const noexcept
 
 bool CResolvedTypes::field(const CTypesIndex i, SField& r) const noexcept
 {
+    if (!detail::data_work()) return false;
     if (!m_ready || !is_kind(i, resolver_util::k_field, m_fields.size()))
     {
         return false;
@@ -706,6 +714,7 @@ CTypesIndex CResolvedTypes::first_label_for_value(const CTypesIndex type, const 
 
 bool CResolvedTypes::default_value(const CTypesIndex type, const CTypesIndex description, SDefault& result) const noexcept
 {
+    if (!detail::data_work()) return false;
     const STypeRecord* const type_info = type_record(type);
     if (!m_ready || !type_info)
     {
@@ -751,6 +760,15 @@ bool CResolvedTypes::default_value(const CTypesIndex type, const CTypesIndex des
             value.scalar.value.unsigned_value = 0u;
             value.scalar.kind = (type_info->primitive == EPrimitive::f16) ? EScalar::half :
                 ((type_info->primitive == EPrimitive::b8) ? EScalar::boolean : EScalar::unsigned_integer);
+        }
+    }
+    if ((type_info->category == ECategory::text) || (type_info->category == ECategory::span))
+    {
+        value.kind = (type_info->category == ECategory::text) ? EDefault::text : EDefault::span;
+        value.absent = description ? (value.scalar.value.signed_value == -1) : type_info->flag(STypeRecord::k_nullable);
+        if (description && !value.absent && (type_info->category == ECategory::text))
+        {
+            value.text = m_document.string_value(value.source);
         }
     }
     result = value;
@@ -815,6 +833,52 @@ public:
 private:
     using TTypeRecord = CResolvedTypes::STypeRecord;
 
+    //  Only continuations grow with input depth. The allocator owns this bounded
+    //  scratch; the native call chain and per-step layout/conversion scratch do
+    //  not grow when a dependency suspends its parent.
+    enum class EReferencePhase : std::uint8_t { descend, descriptor, arrays };
+    struct SReferenceFrame
+    {
+        CTypesHandle origin, current;
+        CTypesIndex result;
+        unsigned depth{};
+        EReferencePhase phase{};
+        bool span{}, nullable{};
+    };
+    enum class ETypePhase : std::uint8_t { enter, member, reference, finish_member };
+    struct STypeFrame
+    {
+        TTypeRecord record;
+        SReferenceFrame reference;
+        CTypesHandle next, first_member;
+        std::uint64_t used{};
+        CTypesIndex component;
+        std::uint32_t slot{}, ordinal{};
+        unsigned depth{};
+        ETypePhase phase{};
+        bool explicit_offsets{}, has_storage{};
+    };
+    static_assert(sizeof(STypeFrame) <= 160u);
+    enum class EDeclarationPhase : std::uint8_t { enter, member, finish_member, complete };
+    struct SDeclarationFrame
+    {
+        CResolvedTypes::SNonStorageRecord record;
+        SInterfaceMember member;
+        CTypesHandle next;
+        std::uint32_t slot{}, ordinal{};
+        unsigned depth{};
+        EDeclarationPhase phase{};
+    };
+    struct SDefaultFrame
+    {
+        CTypesIndex type, element;
+        CTypesHandle source, next;
+        std::uint32_t slot{}, child_slot{};
+        unsigned depth{};
+    };
+    static_assert(sizeof(SDeclarationFrame) <= 128u);
+    static_assert(sizeof(SDefaultFrame) <= 64u);
+
     //  First-error reporting, checked storage and document shape.
     bool fail(const EReason reason, const CTypesHandle& at = {}, const CTypesHandle& related = {}) noexcept;
     template<class T> bool grow(TPodVector<T>& values, const std::uint32_t count, const CTypesHandle& at) noexcept;
@@ -827,22 +891,30 @@ private:
     bool declarations(const CTypesHandle& container, const ECategory category) noexcept;
     bool non_storage_declarations(const CTypesHandle& container, const EDeclarationCategory category) noexcept;
     bool resolve_non_storage(const CTypesIndex declaration, const unsigned depth) noexcept;
-    bool declaration_reference(const CTypesHandle source, CTypesIndex& result, const unsigned depth) noexcept;
+    bool push_declaration(const CTypesIndex declaration, const unsigned depth) noexcept;
+    bool begin_declaration(SDeclarationFrame& frame) noexcept;
+    bool declaration_reference(const CTypesHandle source, CTypesIndex& result) noexcept;
     bool names(const CTypesHandle& container, const bool array, const CTypesHandle& owner, const bool allow_empty = false) noexcept;
 
     //  References, scalar/default conversion and category layout.
     bool resolve_type(const CTypesIndex type_index, const unsigned depth) noexcept;
-    bool reference(const CTypesHandle& source, CTypesIndex& result, const unsigned depth) noexcept;
+    bool push_type(const CTypesIndex type_index, const unsigned depth) noexcept;
+    bool reference(SReferenceFrame& frame, CTypesIndex& dependency, unsigned& dependency_depth) noexcept;
+    bool reference_target(const CTypesHandle source, CTypesIndex& result) noexcept;
+    bool begin_members(STypeFrame& frame) noexcept;
+    bool begin_member(STypeFrame& frame) noexcept;
+    bool finish_members(STypeFrame& frame) noexcept;
     bool number(const CTypesHandle& source, const bool is_signed, const unsigned bit_width, SScalar& result) noexcept;
     bool extent(const CTypesHandle& at, std::uint64_t& out) noexcept;
     bool scalar(const CTypesIndex type, const CTypesHandle& source, SScalar& result) noexcept;
     bool default_record(const CTypesIndex type, const CTypesHandle& source, const std::uint32_t slot, const unsigned depth) noexcept;
+    bool enter_default(SDefaultFrame& frame) noexcept;
     bool make_default(const CTypesIndex type, const CTypesHandle& source, CTypesIndex& result, const unsigned depth) noexcept;
     bool enumeration(TTypeRecord& type_record) noexcept;
-    bool structure(TTypeRecord& type_record, const unsigned depth) noexcept;
+    bool structure_member(STypeFrame& frame) noexcept;
     bool structure_layout(TTypeRecord& type_record, const bool explicit_offsets, const bool has_storage) noexcept;
     bool order_members(const TTypeRecord& type_record, const bool explicit_offsets, std::uint32_t& overlap, std::uint32_t& related) noexcept;
-    bool bit_structure(TTypeRecord& type_record, const unsigned depth) noexcept;
+    bool bit_member(STypeFrame& frame) noexcept;
     bool storage(TTypeRecord& type_record) noexcept;
     bool add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CTypesHandle& at) noexcept;
     bool align(const std::uint64_t value, const std::uint64_t alignment, std::uint64_t& out, const CTypesHandle& at) noexcept;
@@ -854,6 +926,9 @@ private:
     EStage m_stage{ EStage::declarations };
     CTypesHandle m_context_type, m_context_member;
     COrdinalHashIndex m_type_index;
+    TPodVector<STypeFrame> m_type_frames;
+    TPodVector<SDeclarationFrame> m_declaration_frames;
+    TPodVector<SDefaultFrame> m_default_frames;
 };
 
 CResolver::CResolver(CResolvedTypes& owner, SDiagnostic& diagnostic) noexcept
@@ -1024,7 +1099,11 @@ bool CResolver::names(const CTypesHandle& container, const bool array, const CTy
                 return fail(EReason::allocation_failed, child);
             }
         }
-        if (names.size() > 1u) std::sort(names.data(), (names.data() + names.size()));
+        if ((names.size() > 1u) && !detail::data_sort(names.data(), (names.data() + names.size()),
+            [](const std::uint64_t a, const std::uint64_t b) noexcept { return a < b; }))
+        {
+            return fail(EReason::storage_limit);
+        }
         for (std::size_t i = 1u; i < names.size(); ++i)
         {
             if (((names[i] >> 32u) == (names[i - 1u] >> 32u)) && (static_cast<std::uint32_t>(names[i]) < duplicate))
@@ -1163,7 +1242,7 @@ bool CResolver::non_storage_declarations(const CTypesHandle& container, const ED
     return true;
 }
 
-bool CResolver::declaration_reference(const CTypesHandle source, CTypesIndex& result, const unsigned depth) noexcept
+bool CResolver::declaration_reference(const CTypesHandle source, CTypesIndex& result) noexcept
 {
     m_stage = EStage::references;
     if (m_document.value_kind(source) != EDocumentValueKind::string)
@@ -1171,104 +1250,164 @@ bool CResolver::declaration_reference(const CTypesHandle source, CTypesIndex& re
         return fail(EReason::invalid_input, source);
     }
     result = m_schema.lookup_declaration(m_document.string_value(source));
-    if (!result)
-    {
-        return fail(EReason::unknown_type, source);
-    }
+    if (!result) return fail(EReason::unknown_type, source);
     const auto* const record = m_schema.non_storage_record(result);
     if (record && (record->state == 1u))
     {
         return fail(EReason::cycle, source, record->source);
     }
-    return map(source, result) && (!record || resolve_non_storage(result, depth));
+    return map(source, result);
+}
+
+bool CResolver::push_declaration(const CTypesIndex declaration, const unsigned depth) noexcept
+{
+    const auto* const record = m_schema.non_storage_record(declaration);
+    if (!record || (record->state == 2u))
+    {
+        return true;
+    }
+    if (!detail::data_depth(depth) || (depth >= document_limits::k_max_recursion_depth))
+    {
+        return fail(EReason::storage_limit, record->source);
+    }
+    SDeclarationFrame frame;
+    frame.record = *record;
+    frame.slot = m_schema.ordinal(declaration);
+    frame.depth = depth;
+    if (!m_declaration_frames.push_back(frame))
+    {
+        return fail(EReason::allocation_failed, record->source);
+    }
+    m_schema.m_non_storage[frame.slot].state = 1u;
+    return true;
+}
+
+bool CResolver::begin_declaration(SDeclarationFrame& frame) noexcept
+{
+    auto& record = frame.record;
+    m_stage = EStage::declarations;
+    if (record.category == EDeclarationCategory::association)
+    {
+        return shape(record.source, { "target", "decorations" }, { "target" }) && decorations(record.source);
+    }
+    if (!shape(record.source, { "members", "decorations" }, { "members" }) || !decorations(record.source))
+    {
+        return false;
+    }
+    const CTypesHandle members = property(record.source, "members");
+    if (!names(members, true, record.source, true))
+    {
+        return false;
+    }
+    record.first = static_cast<std::uint32_t>(m_schema.m_interface_members.size());
+    record.count = m_document.child_count(members);
+    if (!grow(m_schema.m_interface_members, record.count, members) ||
+        !grow(m_schema.m_interface_member_names, record.count, members))
+    {
+        return false;
+    }
+    frame.next = m_document.first_child(members);
+    return true;
 }
 
 bool CResolver::resolve_non_storage(const CTypesIndex declaration, const unsigned depth) noexcept
 {
-    const std::uint32_t slot = m_schema.ordinal(declaration);
-    auto record = m_schema.m_non_storage[slot];
-    if (record.state == 2u)
-    {
-        return true;
-    }
-    if (depth >= document_limits::k_max_recursion_depth)
-    {
-        return fail(EReason::storage_limit, record.source);
-    }
-    m_schema.m_non_storage[slot].state = 1u;
     const CTypesHandle old_type = m_context_type, old_member = m_context_member;
-    m_context_type = record.source;
-    m_context_member = {};
-    m_stage = EStage::declarations;
-    if (record.category == EDeclarationCategory::association)
+    if (!push_declaration(declaration, depth)) return false;
+    while (!m_declaration_frames.is_empty())
     {
-        if (!shape(record.source, { "target", "decorations" }, { "target" }) || !decorations(record.source))
+        SDeclarationFrame& frame = m_declaration_frames.last();
+        m_context_type = frame.record.source;
+        m_context_member = frame.next ? frame.next : frame.member.source;
+        switch (frame.phase)
         {
-            return false;
-        }
-        const CTypesHandle target = property(record.source, "target");
-        if ((m_document.value_kind(target) != EDocumentValueKind::null_value) &&
-            !declaration_reference(target, record.target, depth + 1u))
-        {
-            return false;
+            case EDeclarationPhase::enter:
+            {
+                if (!begin_declaration(frame)) return false;
+                if (frame.record.category == EDeclarationCategory::association)
+                {
+                    frame.phase = EDeclarationPhase::complete;
+                    const CTypesHandle target = property(frame.record.source, "target");
+                    if (m_document.value_kind(target) != EDocumentValueKind::null_value)
+                    {
+                        if (!declaration_reference(target, frame.record.target))
+                        {
+                            return false;
+                        }
+                        if (!push_declaration(frame.record.target, (frame.depth + 1u)))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                else frame.phase = EDeclarationPhase::member;
+                break;
+            }
+            case EDeclarationPhase::member:
+            {
+                if (!frame.next)
+                {
+                    if (!order_names(m_schema.m_interface_members, m_schema.m_interface_member_names,
+                        frame.record.first, frame.record.count))
+                    {
+                        return fail(EReason::storage_limit);
+                    }
+                    frame.phase = EDeclarationPhase::complete;
+                    break;
+                }
+                const CTypesHandle source = frame.next;
+                m_stage = EStage::declarations;
+                if (!shape(source, { "type", "count", "decorations" }, { "type" }) || !decorations(source))
+                {
+                    return false;
+                }
+                frame.member = {};
+                frame.member.name = m_document.name_id(source);
+                frame.member.source = source;
+                const CTypesHandle count_source = property(source, "count");
+                std::uint64_t count = 1u;
+                if (count_source && !extent(count_source, count))
+                {
+                    return false;
+                }
+                if ((count == 0u) || (count > UINT32_MAX))
+                {
+                    return fail(EReason::invalid_range, count_source);
+                }
+                frame.member.count = static_cast<std::uint32_t>(count);
+                if (!declaration_reference(property(source, "type"), frame.member.declaration))
+                {
+                    return false;
+                }
+                frame.phase = EDeclarationPhase::finish_member;
+                if (!push_declaration(frame.member.declaration, (frame.depth + 1u)))
+                {
+                    return false;
+                }
+                break;
+            }
+            case EDeclarationPhase::finish_member:
+            {
+                const std::uint32_t slot = frame.record.first + frame.ordinal;
+                m_schema.m_interface_members[slot] = frame.member;
+                if (!map(frame.next, m_schema.index(resolver_util::k_interface_member, slot)))
+                {
+                    return false;
+                }
+                ++frame.ordinal;
+                frame.next = m_document.next_sibling(frame.next);
+                frame.phase = EDeclarationPhase::member;
+                break;
+            }
+            case EDeclarationPhase::complete:
+            {
+                frame.record.state = 2u;
+                m_schema.m_non_storage[frame.slot] = frame.record;
+                (void)m_declaration_frames.discard_back();
+                break;
+            }
         }
     }
-    else
-    {
-        if (!shape(record.source, { "members", "decorations" }, { "members" }) || !decorations(record.source))
-        {
-            return false;
-        }
-        const CTypesHandle members = property(record.source, "members");
-        if (!names(members, true, record.source, true))
-        {
-            return false;
-        }
-        record.first = static_cast<std::uint32_t>(m_schema.m_interface_members.size());
-        record.count = m_document.child_count(members);
-        if (!grow(m_schema.m_interface_members, record.count, members) ||
-            !grow(m_schema.m_interface_member_names, record.count, members))
-        {
-            return false;
-        }
-        std::uint32_t member_slot = record.first;
-        for (CTypesHandle source = m_document.first_child(members); source; source = m_document.next_sibling(source))
-        {
-            m_stage = EStage::declarations;
-            m_context_member = source;
-            if (!shape(source, { "type", "count", "decorations" }, { "type" }) || !decorations(source))
-            {
-                return false;
-            }
-            SInterfaceMember member;
-            member.name = m_document.name_id(source);
-            member.source = source;
-            const CTypesHandle count_source = property(source, "count");
-            std::uint64_t count = 1u;
-            if (count_source && !extent(count_source, count))
-            {
-                return false;
-            }
-            if ((count == 0u) || (count > UINT32_MAX))
-            {
-                return fail(EReason::invalid_range, count_source);
-            }
-            member.count = static_cast<std::uint32_t>(count);
-            if (!declaration_reference(property(source, "type"), member.declaration, depth + 1u))
-            {
-                return false;
-            }
-            m_schema.m_interface_members[member_slot] = member;
-            if (!map(source, m_schema.index(resolver_util::k_interface_member, member_slot)))
-            {
-                return false;
-            }
-            ++member_slot;
-        }
-        order_names(m_schema.m_interface_members, m_schema.m_interface_member_names, record.first, record.count);
-    }
-    record.state = 2u;
-    m_schema.m_non_storage[slot] = record;
     m_context_type = old_type;
     m_context_member = old_member;
     return true;
@@ -1328,7 +1467,7 @@ bool CResolver::run() noexcept
     {
         return false;
     }
-    order_names(m_schema.m_types, m_schema.m_type_names, resolver_util::k_primitive_count, m_schema.m_definitions);
+    if (!order_names(m_schema.m_types, m_schema.m_type_names, resolver_util::k_primitive_count, m_schema.m_definitions)) return fail(EReason::storage_limit);
     m_type_index = {};
     for (CTypesHandle group = m_document.first_child(types); group; group = m_document.next_sibling(group))
     {
@@ -1352,7 +1491,7 @@ bool CResolver::run() noexcept
     {
         return false;
     }
-    order_names(m_schema.m_non_storage, m_schema.m_non_storage_names, 0u, static_cast<std::uint32_t>(m_schema.m_non_storage.size()));
+    if (!order_names(m_schema.m_non_storage, m_schema.m_non_storage_names, 0u, static_cast<std::uint32_t>(m_schema.m_non_storage.size()))) return fail(EReason::storage_limit);
     for (std::uint32_t type_ordinal = 0u; type_ordinal < m_schema.m_definitions; ++type_ordinal)
     {
         if (!resolve_type(m_schema.index(resolver_util::k_type, (type_ordinal + resolver_util::k_primitive_count)), 0u))
@@ -1369,11 +1508,11 @@ bool CResolver::run() noexcept
     }
     if (m_schema.m_mapping.size() > 1u)
     {
-        std::sort(m_schema.m_mapping.data(), (m_schema.m_mapping.data() + m_schema.m_mapping.size()),
+        if (!detail::data_sort(m_schema.m_mapping.data(), (m_schema.m_mapping.data() + m_schema.m_mapping.size()),
             [](const CResolvedTypes::SMapping& a, const CResolvedTypes::SMapping& b)
             {
                 return resolver_util::occurrence_key(a.source) < resolver_util::occurrence_key(b.source);
-            });
+            })) return fail(EReason::storage_limit);
     }
     return true;
 }
@@ -1444,46 +1583,93 @@ bool CResolver::enumeration(TTypeRecord& type_record) noexcept
             return false;
         }
     }
-    order_names(m_schema.m_labels, m_schema.m_label_names, type_record.first, type_record.count);
+    if (!order_names(m_schema.m_labels, m_schema.m_label_names, type_record.first, type_record.count)) return fail(EReason::storage_limit);
     for (std::uint32_t i = 0u; i < type_record.count; ++i)
     {
         m_schema.m_label_values[type_record.first + i] = type_record.first + i;
     }
     if (type_record.count > 1u)
     {
-        std::sort((m_schema.m_label_values.data() + type_record.first),
+        if (!detail::data_sort((m_schema.m_label_values.data() + type_record.first),
             (m_schema.m_label_values.data() + type_record.first + type_record.count),
             [this](const std::uint32_t a, const std::uint32_t b)
             {
                 const auto av = label_value_key(m_schema.m_labels[a].value), bv = label_value_key(m_schema.m_labels[b].value);
                 return (av < bv) || ((av == bv) && (a < b));
-            });
+            })) return fail(EReason::storage_limit);
     }
     return true;
 }
 
-bool CResolver::reference(const CTypesHandle& source, CTypesIndex& result, const unsigned depth) noexcept
+bool CResolver::reference_target(const CTypesHandle source, CTypesIndex& result) noexcept
 {
-    m_stage = EStage::references;
-    const CTypesHandle origin = source;
-    CTypesHandle current = origin;
-    unsigned current_depth = depth;
-    while (true)
+    result = m_schema.lookup_type(m_document.string_value(source));
+    if (!result) return fail(EReason::unknown_type, source);
+    return map(source, result);
+}
+
+bool CResolver::reference(SReferenceFrame& frame, CTypesIndex& dependency, unsigned& dependency_depth) noexcept
+{
+    dependency = {};
+    CTypesHandle& current = frame.current;
+    const CTypesHandle origin = frame.origin;
+    CTypesIndex& result = frame.result;
+    while (frame.phase == EReferencePhase::descend)
     {
-        if (current_depth >= document_limits::k_max_recursion_depth)
+        if (!detail::data_depth(frame.depth) || (frame.depth >= document_limits::k_max_recursion_depth))
         {
             return fail(EReason::storage_limit, current);
         }
         if (m_document.value_kind(current) == EDocumentValueKind::string)
         {
-            result = m_schema.lookup_type(m_document.string_value(current));
-            if (!result)
-            {
-                return fail(EReason::unknown_type, current);
-            }
-            if (!map(current, result) || !resolve_type(result, (current_depth + 1u)))
+            if (!reference_target(current, result))
             {
                 return false;
+            }
+            frame.phase = EReferencePhase::arrays;
+            dependency = result;
+            dependency_depth = frame.depth + 1u;
+            return true;
+        }
+        const CTypesHandle kind = property(current, "kind");
+        if (kind)
+        {
+            const bool text = resolver_util::equal(m_document.string_value(kind), "text");
+            frame.span = resolver_util::equal(m_document.string_value(kind), "span");
+            if ((!text && !frame.span) || !shape(current, (frame.span ?
+                std::initializer_list<const char*>{ "kind", "element", "nullable" } :
+                std::initializer_list<const char*>{ "kind", "nullable" }), { "kind" }))
+            {
+                return fail(EReason::invalid_input, current);
+            }
+            const CTypesHandle nullable_source = property(current, "nullable");
+            if (nullable_source && !m_document.boolean_value(nullable_source, frame.nullable))
+            {
+                return fail(EReason::invalid_input, nullable_source);
+            }
+            frame.phase = EReferencePhase::descriptor;
+            if (frame.span)
+            {
+                const CTypesHandle element = property(current, "element");
+                if (!element)
+                {
+                    return fail(EReason::missing_property, current);
+                }
+                if (m_document.value_kind(element) != EDocumentValueKind::string)
+                {
+                    return fail(EReason::invalid_input, element);
+                }
+                if (!detail::data_depth(frame.depth + 1u) || ((frame.depth + 1u) >= document_limits::k_max_recursion_depth))
+                {
+                    return fail(EReason::storage_limit, element);
+                }
+                if (!reference_target(element, result))
+                {
+                    return false;
+                }
+                dependency = result;
+                dependency_depth = frame.depth + 2u;
+                return true;
             }
             break;
         }
@@ -1502,7 +1688,27 @@ bool CResolver::reference(const CTypesHandle& source, CTypesIndex& result, const
             return fail(EReason::invalid_range, property(current, "count"));
         }
         current = property(current, "element");
-        ++current_depth;
+        ++frame.depth;
+    }
+    if (frame.phase == EReferencePhase::descriptor)
+    {
+        TTypeRecord record;
+        record.category = frame.span ? ECategory::span : ECategory::text;
+        record.source = current;
+        record.size = record.stride = frame.span ? 12u : 4u;
+        record.alignment_log2 = 2u;
+        record.related = result;
+        record.set_flag(TTypeRecord::k_references, true);
+        record.set_flag(TTypeRecord::k_nullable, frame.nullable);
+        record.set_state(2u);
+        if (!grow(m_schema.m_types, 1u, current))
+        {
+            return false;
+        }
+        m_schema.m_types.last() = record;
+        result = m_schema.index(resolver_util::k_type, static_cast<std::uint32_t>(m_schema.m_types.size() - 1u));
+        if (!map(current, result)) return false;
+        frame.phase = EReferencePhase::arrays;
     }
 
     //  Each nested descriptor is an element child of its containing descriptor.
@@ -1564,8 +1770,9 @@ bool CResolver::reference(const CTypesHandle& source, CTypesIndex& result, const
             ++array_record.alignment_log2;
         }
         array_record.stride = static_cast<std::uint32_t>(stride);
-        array_record.set_flag(TTypeRecord::k_gaps, element.flag(TTypeRecord::k_gaps) || (stride > element.size) || (size > (count * stride)));
+        array_record.set_flag(TTypeRecord::k_gaps, (element.flag(TTypeRecord::k_gaps) || (stride > element.size) || (size > (count * stride))));
         array_record.set_state(2u);
+        array_record.set_flag(TTypeRecord::k_references, element.flag(TTypeRecord::k_references));
         if (!grow(m_schema.m_types, 1u, descriptor))
         {
             return false;
@@ -1581,130 +1788,277 @@ bool CResolver::reference(const CTypesHandle& source, CTypesIndex& result, const
     return true;
 }
 
-bool CResolver::resolve_type(const CTypesIndex type_index, const unsigned depth) noexcept
+bool CResolver::push_type(const CTypesIndex type_index, const unsigned depth) noexcept
 {
     const std::uint32_t slot = m_schema.ordinal(type_index);
-    TTypeRecord type_record = m_schema.m_types[slot];
-    if (type_record.state() == 2u)
+    const TTypeRecord record = m_schema.m_types[slot];
+    if (record.state() == 2u) return true;
+    if (record.state() == 1u)
     {
-        return true;
+        return fail(EReason::cycle, record.source, m_context_type);
     }
-    if (type_record.state() == 1u)
+    if (!detail::data_depth(depth) || (depth >= document_limits::k_max_recursion_depth))
     {
-        return fail(EReason::cycle, type_record.source, m_context_type);
+        return fail(EReason::storage_limit, record.source);
     }
-    if (depth >= document_limits::k_max_recursion_depth)
+    STypeFrame frame;
+    frame.record = record;
+    frame.slot = slot;
+    frame.depth = depth;
+    if (!m_type_frames.push_back(frame))
     {
-        return fail(EReason::storage_limit, type_record.source);
+        return fail(EReason::allocation_failed, record.source);
     }
     m_schema.m_types[slot].set_state(1u);
+    return true;
+}
+
+bool CResolver::resolve_type(const CTypesIndex type_index, const unsigned depth) noexcept
+{
     const CTypesHandle old_type = m_context_type, old_member = m_context_member;
-    m_context_type = type_record.source;
-    m_context_member = {};
-    m_stage = EStage::declarations;
-    const bool resolved = (type_record.category == ECategory::enumeration) ? enumeration(type_record) :
-        ((type_record.category == ECategory::structure) ? structure(type_record, depth) : bit_structure(type_record, depth));
-    if (!resolved)
+    if (!push_type(type_index, depth)) return false;
+    while (!m_type_frames.is_empty())
     {
-        return false;
+        STypeFrame& frame = m_type_frames.last();
+        m_context_type = frame.record.source;
+        if (frame.phase == ETypePhase::enter) m_context_member = {};
+        else if (frame.next) m_context_member = frame.next;
+        bool complete{};
+        switch (frame.phase)
+        {
+            case ETypePhase::enter:
+            {
+                m_stage = EStage::declarations;
+                if (frame.record.category == ECategory::enumeration)
+                {
+                    if (!enumeration(frame.record))
+                    {
+                        return false;
+                    }
+                    complete = true;
+                }
+                else
+                {
+                    if (!begin_members(frame)) return false;
+                    frame.phase = ETypePhase::member;
+                }
+                break;
+            }
+            case ETypePhase::member:
+            {
+                if (!frame.next)
+                {
+                    if (frame.record.category == ECategory::structure)
+                    {
+                        m_context_member = {};
+                    }
+                    if (!finish_members(frame))
+                    {
+                        return false;
+                    }
+                    complete = true;
+                }
+                else
+                {
+                    if (!begin_member(frame)) return false;
+                    frame.phase = ETypePhase::reference;
+                }
+                break;
+            }
+            case ETypePhase::reference:
+            {
+                CTypesIndex dependency;
+                unsigned dependency_depth{};
+                if (!reference(frame.reference, dependency, dependency_depth))
+                {
+                    return false;
+                }
+                if (dependency)
+                {
+                    //  Pushing may relocate the vector; no frame reference crosses it.
+                    if (!push_type(dependency, dependency_depth))
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                frame.phase = ETypePhase::finish_member;
+                break;
+            }
+            case ETypePhase::finish_member:
+            {
+                if (!((frame.record.category == ECategory::structure) ? structure_member(frame) : bit_member(frame)))
+                {
+                    return false;
+                }
+                frame.next = m_document.next_sibling(frame.next);
+                ++frame.ordinal;
+                frame.phase = ETypePhase::member;
+                break;
+            }
+        }
+        if (complete)
+        {
+            frame.record.set_state(2u);
+            m_schema.m_types[frame.slot] = frame.record;
+            (void)m_type_frames.discard_back();
+        }
     }
-    type_record.set_state(2u);
-    m_schema.m_types[slot] = type_record;
     m_context_type = old_type;
     m_context_member = old_member;
     return true;
 }
 
-bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexcept
+bool CResolver::begin_members(STypeFrame& frame) noexcept
 {
-    if (!shape(type_record.source, { "members", "detail", "decorations" }, { "members" }) || !decorations(type_record.source))
+    TTypeRecord& record = frame.record;
+    const bool bits = record.category == ECategory::bit_structure;
+    if (!shape(record.source, (bits ?
+        std::initializer_list<const char*>{ "storage", "members", "decorations" } :
+        std::initializer_list<const char*>{ "members", "detail", "decorations" }), (bits ?
+        std::initializer_list<const char*>{ "storage", "members" } : std::initializer_list<const char*>{ "members" })) ||
+        !decorations(record.source) || (bits && !storage(record)))
     {
         return false;
     }
-    const CTypesHandle members = property(type_record.source, "members");
-    if (!names(members, true, type_record.source, true))
+    const CTypesHandle members = property(record.source, "members");
+    if (!names(members, true, record.source, !bits))
     {
         return false;
     }
-    type_record.first = static_cast<std::uint32_t>(m_schema.m_members.size());
-    type_record.count = m_document.child_count(members);
-    type_record.alignment_log2 = 0u;
-    type_record.set_flag(TTypeRecord::k_named_components, type_record.count != 0u);
-    if (!grow(m_schema.m_members, type_record.count, members) ||
-        !grow(m_schema.m_member_names, type_record.count, members) ||
-        !grow(m_schema.m_member_order, type_record.count, members))
+    record.count = m_document.child_count(members);
+    if (bits)
+    {
+        record.first = static_cast<std::uint32_t>(m_schema.m_fields.size());
+        if (!grow(m_schema.m_fields, record.count, members) || !grow(m_schema.m_field_names, record.count, members))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        record.first = static_cast<std::uint32_t>(m_schema.m_members.size());
+        record.alignment_log2 = 0u;
+        record.set_flag(TTypeRecord::k_named_components, (record.count != 0u));
+        if (!grow(m_schema.m_members, record.count, members) || !grow(m_schema.m_member_names, record.count, members) ||
+            !grow(m_schema.m_member_order, record.count, members))
+        {
+            return false;
+        }
+    }
+    frame.next = m_document.first_child(members);
+    return true;
+}
+
+bool CResolver::begin_member(STypeFrame& frame) noexcept
+{
+    const CTypesHandle source = frame.next;
+    const bool bits = frame.record.category == ECategory::bit_structure;
+    m_stage = EStage::declarations;
+    if (!shape(source, (bits ?
+        std::initializer_list<const char*>{ "type", "mask", "interpretation", "default", "decorations" } :
+        std::initializer_list<const char*>{ "type", "default", "offset", "decorations" }), (bits ?
+        std::initializer_list<const char*>{ "type", "mask" } : std::initializer_list<const char*>{ "type" })) ||
+        !decorations(source))
     {
         return false;
     }
-    std::uint32_t member_slot = type_record.first;
-    CTypesIndex component;
-    bool explicit_offsets = false;
-    CTypesHandle first_member;
-    bool has_storage = false;
-    for (CTypesHandle member_source = m_document.first_child(members); member_source; member_source = m_document.next_sibling(member_source), ++member_slot)
+    const CTypesHandle type = property(source, "type");
+    if (bits)
     {
-        m_context_member = member_source;
-        m_stage = EStage::declarations;
-        if (!shape(member_source, { "type", "default", "offset", "decorations" }, { "type" }) || !decorations(member_source))
+        if (m_document.value_kind(type) != EDocumentValueKind::string)
         {
-            return false;
-        }
-        const CTypesHandle offset = property(member_source, "offset");
-        if (member_slot == type_record.first)
-        {
-            explicit_offsets = offset.is_valid();
-            first_member = member_source;
-        }
-        else if (offset.is_valid() != explicit_offsets)
-        {
-            return fail(EReason::invalid_layout, offset ? offset : member_source, first_member);
-        }
-        CResolvedTypes::SMemberRecord member;
-        member.name = m_document.name_id(member_source);
-        member.source = member_source;
-        if (!reference(property(member_source, "type"), member.type, (depth + 1u)))
-        {
-            return false;
-        }
-        const TTypeRecord member_type = *m_schema.type_record(member.type);
-        m_stage = EStage::layout;
-        if (offset)
-        {
-            std::uint64_t member_offset{};
-            if (!extent(offset, member_offset))
-            {
-                return false;
-            }
-            if (member_offset > memory::k_byte_size_ceiling)
-            {
-                return fail(EReason::storage_limit, offset);
-            }
-            member.offset = static_cast<std::uint32_t>(member_offset);
-        }
-        member.size = member_type.size;
-        type_record.set_flag(TTypeRecord::k_gaps,
-            type_record.flag(TTypeRecord::k_gaps) || member_type.flag(TTypeRecord::k_gaps));
-        type_record.alignment_log2 = std::max(type_record.alignment_log2, member_type.alignment_log2);
-        has_storage |= member.size != 0u;
-        if (member_slot == type_record.first)
-        {
-            component = member.type;
-        }
-        type_record.set_flag(TTypeRecord::k_named_components,
-            (type_record.flag(TTypeRecord::k_named_components) && (member_type.category == ECategory::primitive) && (component == member.type)));
-        if (!make_default(member.type, property(member_source, "default"), member.default_description, (depth + 1u)))
-        {
-            return false;
-        }
-        m_schema.m_members[member_slot] = member;
-        if (!map(member_source, m_schema.index(resolver_util::k_member, member_slot)))
-        {
-            return false;
+            return fail(EReason::invalid_input, type);
         }
     }
-    m_context_member = {};
-    order_names(m_schema.m_members, m_schema.m_member_names, type_record.first, type_record.count);
-    return structure_layout(type_record, explicit_offsets, has_storage);
+    else
+    {
+        const CTypesHandle offset = property(source, "offset");
+        if (frame.ordinal == 0u)
+        {
+            frame.explicit_offsets = offset.is_valid();
+            frame.first_member = source;
+        }
+        else if (offset.is_valid() != frame.explicit_offsets)
+        {
+            return fail(EReason::invalid_layout, (offset ? offset : source), frame.first_member);
+        }
+    }
+    m_stage = EStage::references;
+    frame.reference = {};
+    frame.reference.origin = frame.reference.current = type;
+    frame.reference.depth = frame.depth + 1u;
+    return true;
+}
+
+bool CResolver::finish_members(STypeFrame& frame) noexcept
+{
+    TTypeRecord& record = frame.record;
+    if (record.category == ECategory::structure)
+    {
+        if (!order_names(m_schema.m_members, m_schema.m_member_names, record.first, record.count))
+        {
+            return fail(EReason::storage_limit);
+        }
+        return structure_layout(record, frame.explicit_offsets, frame.has_storage);
+    }
+    if (!order_names(m_schema.m_fields, m_schema.m_field_names, record.first, record.count))
+    {
+        return fail(EReason::storage_limit);
+    }
+    record.set_flag(TTypeRecord::k_gaps, (frame.used != resolver_util::max_unsigned(static_cast<unsigned>(record.size << 3u))));
+    return true;
+}
+
+bool CResolver::structure_member(STypeFrame& frame) noexcept
+{
+    TTypeRecord& type_record = frame.record;
+    const CTypesHandle member_source = frame.next;
+    const CTypesHandle offset = property(member_source, "offset");
+    const std::uint32_t member_slot = type_record.first + frame.ordinal;
+    const unsigned depth = frame.depth;
+    CResolvedTypes::SMemberRecord member;
+    member.name = m_document.name_id(member_source);
+    member.source = member_source;
+    member.type = frame.reference.result;
+    const TTypeRecord member_type = *m_schema.type_record(member.type);
+    type_record.set_flag(TTypeRecord::k_references,
+        (type_record.flag(TTypeRecord::k_references) || member_type.flag(TTypeRecord::k_references)));
+    m_stage = EStage::layout;
+    if (offset)
+    {
+        std::uint64_t member_offset{};
+        if (!extent(offset, member_offset))
+        {
+            return false;
+        }
+        if (member_offset > memory::k_byte_size_ceiling)
+        {
+            return fail(EReason::storage_limit, offset);
+        }
+        member.offset = static_cast<std::uint32_t>(member_offset);
+    }
+    member.size = member_type.size;
+    type_record.set_flag(TTypeRecord::k_gaps,
+        (type_record.flag(TTypeRecord::k_gaps) || member_type.flag(TTypeRecord::k_gaps)));
+    type_record.alignment_log2 = std::max(type_record.alignment_log2, member_type.alignment_log2);
+    frame.has_storage |= member.size != 0u;
+    if (member_slot == type_record.first)
+    {
+        frame.component = member.type;
+    }
+    type_record.set_flag(TTypeRecord::k_named_components,
+        (type_record.flag(TTypeRecord::k_named_components) && (member_type.category == ECategory::primitive) && (frame.component == member.type)));
+    if (!make_default(member.type, property(member_source, "default"), member.default_description, (depth + 1u)))
+    {
+        return false;
+    }
+    m_schema.m_members[member_slot] = member;
+    if (!map(member_source, m_schema.index(resolver_util::k_member, member_slot)))
+    {
+        return false;
+    }
+    return true;
 }
 
 bool CResolver::order_members(const TTypeRecord& type_record, const bool explicit_offsets, std::uint32_t& overlap, std::uint32_t& related) noexcept
@@ -1726,12 +2080,12 @@ bool CResolver::order_members(const TTypeRecord& type_record, const bool explici
         return true;
     }
     const CResolvedTypes::SMemberRecord* const members = m_schema.m_members.data() + type_record.first;
-    std::sort(order, (order + type_record.count),
+    if (!detail::data_sort(order, (order + type_record.count),
         [members](const std::uint32_t a, const std::uint32_t b) noexcept
         {
             return (members[a].offset < members[b].offset) ||
                 ((members[a].offset == members[b].offset) && (a < b));
-        });
+        })) return fail(EReason::storage_limit);
 
     //  At each start offset, the lowest active declaration ordinal gives the
     //  earliest diagnostic pair involving that member. Expired entries below
@@ -1981,9 +2335,13 @@ bool CResolver::make_default(const CTypesIndex type, const CTypesHandle& source,
     return true;
 }
 
-bool CResolver::default_record(const CTypesIndex type, const CTypesHandle& source, const std::uint32_t slot, const unsigned depth) noexcept
+bool CResolver::enter_default(SDefaultFrame& frame) noexcept
 {
-    if (depth >= document_limits::k_max_recursion_depth)
+    const CTypesIndex type = frame.type;
+    const CTypesHandle source = frame.source;
+    const std::uint32_t slot = frame.slot;
+    const unsigned depth = frame.depth;
+    if (!detail::data_depth(depth) || (depth >= document_limits::k_max_recursion_depth))
     {
         return fail(EReason::storage_limit, source);
     }
@@ -1998,7 +2356,8 @@ bool CResolver::default_record(const CTypesIndex type, const CTypesHandle& sourc
         {
             base = *m_schema.type_record(base.related);
         }
-        if ((base.category != ECategory::primitive) && (base.category != ECategory::enumeration))
+        if ((base.category != ECategory::primitive) && (base.category != ECategory::enumeration) &&
+            (base.category != ECategory::text) && (base.category != ECategory::span))
         {
             return fail(EReason::invalid_default, source);
         }
@@ -2012,19 +2371,21 @@ bool CResolver::default_record(const CTypesIndex type, const CTypesHandle& sourc
         {
             return false;
         }
-        CTypesHandle child = m_document.first_child(source);
-        for (std::uint32_t element_ordinal = 0u; element_ordinal < default_info.count; ++element_ordinal)
+        frame.element = type_record.related;
+        frame.next = m_document.first_child(source);
+        frame.child_slot = default_info.first;
+    }
+    else if ((type_record.category == ECategory::text) || (type_record.category == ECategory::span))
+    {
+        detail::SReferenceValue value;
+        if (!detail::read_reference_value(detail::SDocumentQueryAccess::read(m_document),
+            detail::STypesHandleAccess::occurrence(source), type_record.category,
+            type_record.flag(TTypeRecord::k_nullable), value, true) || value.targeted)
         {
-            if (m_document.is_object_entry(child))
-            {
-                return fail(EReason::invalid_default, child);
-            }
-            if (!default_record(type_record.related, child, (default_info.first + element_ordinal), (depth + 1u)))
-            {
-                return false;
-            }
-            child = m_document.next_sibling(child);
+            return fail(EReason::invalid_default, source);
         }
+        default_info.scalar.kind = EScalar::signed_integer;
+        default_info.scalar.value.signed_value = value.absent ? -1 : 0;
     }
     else if (!scalar(type, source, default_info.scalar))
     {
@@ -2034,188 +2395,196 @@ bool CResolver::default_record(const CTypesIndex type, const CTypesHandle& sourc
     return true;
 }
 
-bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) noexcept
+bool CResolver::default_record(const CTypesIndex type, const CTypesHandle& source,
+    const std::uint32_t slot, const unsigned depth) noexcept
 {
-    if (!shape(type_record.source, { "storage", "members", "decorations" }, { "storage", "members" }) ||
-        !decorations(type_record.source) || !storage(type_record))
+    SDefaultFrame frame;
+    frame.type = type;
+    frame.source = source;
+    frame.slot = slot;
+    frame.depth = depth;
+    if (!enter_default(frame)) return false;
+    for (;;)
+    {
+        if (frame.next)
+        {
+            SDefaultFrame child;
+            child.type = frame.element;
+            child.source = frame.next;
+            child.slot = frame.child_slot++;
+            child.depth = frame.depth + 1u;
+            frame.next = m_document.next_sibling(frame.next);
+            const ECategory category = m_schema.type_record(child.type)->category;
+            if (m_document.is_object_entry(child.source) && (category != ECategory::text) && (category != ECategory::span))
+            {
+                return fail(EReason::invalid_default, child.source);
+            }
+            if (!enter_default(child)) return false;
+            if (child.next)
+            {
+                if (!m_default_frames.push_back(frame))
+                {
+                    return fail(EReason::allocation_failed, child.source);
+                }
+                frame = child;
+            }
+        }
+        else
+        {
+            if (m_default_frames.is_empty()) return true;
+            (void)m_default_frames.pop_back(frame);
+        }
+    }
+}
+
+bool CResolver::bit_member(STypeFrame& frame) noexcept
+{
+    TTypeRecord& type_record = frame.record;
+    const CTypesHandle field_source = frame.next;
+    const std::uint32_t field_slot = type_record.first + frame.ordinal;
+    const unsigned depth = frame.depth;
+    SField field;
+    field.name = m_document.name_id(field_source);
+    field.source = field_source;
+    field.type = frame.reference.result;
+    const TTypeRecord logical = *m_schema.type_record(field.type);
+    if (((logical.category != ECategory::primitive) && (logical.category != ECategory::enumeration)) ||
+        (!resolver_util::integer(logical.primitive) && (logical.primitive != EPrimitive::b8)))
+    {
+        return fail(EReason::invalid_range, property(field_source, "type"));
+    }
+    field.primitive = logical.primitive;
+    field.signed_value = resolver_util::signed_integer(field.primitive);
+    m_stage = EStage::layout;
+    if (!extent(property(field_source, "mask"), field.mask))
     {
         return false;
     }
-    const CTypesHandle members = property(type_record.source, "members");
-    if (!names(members, true, type_record.source))
+    if (!field.mask || (field.mask & ~resolver_util::max_unsigned(static_cast<unsigned>(type_record.size << 3u))))
     {
-        return false;
+        return fail(EReason::invalid_range, property(field_source, "mask"));
     }
-    type_record.first = static_cast<std::uint32_t>(m_schema.m_fields.size());
-    type_record.count = m_document.child_count(members);
-    if (!grow(m_schema.m_fields, type_record.count, members) ||
-        !grow(m_schema.m_field_names, type_record.count, members))
+    std::uint64_t bits = field.mask;
+    while ((bits & 1u) == 0u)
     {
-        return false;
+        ++field.shift;
+        bits >>= 1u;
     }
-    std::uint64_t used{};
-    std::uint32_t field_slot = type_record.first;
-    for (CTypesHandle field_source = m_document.first_child(members); field_source; field_source = m_document.next_sibling(field_source), ++field_slot)
+    while ((bits & 1u) != 0u)
     {
-        m_context_member = field_source;
-        m_stage = EStage::declarations;
-        if (!shape(field_source, { "type", "mask", "interpretation", "default", "decorations" }, { "type", "mask" }) ||
-            !decorations(field_source))
+        ++field.width;
+        bits >>= 1u;
+    }
+    if (bits != 0u)
+    {
+        return fail(EReason::invalid_range, property(field_source, "mask"));
+    }
+    if (frame.used & field.mask)
+    {
+        for (std::uint32_t prior = type_record.first; prior < field_slot; ++prior)
         {
-            return false;
-        }
-        SField field;
-        field.name = m_document.name_id(field_source);
-        field.source = field_source;
-        if (m_document.value_kind(property(field_source, "type")) != EDocumentValueKind::string)
-        {
-            return fail(EReason::invalid_input, property(field_source, "type"));
-        }
-        if (!reference(property(field_source, "type"), field.type, (depth + 1u)))
-        {
-            return false;
-        }
-        const TTypeRecord logical = *m_schema.type_record(field.type);
-        if (((logical.category != ECategory::primitive) && (logical.category != ECategory::enumeration)) ||
-            (!resolver_util::integer(logical.primitive) && (logical.primitive != EPrimitive::b8)))
-        {
-            return fail(EReason::invalid_range, property(field_source, "type"));
-        }
-        field.primitive = logical.primitive;
-        field.signed_value = resolver_util::signed_integer(field.primitive);
-        m_stage = EStage::layout;
-        if (!extent(property(field_source, "mask"), field.mask))
-        {
-            return false;
-        }
-        if (!field.mask || (field.mask & ~resolver_util::max_unsigned(static_cast<unsigned>(type_record.size * 8u))))
-        {
-            return fail(EReason::invalid_range, property(field_source, "mask"));
-        }
-        std::uint64_t bits = field.mask;
-        while ((bits & 1u) == 0u)
-        {
-            ++field.shift;
-            bits >>= 1u;
-        }
-        while ((bits & 1u) != 0u)
-        {
-            ++field.width;
-            bits >>= 1u;
-        }
-        if (bits != 0u)
-        {
-            return fail(EReason::invalid_range, property(field_source, "mask"));
-        }
-        if (used & field.mask)
-        {
-            for (std::uint32_t prior = type_record.first; prior < field_slot; ++prior)
+            if (m_schema.m_fields[prior].mask & field.mask)
             {
-                if (m_schema.m_fields[prior].mask & field.mask)
-                {
-                    const SField& other = m_schema.m_fields[prior];
-                    fail(EReason::invalid_layout, field_source, other.source);
-                    m_diagnostic.ranges_available = true;
-                    m_diagnostic.range_begin = field.shift;
-                    m_diagnostic.range_end = field.shift + field.width;
-                    m_diagnostic.related_begin = other.shift;
-                    m_diagnostic.related_end = other.shift + other.width;
-                    return false;
-                }
+                const SField& other = m_schema.m_fields[prior];
+                fail(EReason::invalid_layout, field_source, other.source);
+                m_diagnostic.ranges_available = true;
+                m_diagnostic.range_begin = field.shift;
+                m_diagnostic.range_end = field.shift + field.width;
+                m_diagnostic.related_begin = other.shift;
+                m_diagnostic.related_end = other.shift + other.width;
+                return false;
             }
         }
-        used |= field.mask;
-        if (logical.category == ECategory::enumeration &&
-            (!resolver_util::fits(m_schema.m_labels[m_schema.m_label_values[logical.first]].value, field.signed_value, field.width) ||
-                !resolver_util::fits(m_schema.m_labels[m_schema.m_label_values[logical.first + logical.count - 1u]].value,
-                    field.signed_value, field.width)))
+    }
+    frame.used |= field.mask;
+    if ((logical.category == ECategory::enumeration) &&
+        (!resolver_util::fits(m_schema.m_labels[m_schema.m_label_values[logical.first]].value, field.signed_value, field.width) ||
+            !resolver_util::fits(m_schema.m_labels[m_schema.m_label_values[logical.first + logical.count - 1u]].value,
+                field.signed_value, field.width)))
+    {
+        for (std::uint32_t label = 0u; label < logical.count; ++label)
         {
-            for (std::uint32_t label = 0u; label < logical.count; ++label)
+            if (!resolver_util::fits(m_schema.m_labels[logical.first + label].value, field.signed_value, field.width))
             {
-                if (!resolver_util::fits(m_schema.m_labels[logical.first + label].value, field.signed_value, field.width))
-                {
-                    return fail(EReason::invalid_range, field_source, m_schema.m_labels[logical.first + label].source);
-                }
+                return fail(EReason::invalid_range, field_source, m_schema.m_labels[logical.first + label].source);
             }
         }
-        const CTypesHandle interpretation_source = property(field_source, "interpretation");
-        if (interpretation_source)
+    }
+    const CTypesHandle interpretation_source = property(field_source, "interpretation");
+    if (interpretation_source)
+    {
+        const CStringView interpretation = m_document.string_value(interpretation_source);
+        if (resolver_util::equal(interpretation, "unorm"))
         {
-            const CStringView interpretation = m_document.string_value(interpretation_source);
-            if (resolver_util::equal(interpretation, "unorm"))
-            {
-                field.interpretation = EInterpretation::unorm;
-            }
-            else if (resolver_util::equal(interpretation, "snorm"))
-            {
-                field.interpretation = EInterpretation::snorm;
-            }
-            else
-            {
-                return fail(EReason::unsupported_feature, interpretation_source);
-            }
-            if ((logical.category != ECategory::primitive) || !resolver_util::integer(logical.primitive) ||
-                (field.signed_value != (field.interpretation == EInterpretation::snorm)) ||
-                ((field.interpretation == EInterpretation::snorm) && (field.width < 2u)))
-            {
-                return fail(EReason::invalid_range, interpretation_source);
-            }
+            field.interpretation = EInterpretation::unorm;
         }
-        const CTypesHandle def = property(field_source, "default");
-        m_stage = EStage::defaults;
-        if ((field.interpretation != EInterpretation::ordinary) && def)
+        else if (resolver_util::equal(interpretation, "snorm"))
         {
-            SScalar value;
-            if (m_document.value_kind(def) == EDocumentValueKind::integer)
-            {
-                if (!scalar(field.type, def, value))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                EReason reason{ EReason::none };
-                if (!detail::convert_normalised(m_document, def, field.interpretation, field.width, value, reason))
-                {
-                    return fail(reason, def);
-                }
-            }
-            if (!resolver_util::fits(value, field.signed_value, static_cast<unsigned>(logical.size * 8u)) ||
-                !resolver_util::fits(value, field.signed_value, field.width))
-            {
-                return fail(EReason::invalid_default, def);
-            }
-            if (!grow(m_schema.m_defaults, 1u, def))
+            field.interpretation = EInterpretation::snorm;
+        }
+        else
+        {
+            return fail(EReason::unsupported_feature, interpretation_source);
+        }
+        if ((logical.category != ECategory::primitive) || !resolver_util::integer(logical.primitive) ||
+            (field.signed_value != (field.interpretation == EInterpretation::snorm)) ||
+            ((field.interpretation == EInterpretation::snorm) && (field.width < 2u)))
+        {
+            return fail(EReason::invalid_range, interpretation_source);
+        }
+    }
+    const CTypesHandle def = property(field_source, "default");
+    m_stage = EStage::defaults;
+    if ((field.interpretation != EInterpretation::ordinary) && def)
+    {
+        SScalar value;
+        if (m_document.value_kind(def) == EDocumentValueKind::integer)
+        {
+            if (!scalar(field.type, def, value))
             {
                 return false;
             }
-            CResolvedTypes::SDefaultRecord& default_info = m_schema.m_defaults.last();
-            default_info.type = field.type;
-            default_info.source = def;
-            default_info.scalar = value;
-            field.default_description = m_schema.index(resolver_util::k_default, static_cast<std::uint32_t>(m_schema.m_defaults.size() - 1u));
         }
-        else if (def)
+        else
         {
-            if (!make_default(field.type, def, field.default_description, (depth + 1u)))
+            EReason reason{ EReason::none };
+            if (!detail::convert_normalised(m_document, def, field.interpretation, field.width, value, reason))
             {
-                return false;
-            }
-            const SScalar value = m_schema.m_defaults[m_schema.ordinal(field.default_description)].scalar;
-            if (!resolver_util::fits(value, field.signed_value, field.width))
-            {
-                return fail(EReason::invalid_default, def);
+                return fail(reason, def);
             }
         }
-        m_schema.m_fields[field_slot] = field;
-        if (!map(field_source, m_schema.index(resolver_util::k_field, field_slot)))
+        if (!resolver_util::fits(value, field.signed_value, static_cast<unsigned>(logical.size << 3u)) ||
+            !resolver_util::fits(value, field.signed_value, field.width))
+        {
+            return fail(EReason::invalid_default, def);
+        }
+        if (!grow(m_schema.m_defaults, 1u, def))
         {
             return false;
         }
+        CResolvedTypes::SDefaultRecord& default_info = m_schema.m_defaults.last();
+        default_info.type = field.type;
+        default_info.source = def;
+        default_info.scalar = value;
+        field.default_description = m_schema.index(resolver_util::k_default, static_cast<std::uint32_t>(m_schema.m_defaults.size() - 1u));
     }
-    order_names(m_schema.m_fields, m_schema.m_field_names, type_record.first, type_record.count);
-    type_record.set_flag(TTypeRecord::k_gaps, (used != resolver_util::max_unsigned(static_cast<unsigned>(type_record.size * 8u))));
+    else if (def)
+    {
+        if (!make_default(field.type, def, field.default_description, (depth + 1u)))
+        {
+            return false;
+        }
+        const SScalar value = m_schema.m_defaults[m_schema.ordinal(field.default_description)].scalar;
+        if (!resolver_util::fits(value, field.signed_value, field.width))
+        {
+            return fail(EReason::invalid_default, def);
+        }
+    }
+    m_schema.m_fields[field_slot] = field;
+    if (!map(field_source, m_schema.index(resolver_util::k_field, field_slot)))
+    {
+        return false;
+    }
     return true;
 }
 

@@ -8,26 +8,44 @@ Date:   25 Oct 2026
 
 # Shader compilation direction
 
-This is the agreed direction and remaining design work for shader conditioning.
+This records implemented shader-conditioning contracts and agreed future direction.
 Request/result structure choices, compilation defaults, feature restrictions and
 configurable service limits were agreed on 21 October 2026. The initial
 compile-only path is now implemented; the implementation and validation record
-below distinguishes it from deferred reflection and pipeline work.
+below distinguishes it from the individual-reflection checkpoint and deferred
+library and pipeline work.
 
-The agreed next phase is described in [reflection and component libraries](shader_reflection_design.md):
-schema-backed resource and stage interfaces, explicit shared-type mappings,
-renderer-owned compile/reflect reports and live library assembly before baking.
-The complete reflection/library conditioning path remains unimplemented; the
-reflection document describes its narrower initial adapter checkpoint and remaining
-decisions. Generic schema composition and version-2 persistence are implemented. The
-compile-only contracts below describe current behaviour, not the final library
-representation or publication envelope.
+The [combined shader-system reference](shader_reflection_design.md) records overall
+intent and draft designs for reflection, component libraries, semantic/provider binding
+and generic Host observation/bulk support. Individual reflection and renderer-local
+compile/reflect jobs/reports are implemented; production combined-group conditioning
+and library assembly remain unimplemented. Generic schema composition and version-1
+persistence are implemented. Compile-only contracts below describe current behaviour,
+not the final library representation or publication envelope.
+
+The [baseline capability profile](shader_reflection_design.md#baseline-dxc-to-spir-v-capability-profile)
+records this path's implemented envelope and qualification limits. Its inactivity-
+proof production and validation sets are empty; preprocessing/debug metadata do
+not provide the planned evidence facility.
+
+[Opaque Host bulk distribution](direct_bulk_connections.md) is implemented under
+direct-connection quiescence. Schema-aware acknowledgement, independent acquisition
+leases and generic observation support remain extensions in the combined design.
+
+The user's review led to [staged development](../backlog/shader_system_stages.md):
+refine, implement and review one selected increment, adapting earlier stages as needed.
+The first [PSO scope proposal](pso_creation_stage1.md) is not an approved implementation
+contract. The combined reference's [scope inventory](shader_reflection_design.md#scope-inventory-and-remaining-specification-work)
+and [ownership glossary](shader_reflection_design.md#ownership-and-lifecycle-glossary)
+separate work areas, dependencies and ownership roles. Design approval does not
+select an implementing task.
 
 ## Initial implementation
 
 Rendering owns shader contracts in `rendering/shader/shader_data.hpp` and
-`shader_requests.hpp`. They have no SYSTEM transport identities. Core, Host and
-Executive have no shader or texture types; TGA remains a core image facility.
+`shader_requests.hpp`. They have no SYSTEM transport identities. Foundation,
+Framework, Host and Executive have no typed shader or texture contracts; TGA
+remains a Foundation image facility.
 Compiler objects, options, service limits, jobs and report interpretation all
 remain in Rendering.
 
@@ -113,9 +131,10 @@ generation/validation belong to later reflection and pipeline conditioning.
 Each compilation has one report, including unsuccessful compilations, and the
 renderer-owned group retains its reports and summary. An ordinary shader error
 allows other jobs to continue. Successful outputs remain available when another
-shader fails. An explicit compile-only operation publishes its completed group
-to the Host; later conditioning operations may consume the reports within the
-renderer and publish a finished package instead.
+shader fails. An explicit compile-only operation returns its owning completed group
+to its Rendering caller. Host retention applies only to explicitly exported generic
+bytes/documents; later conditioning operations may keep reports within Rendering
+and publish a finished package at an explicit boundary.
 
 CPU readback, pipeline assembly and validation, DirectX output, mesh/task shaders
 and ray tracing are outside the initial scope. Stream output/transform feedback
@@ -169,9 +188,9 @@ as other source files, without Host callbacks or a separately loaded disk header
 Keep ordinary HLSL resource types, array sizes and semantics visible in shader
 declarations. Resource macros translate group/binding arguments into HLSL register
 declarations; location macros emit Vulkan annotations for SPIR-V and omit them
-for future DirectX compilation. The initial resource translation can be the
-same for both targets. Exact macro names, include path and version spelling are
-implementation details to make concrete with the interface proposal.
+for future DirectX compilation. The implemented version-1 include is
+`rendering/shaders/morphic_shader.hlsli`, with `MV_SHADER_RESOURCE` and
+`MV_SHADER_LOCATION`; broader backend translation remains future work.
 
 The proposed initial convention uses distinct resource binding numbers across
 register classes within each group, mapping HLSL spaces to Vulkan sets. Shared
@@ -187,7 +206,20 @@ pipeline layouts or DirectX root signatures, with reflection checking agreement.
 That description should be authoritative for the intended contract even when
 optimisation removes unused resources from individual compiled stages. Its
 schema, generator and pipeline integration are deferred; the initial support
-include does not depend on implementing them.
+include does not depend on implementing them. Distinguish that authored contract
+from active requirements in the final PSO's binding introspection.
+
+The wider goal is a PSO library with validated stage connections, supported
+connection optimisation, and introspection of binding types and usages. Explicit
+semantic annotations or registered conventions establish application meaning;
+the engine derives bindings/usages from those and user configuration rather than
+guessing from arbitrary matrices, names or layouts. Registered data sources must
+be bindable and validated against PSO introspection. Users still select particular
+materials, resources and associations where the contract leaves a choice. The
+goal is to remove arbitrary boilerplate while preserving configuration and
+selection. See the [PSO and binding direction](shader_reflection_design.md#intended-pso-and-resource-binding-system)
+for the agreed boundary and remaining design; it does not add implementation to
+the current compilation or initial library-assembly scope.
 
 ## Requests, reports and group completion
 
@@ -403,13 +435,13 @@ outside the selected scope. Neither continuing siblings after catastrophic
 corruption nor guaranteeing a retained failure report in OOM is promised by the
 group behaviour.
 
-## Compilation options and remaining decisions
+## Compilation options and feature boundaries
 
 Use engine types for stage, output format and configuration; keep DXC/Vulkan
 translation local. Prefer a defined option set to unrestricted command strings.
 Always record effective values rather than relying on changing compiler defaults.
 
-| Decision | Status or direction to discuss |
+| Decision | Status or direction |
 | --- | --- |
 | Language and shader model | Agreed defaults: HLSL 2021 and stage-specific Shader Model 6.0 profiles. |
 | Vulkan target | Agreed default: Vulkan 1.1. Higher targets can be explicit options; the future Quest device/runtime profile still needs capability verification. |
@@ -417,7 +449,7 @@ Always record effective values rather than relying on changing compiler defaults
 | Matrices | Agreed default: row-major storage, with explicit shader declarations able to override it. Mathematical multiplication conventions remain a separate concern. |
 | Optimisation/debugging | Agreed defaults: no optimisation, source-debug information, warnings retained without warnings-as-errors, and compiler validation enabled. The selectable modes are specified below. Optimised final output and stricter warnings in future development builds remain the intended direction. |
 | Features | Agreed initial feature restrictions and metadata policy are specified below. |
-| Bindings/interfaces | Agreed: small bundled support include for resource/location macros and controlled target defines. Final numbering/range conventions remain to be settled; richer binding descriptions are deferred to reflection/pipeline conditioning. |
+| Bindings/interfaces | Implemented support include for resource/location macros and controlled target defines. The combined review draft preserves explicit set/binding and location coordinates, with semantic mappings and derived PSO layouts; it introduces no global range allocator or implicit renumbering. |
 | Metadata | Preserve information needed for later reflection; strip distribution artifacts only after reflection has extracted it. |
 
 DXC's default SPIR-V buffer layout is relaxed std140/std430; the GL, DX and scalar
@@ -537,45 +569,35 @@ request, source, artifact and diagnostic ceilings.
 
 ## Reflection direction and deferred pipeline validation
 
-Reflection will consume retained compiled artifacts separately under the agreed
-[reflection and component-library design](shader_reflection_design.md). It uses
-physical schemas, non-storage associations/interfaces and renderer-interpreted
-decorations; intermediate results stay in rendering and diagnostics survive
-ordinary compilation or reflection failure. Semantic stage/value interpretation
-is distinct from concrete buffer layouts used to construct or validate CPU data.
-Compact names such as `float3x4`, `float3_` and `float3_x4` describe matrices and
-padded storage under that contract; checked structure/layout and context-qualified
-metadata remain authoritative. Matrix interpretation, byte storage and
-mathematical usage conventions are recorded separately.
+Individual reflection consumes retained engine-produced artifacts under the
+[combined shader-system specification](shader_reflection_design.md). Rendering
+owns intermediate results and diagnostics, including compilation output retained
+when reflection fails. Physical layout, mathematical interpretation and application
+semantics are separate contracts; checked structure/layout and context-qualified
+metadata remain authoritative over compact type spellings.
 
-The implemented schema model permits authoring-fragment composition before final
-contained-type validation. Per-shader runtime results can retain binary SPIR-V
-without literal expansion. Version-2 `.bsd` persistence supplies combined storage;
-library assembly still needs explicit multi-source payload packing and locator
-relocation before raw assembly and typed/rendering validation. Authoring
-`CSchema::bake` and byte-preserving `CBakedDataBlock::assemble` are distinct routes.
-The reflection design records their constraints and the remaining contract choices.
-Its agreed authoring starting point uses an ordered explicit shader/variant list,
-existing compilation defaults and define precedence, and separate public,
-declaration and descriptive identities. Deterministic packing preserves binary
-artifacts. Compile-time variants are the baseline: explicit named compilation
-targets select entry points, defines and compilation settings, with no automatic
-permutation expansion. The individual-shader reflector rejects all specialization
-constants with diagnostics; compile-only behaviour is unchanged. Specialization
-constants are currently unsupported by reflection and conditioning, and support
-is not planned. They are not a requirement for completing the agreed shader work
-or a scheduled part of PSO construction. A concrete future use case may justify
-reconsideration through a separate design decision. Exact identity encoding and
-public conditioning APIs remain open.
+Implemented schemas support authoring-fragment composition, retained binary SPIR-V
+and version-1 `.bsd` persistence. Library assembly still needs explicit multi-source
+payload packing and locator relocation: authoring `CSchema::bake` and byte-preserving
+`CBakedDataBlock::assemble` are distinct routes. The combined specification defines
+binary-preserving packing/assembly as the required production-library route;
+authoring import/bake remains available for tooling. It also defines
+the current reflection vocabulary and agreed component identities, contextual
+library resolution, mappings, semantic contracts and provider/lifecycle policies;
+its completion contracts specify catalogue, packing, logical API and PSO persistence
+choices for review. They do not change this implemented compilation contract.
 
-Later pipeline conditioning should validate vertex-buffer construction and stage
-connections, including tessellation patch interfaces and topology. The library
-content description will eventually select components for PSO generation;
-reflection or schema merging alone does not validate those combinations.
-The PoC's intended sequence
-of extracting reflection before stripping distribution shaders remains useful.
-Its reconstructed [fixtures](../../tests/shader/fixtures/poc/ORIGIN.txt) provide
-test material, not a production shader/JSON specification or evidence that the
+Later pipeline conditioning explicitly composes reusable components and validates
+vertex/stage connections, including tessellation patch interfaces and topology.
+PSO introspection and binding inference use explicit semantics, conventions and
+configuration. Neither reflection nor schema merging validates a PSO. Compile-time
+named targets/settings/defines remain the baseline; no automatic permutation
+expansion. Specialization constants reject in reflection/conditioning and support
+is not planned; compile-only behaviour is unchanged.
+
+The PoC's sequence of extracting reflection before stripping distribution shaders
+remains useful. Its reconstructed [fixtures](../../tests/shader/fixtures/poc/ORIGIN.txt)
+are test material, not a production shader/JSON specification or proof that the
 original system completed every intended validation or optimisation.
 
 ## Stream output is not planned
@@ -632,9 +654,11 @@ passed. Final parenthesisation-only edits were compile-checked on Windows and
 Linux without repeating the passing test matrix.
 
 macOS, Quest execution, reflection, GPU debugging and pipeline compatibility
-remain outside this validation. Compiler success is not a device execution test.
+were outside this initial compile-only validation. Later reflection coverage is
+recorded in the reflection design. Compiler success is not a device execution test.
 
-After relocating the shared texture/shader contracts into Core on 22 October,
+Historical 22 October checkpoint, superseded by the current Rendering ownership
+described above: after relocating the shared texture/shader contracts into Core,
 Windows x64 Debug and Ubuntu Debug ordinary suites passed again. Core's SYSTEM
 owner operations also passed an isolated compilation without the repository-wide
 include path; their compiler-generated dependency list contained no rendering,

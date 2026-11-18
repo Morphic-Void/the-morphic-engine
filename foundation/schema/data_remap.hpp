@@ -31,7 +31,8 @@ enum class ERemapReason : std::uint8_t
     unknown_type,
     invalid_range,
     overlap,
-    allocation_failed
+    allocation_failed,
+    reference_context_required
 };
 
 struct SRemapDiagnostic

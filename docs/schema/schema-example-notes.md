@@ -9,9 +9,9 @@ Date:   25 Sep 2026
 
 [schema-example.json](schema-example.json) illustrates layout, short input and
 `detail.internal` as the internal-layout marker. Its `types` section is a resolver
-and C++ compiler acceptance fixture. The instance and bulk data sections illustrate
-binary-free aggregate materialisation and are exercised by data-role tests,
-including live instance baking and reload.
+and C++ compiler acceptance fixture. The complete aggregate exercises contextual
+text/span construction and checked reading. The reference-free subset also
+exercises live data-role baking and reload.
 The [specification](specification.md) defines the semantics.
 
 The instance and bulk data entries have no runtime locators. Named
@@ -47,21 +47,23 @@ strict-JSON tools should consume the writer's strict mode instead.
 | Enum | A named object with integer `storage` and a `values` object mapping labels to numbers. Property order is declaration order. |
 | Structure | A named object with an ordered `members` array of singleton named descriptor objects. |
 | Structure detail | Generated documents include `detail.alignment` and `detail.size`. Both are optional checked metadata for natural layout; explicit-offset layouts require an authoritative size. `detail.internal` identifies an internal layout for export purposes. |
-| Member | `type` is a named type or an inline array descriptor. Optional `default` supplies a validated default for that member. If any member specifies `offset`, every member of that structure must specify it. |
+| Member | `type` is a named type or an inline array, text or span descriptor. Optional `default` supplies a validated default for that member. If any member specifies `offset`, every member of that structure must specify it. |
+| Text/span | `GeometryReport` uses exact text, nullable text and a typed range into the existing `Vertex.triangle` collection. Its child distinguishes present-empty from absent values. |
 | Fixed array | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive; optional `stride` and `alignment` override the natural element stride and array alignment. The sample uses their defaults. |
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
 | Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
 | Instance | `instances` groups named instances by type. Each base or specialisation has optional `declaration` holding supplied values when present, and `specialisation` holding named children inheriting from that instance. An absent declaration selects no values: a base uses defaults and a child inherits unchanged. |
 | Bulk data collection | `data` groups named collections by type. Each collection has a required nonempty `data` array of complete records. Runtime construction derives its locator and count. Records have no specialisation mechanism. |
 
-Leaf instances omit `specialisation` in this form. A member's `type` accepts
-either a named type or an array descriptor containing both `element` and
+Leaf instances omit `specialisation` in this form. Fixed-array `type` accepts
+an array descriptor containing both `element` and
 `count`. A positive integral `count` identifies an array, including count 1;
 zero is invalid, and an element without its count is incomplete. `count` is
 not moved onto the member descriptor. This keeps nesting recursive:
 `ArrayExamples.uv_rows` is an array of three arrays of two `f32` values.
-`ArrayExamples.single` remains a one-element array, not a scalar. A `kind`
-property is rejected as unknown.
+`ArrayExamples.single` remains a one-element array, not a scalar. Fixed arrays
+do not use `kind`; `kind: "text"` and `kind: "span"` identify the separate
+[reference descriptors](text-and-spans.md).
 
 The sample uses physical definitions and natural array descriptors. The current
 grammar also supports [independent array layout](specification.md#fixed-arrays),

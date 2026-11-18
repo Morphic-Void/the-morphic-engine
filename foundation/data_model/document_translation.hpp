@@ -11,6 +11,7 @@
 //  Public whole-document and root-member translation entry points. Subtree
 //  copying is available separately from document_copy.hpp.
 //  Include the live/baked document headers separately to define their owners.
+//  Include string_value_remap.hpp when retaining a bake's string index mapping.
 
 #pragma once
 
@@ -25,11 +26,15 @@ class CStringView;
 namespace document_translation
 {
 
+class CStringValueRemap;
+
 //==============================================================================
 //  Whole-document translation
 //==============================================================================
 
 [[nodiscard]] bool bake(const CLiveDocument& source, CBakedDocumentBlock& destination) noexcept;
+//  Publish document and map together; failure preserves both caller outputs.
+[[nodiscard]] bool bake(const CLiveDocument& source, CBakedDocumentBlock& destination, CStringValueRemap& strings) noexcept;
 [[nodiscard]] bool promote(const CBakedDocument& source, CLiveDocument& destination) noexcept;
 
 //==============================================================================

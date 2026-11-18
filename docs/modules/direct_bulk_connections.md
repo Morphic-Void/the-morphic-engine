@@ -92,8 +92,12 @@ acknowledgement. They provide no independent lifetime beyond endpoint quiescence
 Abandoned execution requires the existing successful native join and final-drain
 proofs. Timeout and failed join never authorise freeing exposed backing.
 
-The broader schema-aware bulk exchange and independently protected acquisition
-records proposed in the shader reflection design remain separate future work.
+The [shader-system checkpoint](shader_reflection_design.md#implemented-opaque-distribution-checkpoint)
+records this implemented baseline. Its [schema-aware extension](shader_reflection_design.md#establishment-usages-and-replacement)
+adds proposed schema pinning/acknowledgement, contextual transport selection,
+exact-payload coordination and independently protected acquisition records. Current
+capacity/role acceptance is not schema acknowledgement, and copied/held views are
+not independent leases. Those extensions do not change this endpoint contract.
 
 ## Validation
 

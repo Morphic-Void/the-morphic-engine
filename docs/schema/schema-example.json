@@ -22,6 +22,14 @@
     },
 
     "structures": {
+      "GeometryReport": {
+        "members": [
+          { "label": { "type": { "kind": "text" }, "default": "Triangle geometry" } },
+          { "source": { "type": { "kind": "text", "nullable": true } } },
+          { "vertices": { "type": { "kind": "span", "element": "Vertex" } } }
+        ]
+      },
+
       "Position": {
         "detail": { "alignment": 4, "size": 12 },
         "members": [
@@ -119,6 +127,24 @@
   },
 
   "instances": {
+    "GeometryReport": {
+      "triangle_report": {
+        "declaration": {
+          "source": "Example \u00e9\u0000source",
+          "vertices": { "collection": "triangle", "first": 0, "count": 3 }
+        },
+        "specialisation": {
+          "empty_report": {
+            "declaration": {
+              "label": "",
+              "source": { "absent": true },
+              "vertices": { "empty": true }
+            }
+          }
+        }
+      }
+    },
+
     "Vector4": {
       "base": {
         "declaration": [2.0, 1.0, 4.0, 7.0],

@@ -9,6 +9,7 @@
 //  Common storage attachment and transactional aggregate construction.
 
 #include "schema/baked_data_block.hpp"
+#include "schema/reference_value.hpp"
 #include "schema/data_block_construction.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_copy.hpp"
@@ -195,6 +196,13 @@ template<class TDocument>
     if (destination.loaded_ready()) return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
     detail::SDataBlockRoot root;
     if (!detail::read_data_block_root(detail::CDocumentRead{ source }, root, diagnostic)) return false;
+    //  Re-baking a description changes document string IDs. Opaque payloads
+    //  provide no authority to relocate reference slots or resolve targets.
+    const detail::CDocumentRead read{ source };
+    if (detail::has_reference_declarations(read))
+    {
+        return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::reference_context_required);
+    }
     const bool instances_missing = static_cast<bool>(root.instances) != static_cast<bool>(payloads.instances);
     const bool bulk_missing = static_cast<bool>(root.bulk_data) != static_cast<bool>(payloads.bulk_data);
     if (instances_missing || bulk_missing)
