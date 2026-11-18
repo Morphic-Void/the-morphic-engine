@@ -18,9 +18,13 @@ their reference-free boundary.
 
 ## Header organisation
 
+Public entry headers remain directly in `foundation/schema/`; include paths are
+relative to the Foundation include root.
+
 | Header | Responsibility |
 | --- | --- |
 | `schema/schema.hpp` | Binary-free `CSchema`, aggregate query/handles, composition, merging, validation and conversions. |
+| `schema/prepared_schema.hpp` | Prepared schema ownership and reusable validated layout. |
 | `schema/types_wrappers.hpp` | Guarded live/baked types owners, editor and client bindings. |
 | `schema/resolved_types.hpp` | Shared resolution, type observations, canonical types output and C++ generation. |
 | `schema/document_query.hpp` | Separate types, instance and bulk query/handle families. |
@@ -31,20 +35,33 @@ their reference-free boundary.
 | `schema/data_block_view.hpp`, `data_operation.hpp` | Checked complete-block reading, finite operation limits and copied diagnostics. |
 | `schema/data_copy.hpp`, `data_block_edit.hpp` | Independent dependency copy/repack, logical export and private typed edit transactions. |
 | `schema/data_remap.hpp`, `unused_storage.hpp` | Exact-type remapping and explicit padding clearing. |
+| `schema/reference_types.hpp` | Fixed-layout reference descriptors used by generated C++ declarations. |
+| `schema/value_work_budget.hpp` | Shared value-traversal work allowance. |
 
-`instance_selection`, `types_admission`, `document_construction`,
-`document_merge`, `data_reconstruction`, `data_block_construction`,
-`baked_record_plan` and `data_operation_internal` are
-internal support. General parsing, text writing, copying and generic document
-baking remain in the data-model module. The old preparation, composition,
-role-specific merge and output-form headers have been removed.
+Implementations and supporting headers are grouped by responsibility:
+
+| Directory in `foundation/schema/` | Responsibility |
+| --- | --- |
+| `document/` | Aggregate authoring, queries, construction, merging, validation and reconstruction. |
+| `types/` | Type admission, resolution, compatibility, canonical output and C++ generation. |
+| `values/` | Value encoding and conversion, instance selection, reference values, remapping and unused storage. |
+| `records/` | Live and baked roles, shared record planning and indexing, storage validation and prepared schemas. |
+| `blocks/` | Complete-block format, construction, checked views, references, copying, export and editing. |
+| `operations/` | Operation ownership, allocation accounting and work metering. |
+
+The subdirectories organise implementation support; they do not introduce new
+API or visibility boundaries. In particular, the public baked-role headers still
+include `records/baked_record_plan.hpp` and `records/record_index.hpp` for their
+storage definitions. General parsing, text writing, copying and generic document
+baking remain in the data-model module.
 
 Public operation limits and diagnostics are declared in `data_operation.hpp`;
-allocator routing, accounting and operation scopes stay in the internal header.
+allocator routing, accounting and operation scopes stay in
+`operations/data_operation_internal.hpp`.
 Include `data_model/string_value_remap.hpp` when defining a remap owner; the
 generic translation header only forward-declares it.
 
-`baked_record_plan.hpp` defines shared baked records, transactional structural
+`records/baked_record_plan.hpp` defines shared baked records, transactional structural
 plans and planning diagnostics independently of the owning roles. Instance and
 bulk planners inspect a document, resolved types and a supplied payload extent;
 they do not read payload bytes. Planning replaces an output only on success,
@@ -522,7 +539,7 @@ schema API.
 
 ## Internal value construction
 
-`foundation/schema/value_codec.hpp` exposes synchronous internal operations over a
+`foundation/schema/values/value_codec.hpp` exposes synchronous internal operations over a
 ready `CResolvedTypes` and a representation-neutral `detail::CDocumentRead`:
 
 ```cpp

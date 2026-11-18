@@ -17,7 +17,7 @@
 
 #include "data_model/live_document.hpp"
 #include "data_model/document_structure.hpp"
-#include "data_model/document_text_lex.hpp"
+#include "data_model/internal/document_text_lex.hpp"
 
 namespace document_parser
 {

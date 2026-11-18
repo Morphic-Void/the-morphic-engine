@@ -52,10 +52,15 @@ Include the header for the operation being used:
 `document_findings.hpp` supplies processing reports and caller policy. Their
 consumers include them, but they may also be included directly for those types.
 
-`live_document_node.hpp` and `baked_document_format.hpp` describe storage used by
-the document headers. Ordinary callers use the document APIs; format validation
-and tooling may need the baked records directly. `document_text_lex.hpp` is
-internal scanner support shared by the parser and structural checker.
+`internal/live_document_node.hpp` describes storage included by the live document
+header. `internal/document_text_lex.hpp` and its implementation supply scanner
+support shared by the parser and structural checker. This small internal group
+keeps the public headers and their principal implementations together at the
+data-model root; it does not make the live-node representation opaque.
+
+`baked_document_format.hpp` remains at the root as format support. Ordinary
+callers use the document APIs; format validation and tooling may need the baked
+records directly.
 
 Parser, writer and translation headers forward-declare document classes. Include
 the corresponding live/baked document header when defining an owner or view.

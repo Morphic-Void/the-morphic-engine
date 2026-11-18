@@ -15,7 +15,7 @@
 #include "schema/data_block_view.hpp"
 #include "schema/data_copy.hpp"
 #include "schema/data_block_edit.hpp"
-#include "schema/value_codec.hpp"
+#include "schema/values/value_codec.hpp"
 
 #include <cstdio>
 

@@ -23,6 +23,14 @@ reporting state. Host-private repository, filesystem image, native module and
 thread ownership live under `host/`; only Host and the tests compile those subjects.
 The policy validator enforces the Foundation and Framework include boundaries.
 
+After changing project items or Solution Explorer groups, run
+`python -B tools/check_vs_filters.py` from the repository root. It checks existing
+project/filter pairs in `visual_studio/` for missing C++ mappings, stale or
+duplicate items, and undeclared filter names without changing XML. Intentional
+virtual groups, root resource entries and projects without filters are allowed.
+Pass project or shared-item paths to check specific pairs. Its focused tests run
+with `python -B -m unittest discover -s tools/tests -p test_vs_filters.py`.
+
 ## Shader compiler dependency
 
 Before building, run `python tools/acquire_dxc.py` on Windows or

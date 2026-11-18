@@ -27,7 +27,7 @@
 #include "containers/TPodOrderedSlots.hpp"
 #include "containers/TPodVector.hpp"
 #include "data_model/data_model_types.hpp"
-#include "data_model/live_document_node.hpp"
+#include "data_model/internal/live_document_node.hpp"
 
 struct SLiveDocumentTestAccess;
 namespace document_translation::detail { class CDocumentConstruction; }

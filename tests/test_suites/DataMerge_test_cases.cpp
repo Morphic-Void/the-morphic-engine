@@ -11,7 +11,7 @@
 
 #include "tests/test_suites/DataMerge_test_cases.hpp"
 #include "tests/support/schema_fixtures.hpp"
-#include "schema/value_codec.hpp"
+#include "schema/values/value_codec.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
 #include "data_model/document_translation.hpp"

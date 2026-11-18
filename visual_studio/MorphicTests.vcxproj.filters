@@ -1,6 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Audio"><UniqueIdentifier>{5e372939-ca8a-4891-8b31-c58e6c836874}</UniqueIdentifier></Filter>
+    <Filter Include="Audio\src"><UniqueIdentifier>{76614f5b-75de-404f-9bd3-127cad7086db}</UniqueIdentifier></Filter>
+    <Filter Include="Audio\src\runtime"><UniqueIdentifier>{d50257b7-704a-4cba-8b24-476385f37c0f}</UniqueIdentifier></Filter>
+    <Filter Include="Executive"><UniqueIdentifier>{08e14014-ffff-4018-86ff-993bd1099848}</UniqueIdentifier></Filter>
+    <Filter Include="Executive\src"><UniqueIdentifier>{2a8996cd-7a03-45f3-8d95-c8b90512e8c7}</UniqueIdentifier></Filter>
+    <Filter Include="Executive\src\runtime"><UniqueIdentifier>{4fdb6381-b361-4fe4-818c-ff0db832065b}</UniqueIdentifier></Filter>
+    <Filter Include="Host"><UniqueIdentifier>{4d15a767-42a3-448a-96a6-0ed44f66e2e2}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include"><UniqueIdentifier>{1d21dcaf-57b4-4b80-a6d6-004abecf9068}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\assets"><UniqueIdentifier>{38841232-47ee-452b-bf38-00b129824e0f}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\config"><UniqueIdentifier>{b18400b3-f51a-4e01-941e-8ea46225697f}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\filesystem"><UniqueIdentifier>{c046229a-8548-4e43-9b0d-ab4cf45f4925}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\image"><UniqueIdentifier>{cacfe000-50ef-475f-94c4-e30eb3a048c7}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\module"><UniqueIdentifier>{12e89130-7f8a-4472-a97c-d6e03503e248}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\runtime"><UniqueIdentifier>{884ef52b-2251-45b6-80a7-6076de48d2ff}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\threading"><UniqueIdentifier>{d3fdbd31-5c65-42dc-aa95-018063b3cc81}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src"><UniqueIdentifier>{f400d8c7-a3f4-43fe-9a63-7c4e6ad64966}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\config"><UniqueIdentifier>{1b582a0d-2d4d-4cca-8f94-0896749bd773}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\filesystem"><UniqueIdentifier>{6c6eb6dd-9e4a-43d0-bd43-0f0d9d88441c}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\module"><UniqueIdentifier>{4150ebe8-3782-48e9-9474-720dbac8f72c}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\runtime"><UniqueIdentifier>{c6c015ff-e97e-48b9-9564-5b443b7d7cc8}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\system"><UniqueIdentifier>{120e8385-5d84-43d6-8d80-90cfbc875fd1}</UniqueIdentifier></Filter>
+    <Filter Include="Host\src\threading"><UniqueIdentifier>{764fd23b-90f9-4c37-90b4-e9bdbc8b50ec}</UniqueIdentifier></Filter>
     <Filter Include="Platform"><UniqueIdentifier>{a90013b4-2648-4ca0-a99e-161b17fd1c5e}</UniqueIdentifier></Filter>
     <Filter Include="Platform\include"><UniqueIdentifier>{ec36125a-16e6-491d-82b5-a4fe0f862d7a}</UniqueIdentifier></Filter>
     <Filter Include="Platform\include\native"><UniqueIdentifier>{c59229a8-60c8-4a3d-8e5f-f48a76957cb2}</UniqueIdentifier></Filter>
@@ -45,10 +67,10 @@
     <ClCompile Include="..\tests\test_suites\SchemaReference_test_cases.cpp">
       <Filter>Tests\test_suites</Filter>
     </ClCompile>
-    <ClCompile Include="..\host\config\module_extension.cpp" />
-    <ClCompile Include="..\host\module\bound_module.cpp" />
-    <ClCompile Include="..\host\filesystem\filesystem_image.cpp" />
-    <ClCompile Include="..\host\threading\CThreadPackage.cpp" />
+    <ClCompile Include="..\host\config\module_extension.cpp"><Filter>Host\src\config</Filter></ClCompile>
+    <ClCompile Include="..\host\module\bound_module.cpp"><Filter>Host\src\module</Filter></ClCompile>
+    <ClCompile Include="..\host\filesystem\filesystem_image.cpp"><Filter>Host\src\filesystem</Filter></ClCompile>
+    <ClCompile Include="..\host\threading\CThreadPackage.cpp"><Filter>Host\src\threading</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleBuilder_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\Bundle_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\main\MorphicTests.cpp"><Filter>Tests\main</Filter></ClCompile>
@@ -61,7 +83,7 @@
     <ClCompile Include="..\tests\support\file_helpers.cpp"><Filter>Tests\support</Filter></ClCompile>
     <ClCompile Include="..\tests\support\test_allocator.cpp"><Filter>Tests\support</Filter></ClCompile>
     <ClCompile Include="..\tests\support\thread_helpers.cpp"><Filter>Tests\support</Filter></ClCompile>
-    <ClCompile Include="..\executive\runtime\request_preparation.cpp" />
+    <ClCompile Include="..\executive\runtime\request_preparation.cpp"><Filter>Executive\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\AssetRepository_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\FilesystemImage_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -84,22 +106,23 @@
     <ClCompile Include="..\rendering\runtime\shader_conditioning.cpp"><Filter>Rendering services</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ShaderConditioning_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp"><Filter>Rendering services</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\shader_compiler.cpp"><Filter>Rendering services</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TextureBatch_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
-    <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
-    <ClCompile Include="..\host\runtime\client_record.cpp" />
-    <ClCompile Include="..\host\runtime\service_router.cpp" />
-    <ClCompile Include="..\host\runtime\service_borrows.cpp" />
-    <ClCompile Include="..\host\runtime\direct_connections.cpp" />
-    <ClCompile Include="..\host\runtime\pumped_client.cpp" />
-    <ClCompile Include="..\host\runtime\host_restrictions.cpp" />
-    <ClCompile Include="..\host\runtime\host_maintenance.cpp" />
-    <ClCompile Include="..\host\runtime\host.cpp" />
-    <ClCompile Include="..\host\runtime\module_service.cpp" />
-    <ClCompile Include="..\host\system\host_context.cpp" />
-    <ClCompile Include="..\host\runtime\batch_pool.cpp" />
-    <ClCompile Include="..\host\system\system_id_definitions.cpp" />
-    <ClCompile Include="..\host\runtime\asset_service.cpp" />
-    <ClCompile Include="..\host\runtime\asset_schema.cpp" />
+    <ClCompile Include="..\host\runtime\host_worker_thread.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\client_record.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\service_router.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\service_borrows.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\direct_connections.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\pumped_client.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\host_restrictions.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\host_maintenance.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\host.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\module_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\system\host_context.cpp"><Filter>Host\src\system</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\batch_pool.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\system\system_id_definitions.cpp"><Filter>Host\src\system</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\asset_schema.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\DocumentParser_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -159,15 +182,16 @@
     <ClInclude Include="..\tests\test_suites\SchemaReference_test_cases.hpp">
       <Filter>Tests\test_suites</Filter>
     </ClInclude>
-    <ClInclude Include="..\host\filesystem\mount_rules.hpp" />
-    <ClInclude Include="..\host\config\module_extension.hpp" />
-    <ClInclude Include="..\host\assets\asset_repository.hpp" />
-    <ClInclude Include="..\host\module\bound_module.hpp" />
-    <ClInclude Include="..\host\image\image_owner_payloads.def" />
-    <ClInclude Include="..\host\image\image_messages.hpp" />
-    <ClInclude Include="..\host\filesystem\filesystem_image.hpp" />
-    <ClInclude Include="..\host\assets\asset_storage.hpp" />
-    <ClInclude Include="..\host\threading\CThreadPackage.hpp" />
+    <ClInclude Include="..\host\filesystem\mount_rules.hpp"><Filter>Host\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="..\host\config\module_extension.hpp"><Filter>Host\include\config</Filter></ClInclude>
+    <ClInclude Include="..\host\assets\asset_repository.hpp"><Filter>Host\include\assets</Filter></ClInclude>
+    <ClInclude Include="..\host\module\bound_module.hpp"><Filter>Host\include\module</Filter></ClInclude>
+    <ClInclude Include="..\host\image\image_owner_payloads.def"><Filter>Host\include\image</Filter></ClInclude>
+    <ClInclude Include="..\host\image\image_messages.hpp"><Filter>Host\include\image</Filter></ClInclude>
+    <ClInclude Include="..\host\filesystem\filesystem_image.hpp"><Filter>Host\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="..\host\assets\asset_storage.hpp"><Filter>Host\include\assets</Filter></ClInclude>
+    <ClInclude Include="..\host\threading\CThreadPackage.hpp"><Filter>Host\include\threading</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\host_cadence.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BundleBuilder_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\Bundle_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\environment\erased_owner_payloads.def"><Filter>Tests\environment</Filter></ClInclude>
@@ -203,6 +227,7 @@
     <ClInclude Include="..\tests\test_suites\TextureService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\ShaderReflection_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\ShaderConditioning_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\ShaderBatch_cases.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TextureBatch_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BakedDocument_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
@@ -300,13 +325,13 @@
     <ClInclude Include="..\tests\support\resource_service_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\audio\runtime\tone_test.cpp" />
-    <ClCompile Include="..\audio\runtime\vendor_allocator.cpp" />
-    <ClCompile Include="..\audio\runtime\audio_run.cpp" />
-    <ClCompile Include="..\audio\runtime\audio_thread.cpp" />
-    <ClCompile Include="..\audio\runtime\miniaudio_adapter.cpp" />
-    <ClCompile Include="..\tests\test_suites\Audio_test_suite.cpp" />
-    <ClInclude Include="..\tests\test_suites\Audio_test_suite.hpp" />
+    <ClCompile Include="..\audio\runtime\tone_test.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\audio\runtime\vendor_allocator.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\audio\runtime\audio_run.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\audio\runtime\audio_thread.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\audio\runtime\miniaudio_adapter.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\Audio_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClInclude Include="..\tests\test_suites\Audio_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>

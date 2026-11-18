@@ -12,8 +12,8 @@
 #include "tests/environment/local_type_ids.hpp"
 
 #include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
-#include "schema/data_block_format.hpp"
-#include "schema/data_block_construction.hpp"
+#include "schema/blocks/data_block_format.hpp"
+#include "schema/blocks/data_block_construction.hpp"
 #include "schema/baked_data_block.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/schema.hpp"

@@ -18,8 +18,8 @@
 #define SCHEMA_BAKED_INSTANCES_HPP_INCLUDED
 
 #include "schema/types_wrappers.hpp"
-#include "schema/baked_record_plan.hpp"
-#include "schema/record_index.hpp"
+#include "schema/records/baked_record_plan.hpp"
+#include "schema/records/record_index.hpp"
 #include "containers/ByteBuffers.hpp"
 
 namespace schema

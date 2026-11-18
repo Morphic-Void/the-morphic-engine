@@ -15,7 +15,7 @@
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
-#include "schema/baked_record_plan.hpp"
+#include "schema/records/baked_record_plan.hpp"
 #include "schema/baked_instances.hpp"
 #include "schema/baked_bulk_data.hpp"
 #include "data_model/live_document.hpp"

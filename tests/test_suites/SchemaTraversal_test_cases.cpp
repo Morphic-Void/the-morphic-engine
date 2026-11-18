@@ -15,8 +15,8 @@
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "schema/resolved_types.hpp"
-#include "schema/value_codec.hpp"
-#include "schema/data_operation_internal.hpp"
+#include "schema/values/value_codec.hpp"
+#include "schema/operations/data_operation_internal.hpp"
 #include "data_model/document_translation.hpp"
 
 #include <string>

@@ -10,7 +10,7 @@
 //  Prepared ownership, checked limits and portable input installation validation.
 
 #include "schema/prepared_schema.hpp"
-#include "schema/value_codec.hpp"
+#include "schema/values/value_codec.hpp"
 #include "platform/runtime/input_configuration.hpp"
 #include "tests/support/document_helpers.hpp"
 #include "tests/support/input_schema.hpp"

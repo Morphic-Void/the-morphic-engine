@@ -13,7 +13,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
 #include "schema/baked_data_block.hpp"
-#include "schema/value_codec.hpp"
+#include "schema/values/value_codec.hpp"
 #include "data_model/document_translation.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/document_helpers.hpp"

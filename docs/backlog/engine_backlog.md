@@ -253,6 +253,50 @@ operation tracking remain questions for concrete consumers, as noted in
 
 The backlog documents preserve design context and alternatives, not selected work.
 
+### Host responsiveness and workload placement
+
+Discussed 18 November 2026; deferred Host work, separate from the schema follow-ups
+and not a prerequisite for them. Capture timing and backlog evidence to identify
+specific work that may benefit from offloading. No implementation or automatic
+work migration is selected by this entry.
+
+The Host supplies asynchronous services without a general response-time guarantee.
+The existing 2 ms module-pump allowance is a cooperative fairness target for the
+Host thread, not a universal schema deadline or a conditioning-worker budget.
+Occasional longer operations are acceptable, especially during startup,
+user-requested actions and significant system events. Preserve progress of native
+message processing and the wider engine, avoid spurious failures and soft-locks,
+and prevent accumulated work from causing sustained poor responsiveness.
+
+Start with timing at concrete operation/phase boundaries and capture:
+
+- Host time occupied by each work category over a rolling observation window;
+  average duration per request alone does not account for request frequency.
+- Pending work and oldest-request age, including whether the backlog grows or
+  drains between observation windows.
+- Longest uninterrupted execution, so averages do not hide individual stalls.
+
+Identify startup and significant-event periods separately from ordinary operation.
+An expected temporary spike should not trigger an offloading decision by itself;
+check that the backlog subsequently drains and normal pumping resumes. Consider
+an advisory threshold for sustained occupancy/backlog pressure across multiple
+windows. Select window lengths, thresholds and attribution from representative
+usage; no numerical values are agreed yet. Crossing a threshold must not itself
+fail a valid operation, introduce a timeout or imply cancellation/quiescence.
+
+Before offloading, consider coalescing equivalent requests where semantics permit,
+preventing redundant overlapping work and returning to pumping between expensive
+phases. Use the evidence to review placement of the particular costly phase, with
+its ownership and execution-context requirements preserved. Keep scheduling out
+of the schema value/storage contract. Instrumentation should remain lightweight;
+this entry does not select a general scheduling or telemetry framework.
+
+The [Host pump contract](../modules/host_pump_foundation.md) and
+[schema timing observations](../schema/consolidation-validation.md#resource-and-timing-observations)
+provide context. Future validation should distinguish isolated long operations,
+frequent short operations, temporary event bursts and sustained growing backlogs,
+including recovery without spurious failures or loss of pumping progress.
+
 ## Higher-level consumers
 
 Game/application, editor and physics remain placeholders. They consume the
