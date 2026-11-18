@@ -12,6 +12,7 @@
 #if MV_PLATFORM_WINDOWS
 #include "native/report.hpp"
 #include "native/windows/report_api.hpp"
+#include "debug/macros.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -153,6 +154,37 @@ static EReportStep failure(SReportSession& s, const EReason reason) noexcept
     return EReportStep::failed;
 }
 
+static debug_system::CInlineText16 phase_name(const EQueryPhase phase) noexcept
+{
+    using debug_system::CInlineText16;
+    switch (phase)
+    {
+        case EQueryPhase::ccd_size: return CInlineText16{ "ccd_size" };
+        case EQueryPhase::ccd_fetch: return CInlineText16{ "ccd_fetch" };
+        case EQueryPhase::translate: return CInlineText16{ "translate" };
+        case EQueryPhase::adapter_name: return CInlineText16{ "adapter_name" };
+        case EQueryPhase::source_name: return CInlineText16{ "source_name" };
+        case EQueryPhase::target_name: return CInlineText16{ "target_name" };
+        case EQueryPhase::gdi_adapter: return CInlineText16{ "gdi_adapter" };
+        case EQueryPhase::gdi_monitor: return CInlineText16{ "gdi_monitor" };
+        case EQueryPhase::current_settings: return CInlineText16{ "gdi_current" };
+        case EQueryPhase::factory: return CInlineText16{ "factory" };
+        case EQueryPhase::dxgi_adapter: return CInlineText16{ "dxgi_adapter" };
+        case EQueryPhase::adapter_desc: return CInlineText16{ "adapter_desc" };
+        case EQueryPhase::output: return CInlineText16{ "output" };
+        case EQueryPhase::output_desc: return CInlineText16{ "output_desc" };
+        case EQueryPhase::output_interface: return CInlineText16{ "output_iface" };
+        case EQueryPhase::mode_count: return CInlineText16{ "mode_count" };
+        case EQueryPhase::mode_fetch: return CInlineText16{ "mode_fetch" };
+        case EQueryPhase::mode_rows: return CInlineText16{ "mode_rows" };
+        case EQueryPhase::gdi_mode: return CInlineText16{ "gdi_mode" };
+        case EQueryPhase::finalise: return CInlineText16{ "finalise" };
+        case EQueryPhase::compare: return CInlineText16{ "compare" };
+        case EQueryPhase::labels: return CInlineText16{ "labels" };
+    }
+    return CInlineText16{ "unknown" };
+}
+
 //  One short-lived cursor dispatches a single query or translation step. All
 //  state that survives the outer pump belongs to the exact capture session.
 class CWindowsQueries
@@ -170,8 +202,19 @@ private:
         const PlatformErrorDomain domain = PlatformErrorDomain::none, const std::uint32_t error = 0u) noexcept;
     template<typename F>
     LONG call(const std::uint32_t id, const F& f) noexcept;
+    template<std::size_t N, std::size_t F>
+    schema::STextReference text(const wchar_t (&value)[N], const char (&field)[F]) noexcept;
     template<std::size_t N>
-    schema::STextReference text(const wchar_t (&value)[N]) noexcept;
+    EReportStep reject(const char (&field)[N], const std::int64_t actual, const std::int64_t expected) noexcept
+    {
+        if (s.failure.reason == EReason::none)
+        {
+            MV_LOG(info, "Platform report native rejection: phase {} ({}), snapshot {}, row {}, field {}, actual {}, expected {}",
+                phase_name(w.phase), static_cast<std::uint32_t>(w.phase), w.snapshot, w.index,
+                debug_system::CInlineText16{ field }, actual, expected);
+        }
+        return failure(s, EReason::invalid_data);
+    }
     bool evidence(const PlatformSubjectKind subject, const std::uint32_t id, const PlatformNativeIdentityKind kind,
         const std::uint32_t query_id, const SCcdKey native, const schema::STextReference label = { -1 }) noexcept;
     std::uint32_t adapter(const SCcdKey native, const std::uint32_t query_id) noexcept;
@@ -265,22 +308,25 @@ LONG CWindowsQueries::call(const std::uint32_t id, const F& f) noexcept
     return result;
 }
 
-template<std::size_t N>
-schema::STextReference CWindowsQueries::text(const wchar_t (&value)[N]) noexcept
+template<std::size_t N, std::size_t F>
+schema::STextReference CWindowsQueries::text(const wchar_t (&value)[N], const char (&field)[F]) noexcept
 {
     std::size_t n{};
     while ((n < N) && value[n]) ++n;
     if (!n) return { -1 };
     if (n == N)
     {
-        (void)failure(s, EReason::invalid_data);
+        (void)reject(field, n, (N - 1u));
         return { -1 };
     }
     char utf8[N * 3u];
     const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(n), utf8, sizeof(utf8), nullptr, nullptr);
     if (!size)
     {
-        (void)failure(s, EReason::invalid_data);
+        const DWORD error = GetLastError();
+        MV_LOG(info, "Platform report native text field {} has invalid UTF-16, Win32 error {}",
+            debug_system::CInlineText16{ field }, static_cast<std::uint32_t>(error));
+        (void)reject(field, error, 0u);
         return { -1 };
     }
     const std::size_t id = r.text.append(reinterpret_cast<const std::uint8_t*>(utf8), size);
@@ -386,9 +432,13 @@ EReportStep CWindowsQueries::ccd() noexcept
         }
         if (code == ERROR_SUCCESS)
         {
-            if ((w.paths[k] > path_capacity) || (w.modes[k] > mode_capacity))
+            if (w.paths[k] > path_capacity)
             {
-                return failure(s, EReason::invalid_data);
+                return reject("ccd.path_count", w.paths[k], path_capacity);
+            }
+            if (w.modes[k] > mode_capacity)
+            {
+                return reject("ccd.mode_count", w.modes[k], mode_capacity);
             }
             q(w.query).returned_count = w.paths[k];
             if (k) r.header.consistency_query_id = w.query;
@@ -469,11 +519,31 @@ bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation
         {
             continue;
         }
-        if (index >= w.modes[w.snapshot]) return false;
+        if (index >= w.modes[w.snapshot])
+        {
+            (void)reject("mode.index", index, w.modes[w.snapshot]);
+            return false;
+        }
         const DISPLAYCONFIG_MODE_INFO& m = modes[index];
         const SCcdKey associated = n ? o.target : o.source;
-        if ((m.infoType != (n + 1u)) || !(key(m.adapterId, m.id) == associated))
+        if (m.infoType != (n + 1u))
         {
+            (void)reject("mode.infoType", m.infoType, (n + 1u));
+            return false;
+        }
+        if (m.adapterId.LowPart != associated.low)
+        {
+            (void)reject("mode.luidLow", m.adapterId.LowPart, associated.low);
+            return false;
+        }
+        if (static_cast<std::uint32_t>(m.adapterId.HighPart) != associated.high)
+        {
+            (void)reject("mode.luidHigh", static_cast<std::uint32_t>(m.adapterId.HighPart), associated.high);
+            return false;
+        }
+        if (m.id != associated.endpoint)
+        {
+            (void)reject("mode.id", m.id, associated.endpoint);
             return false;
         }
         if (!n)
@@ -499,9 +569,30 @@ bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation
         else
         {
             const DISPLAYCONFIG_DESKTOP_IMAGE_INFO& image = m.desktopImageInfo;
-            if ((image.PathSourceSize.x < 0) || (image.PathSourceSize.y < 0) ||
-                !rectangle(image.DesktopImageRegion, o.image.image_region) || !rectangle(image.DesktopImageClip, o.image.image_clip))
+            if (image.PathSourceSize.x < 0)
             {
+                (void)reject("image.width", image.PathSourceSize.x, 0u);
+                return false;
+            }
+            if (image.PathSourceSize.y < 0)
+            {
+                (void)reject("image.height", image.PathSourceSize.y, 0u);
+                return false;
+            }
+            if (!rectangle(image.DesktopImageRegion, o.image.image_region))
+            {
+                MV_LOG(info, "Platform report rejected DesktopImageRegion: left {}, top {}, right {}, bottom {}",
+                    static_cast<std::int32_t>(image.DesktopImageRegion.left), static_cast<std::int32_t>(image.DesktopImageRegion.top),
+                    static_cast<std::int32_t>(image.DesktopImageRegion.right), static_cast<std::int32_t>(image.DesktopImageRegion.bottom));
+                (void)reject("image.region", 1u, 0u);
+                return false;
+            }
+            if (!rectangle(image.DesktopImageClip, o.image.image_clip))
+            {
+                MV_LOG(info, "Platform report rejected DesktopImageClip: left {}, top {}, right {}, bottom {}",
+                    static_cast<std::int32_t>(image.DesktopImageClip.left), static_cast<std::int32_t>(image.DesktopImageClip.top),
+                    static_cast<std::int32_t>(image.DesktopImageClip.right), static_cast<std::int32_t>(image.DesktopImageClip.bottom));
+                (void)reject("image.clip", 1u, 0u);
                 return false;
             }
             o.image.path_source_extent = { static_cast<UINT32>(image.PathSourceSize.x), static_cast<UINT32>(image.PathSourceSize.y) };
@@ -573,10 +664,15 @@ bool CWindowsQueries::record(const SCoreObservation& o) noexcept
     else
     {
         PlatformDisplay& display = r.displays[target - 1u];
-        if ((display.available != (o.available ? PlatformTruth::yes : PlatformTruth::no)) ||
-            (display.connection.native_code != o.technology))
+        const PlatformTruth available = o.available ? PlatformTruth::yes : PlatformTruth::no;
+        if (display.available != available)
         {
-            (void)failure(s, EReason::invalid_data);
+            (void)reject("display.avail", static_cast<std::uint32_t>(available), static_cast<std::uint32_t>(display.available));
+            return false;
+        }
+        if (display.connection.native_code != o.technology)
+        {
+            (void)reject("display.tech", o.technology, display.connection.native_code);
             return false;
         }
         if (active)
@@ -612,9 +708,10 @@ bool CWindowsQueries::record(const SCoreObservation& o) noexcept
     {
         PlatformDesktopState desktop = r.sources[source - 1u].desktop;
         desktop.query_id = 0u;
-        if (std::memcmp(&desktop, &o.desktop, sizeof(desktop)) != 0)
+        const int comparison = std::memcmp(&desktop, &o.desktop, sizeof(desktop));
+        if (comparison != 0)
         {
-            (void)failure(s, EReason::invalid_data);
+            (void)reject("source.desktop", comparison, 0u);
             return false;
         }
     }
@@ -702,7 +799,7 @@ EReportStep CWindowsQueries::device_info() noexcept
         DISPLAYCONFIG_ADAPTER_NAME packet{};
         code = get(packet, DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME);
         identity = PlatformNativeIdentityKind::windows_adapter_device_path;
-        if (!code) name = text(packet.adapterDevicePath);
+        if (!code) name = text(packet.adapterDevicePath, "adapter.path");
     }
     else if (is_source)
     {
@@ -711,7 +808,7 @@ EReportStep CWindowsQueries::device_info() noexcept
         identity = PlatformNativeIdentityKind::windows_gdi_source_name;
         if (!code)
         {
-            name = text(packet.viewGdiDeviceName);
+            name = text(packet.viewGdiDeviceName, "source.gdi");
             if (name.string_value_id > 0) std::memcpy(subject.name, packet.viewGdiDeviceName, sizeof(subject.name));
         }
     }
@@ -724,8 +821,8 @@ EReportStep CWindowsQueries::device_info() noexcept
         identity = PlatformNativeIdentityKind::windows_monitor_device_path;
         if (!code)
         {
-            name = text(packet.monitorDevicePath);
-            display.label = text(packet.monitorFriendlyDeviceName);
+            name = text(packet.monitorDevicePath, "monitor.path");
+            display.label = text(packet.monitorFriendlyDeviceName, "monitor.name");
             if (display.label.string_value_id < 0) missing(qid, PlatformQueryStatus::success, PlatformQueryReason::value_not_reported);
         }
     }
@@ -794,9 +891,10 @@ EReportStep CWindowsQueries::gdi() noexcept
             return failure(s, EReason::limit_exceeded);
         }
         ++q(w.gdi_inventory).returned_count;
-        if ((text(device.DeviceName).string_value_id <= 0) || (s.failure.reason != EReason::none))
+        const schema::STextReference name = text(device.DeviceName, "gdi.name");
+        if ((name.string_value_id <= 0) || (s.failure.reason != EReason::none))
         {
-            return failure(s, EReason::invalid_data);
+            return reject("gdi.name", name.string_value_id, 1u);
         }
         std::memcpy(w.gdi_name, device.DeviceName, sizeof(w.gdi_name));
         w.gdi_source = source_for_name(w.gdi_name);
@@ -835,7 +933,7 @@ EReportStep CWindowsQueries::gdi() noexcept
         }
         ++w.monitor_index;
         ++q(w.query).returned_count;
-        const schema::STextReference name = text(device.DeviceID);
+        const schema::STextReference name = text(device.DeviceID, "monitor.id");
         std::uint32_t display{};
         for (std::size_t i = 0u; i < w.evidence.size(); ++i)
         {
@@ -1040,7 +1138,7 @@ std::uint32_t CWindowsQueries::catalogue(const bool dxgi) noexcept
     if (!row.query_id) return 0u;
     q(row.query_id).native_flags = dxgi ? k_mode_flags : 0u;
     if (!r.catalogues.push_back(row) || (dxgi && !evidence(PlatformSubjectKind::mode_catalogue, row.id,
-        PlatformNativeIdentityKind::windows_dxgi_output_name, w.output_description, {}, text(w.output_name))))
+        PlatformNativeIdentityKind::windows_dxgi_output_name, w.output_description, {}, text(w.output_name, "dxgi.name"))))
     {
         (void)failure(s, EReason::allocation_failed);
         return 0u;
@@ -1158,7 +1256,7 @@ EReportStep CWindowsQueries::dxgi() noexcept
                     return EReportStep::failed;
                 }
                 PlatformAdapter& row = r.adapters[w.adapter_id - 1u];
-                row.label = text(desc.Description);
+                row.label = text(desc.Description, "adapter.desc");
                 if (row.label.string_value_id < 0) missing(id, PlatformQueryStatus::success, PlatformQueryReason::value_not_reported);
                 row.label_query_id = id;
                 q(id).returned_count = 1u;
@@ -1217,7 +1315,7 @@ EReportStep CWindowsQueries::dxgi() noexcept
             else
             {
                 q(w.output_description).returned_count = 1u;
-                if (text(desc.DeviceName).string_value_id > 0)
+                if (text(desc.DeviceName, "output.name").string_value_id > 0)
                 {
                     std::memcpy(w.output_name, desc.DeviceName, sizeof(w.output_name));
                     w.source_id = source_for_name(w.output_name, w.adapter_id);
@@ -1245,7 +1343,7 @@ EReportStep CWindowsQueries::dxgi() noexcept
         }
         default:
         {
-            return failure(s, EReason::invalid_data);
+            return reject("dxgi.phase", static_cast<std::uint32_t>(w.phase), static_cast<std::uint32_t>(EQueryPhase::output_interface));
         }
     }
     return EReportStep::more;
@@ -1317,7 +1415,7 @@ EReportStep CWindowsQueries::modes() noexcept
         {
             if (w.mode_count > capacity)
             {
-                return failure(s, EReason::invalid_data);
+                return reject("dxgi.mode_count", w.mode_count, capacity);
             }
             q(list.query_id).returned_count = w.mode_count;
             s.raw_modes += w.mode_count;
@@ -1329,9 +1427,13 @@ EReportStep CWindowsQueries::modes() noexcept
     while (w.mode_index < w.mode_count)
     {
         const DXGI_MODE_DESC1& mode = native[w.mode_index++];
-        if ((mode.Format != format) || mode.Stereo)
+        if (mode.Format != format)
         {
-            return failure(s, EReason::invalid_data);
+            return reject("mode.Format", mode.Format, format);
+        }
+        if (mode.Stereo)
+        {
+            return reject("mode.Stereo", mode.Stereo, FALSE);
         }
         PlatformDisplayMode row{};
         row.id = static_cast<UINT32>(r.modes.size() + 1u);
@@ -1454,7 +1556,8 @@ EReportStep CWindowsQueries::finalise() noexcept
             }
             default:
             {
-                return failure(s, EReason::invalid_data);
+                return reject("identity.kind", static_cast<std::uint32_t>(evidence.subject),
+                    static_cast<std::uint32_t>(PlatformSubjectKind::mode_catalogue));
             }
         }
         if (!span->count) *span = { 1, static_cast<std::int32_t>(r.identities.size()), 0u };
@@ -1607,7 +1710,7 @@ EReportStep CWindowsQueries::step() noexcept
             return EReportStep::more;
         }
     }
-    return failure(s, EReason::invalid_data);
+    return reject("query.phase", static_cast<std::uint32_t>(w.phase), static_cast<std::uint32_t>(EQueryPhase::labels));
 }
 
 EReportStep windows_report_step(SReportSession& session, const SWindowsReportApi& api) noexcept
@@ -1625,6 +1728,13 @@ EReportStep windows_report_step(SReportSession& session, const SWindowsReportApi
     const EReportStep result = cursor.step();
     if (session.failure.reason != EReason::none)
     {
+        const SWindowsReport& state = *session.windows;
+        MV_LOG(info, "Platform report native failure: phase {} ({}), reason {}, domain {}, native {}, calls {}, profile {}, pass {}",
+            phase_name(state.phase), static_cast<std::uint32_t>(state.phase), static_cast<std::uint32_t>(session.failure.reason),
+            static_cast<std::uint32_t>(session.failure.domain), session.failure.native_error, session.native_calls, state.profile, state.pass);
+        MV_LOG(info, "Platform report native cursor: snapshot {}, row {}, mode row {}, query {}, flags {}, paths {}, modes {}",
+            state.snapshot, state.index, state.mode_index, state.query, k_profiles[state.profile],
+            state.paths[state.snapshot], state.modes[state.snapshot]);
         return EReportStep::failed;
     }
     if (result == EReportStep::finished) session.windows.reset();

@@ -13,6 +13,44 @@
 
 namespace input_host
 {
+static bool read_report_snapshot(const CInputPublication& publication, SInputSnapshot& snapshot,
+    ::threading::CThreadContext& thread, EStateRead& result)
+{
+    result = publication.read(snapshot);
+    if (result != EStateRead::retry)
+    {
+        return result == EStateRead::success;
+    }
+    CWaitDeadline deadline;
+    if (deadline.set_after_milliseconds(10000u).code != EWaitError::none)
+    {
+        return false;
+    }
+    while (result == EStateRead::retry)
+    {
+        const std::uint32_t epoch = thread.observe_epoch();
+        std::uint64_t remaining = 0u;
+        if ((deadline.remaining_nanoseconds(remaining).code != EWaitError::none) || !remaining)
+        {
+            return false;
+        }
+        //  Preserve frozen consumer measurements while allowing the publisher to finish.
+        CWaitDeadline retry_deadline;
+        if (retry_deadline.set_after_nanoseconds(std::min(remaining, UINT64_C(1000000))).code != EWaitError::none)
+        {
+            return false;
+        }
+        const ::threading::WaitResult wait = thread.wait_for_new_epoch(epoch, retry_deadline);
+        if ((wait.status != platform::threading::EWaitStatus::satisfied) &&
+            (wait.status != platform::threading::EWaitStatus::timed_out))
+        {
+            return false;
+        }
+        result = publication.read(snapshot);
+    }
+    return result == EStateRead::success;
+}
+
 static void metric(const std::uint32_t window, const char* const name, std::uint64_t* const samples,
     const std::uint32_t count)
 {
@@ -43,8 +81,13 @@ bool CConsumer::report()
     for (std::uint32_t index = 0u; index < k_pipe_count; ++index)
     {
         SInputSnapshot state;
-        if (pipes[index].view && (pipes[index].view->state->read(state) != EStateRead::success))
+        EStateRead result = EStateRead::retry;
+        if (pipes[index].view && !read_report_snapshot(*pipes[index].view->state, state, thread, result))
         {
+            const debug_system::CInlineText16 name = (result == EStateRead::retry) ?
+                debug_system::CInlineText16{ "retry" } : debug_system::CInlineText16{ "failed" };
+            MV_LOG(error, "Input Host: report snapshot read failed for pipe {}, result {} ({}), snapshot failure {}",
+                index, name, static_cast<std::uint32_t>(result), state.failure);
             return false;
         }
         std::fprintf(stdout, "PIPE,%u,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n", index,

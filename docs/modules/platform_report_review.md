@@ -355,3 +355,38 @@ within its own scope, with no blocking findings. See
 does not implement the compact Platform schema or authored capture handoff and
 does not close this pipeline's native placement/deadline qualification. No commit
 for that service has been authorised by this review.
+
+## CI follow-up coordinator review, 18 November 2026
+
+Independently reviewed the three-file CI follow-up against
+`c1d4a6e1c900913d55ed40745e644e0eff1bb3ab`: `tests/input_host/measurement.cpp`,
+`platform/native/windows/report_windows.cpp` and
+`tests/test_suites/PlatformReportWindows_test_cases.cpp`.
+**No blocking findings; cleared for the user-authorised CI follow-up commit**, with
+this review record. No implementation changes, commit or push were performed by
+this review.
+
+The final measurement snapshot now retries only transient `EStateRead::retry`
+outcomes within a ten-second awake deadline and bounded epoch waits, without
+consuming input events or changing frozen measurement counters. Failed snapshots
+stop immediately. Windows rejection diagnostics preserve the original failure
+policy while identifying phase, field, values and cursor state. The replay suite
+uses the real logger and checks readable messages and valid event transport.
+No public layout or contract version changes.
+
+Reused the supplied affected-build/test evidence rather than repeating passing
+validation. Inspected the saved Linux pressure report under
+`build/platform-ci-investigation/snapshot-retry/pressure-2-a36q28zw/`: success,
+exit zero, two workers, five pipes, no reported errors, zero diagnostic failures
+and no ingress loss. Inspected the three successful Windows x64 Debug affected
+build logs, native replay rejection/failure/cursor logs and the native one-worker
+`platform-report-1-ji9mps0h` lifecycle pass. The supplied focused test result was
+1,247 passed and zero failed.
+
+The historical Linux log does not establish whether its snapshot read returned
+retry or failed. The historical Windows capture likewise lacks the precise
+rejected field. This checkpoint improves retry handling and next-run diagnostics;
+it does not establish those historical causes or close the compact-layout,
+Host schema-service handoff, native placement/deadline or full prerequisite
+acceptance work. Another CI run remains necessary evidence for the reported CI
+environments; the user performs the push.

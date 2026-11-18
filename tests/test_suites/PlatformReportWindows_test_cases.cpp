@@ -14,7 +14,12 @@
 #include "platform/native/report.hpp"
 #include "platform/native/windows/report_api.hpp"
 #include "framework/platform/report_validation.hpp"
+#include "debug/service.hpp"
+#include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/file_helpers.hpp"
+
+#include <string>
 
 namespace
 {
@@ -453,9 +458,36 @@ static void run(tests::TTestContext& tests, const ECase scenario)
 
 void run_platform_report_windows_tests(tests::TTestContext& tests)
 {
+    const std::string event_path = test_environment::test_log_path("platform_report_native");
+    const std::string direct_path = test_environment::test_log_path("platform_report_native_direct");
+    TInstance<debug_system::CDebugServiceState> service = TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(tests, service.is_ready());
+    if (!service) return;
+    const bool opened = service->configure_log_paths(event_path.c_str(), direct_path.c_str()) && service->open_logs();
+    TEST_EXPECT(tests, opened);
+    if (!opened) return;
+    const bool installed = debug_system::install_service(service.operator->());
+    TEST_EXPECT(tests, installed);
+    if (!installed) return;
+    const bool started = service->start({ thread_ids::debug_service, "report-replay" });
+    TEST_EXPECT(tests, started);
+    if (!started)
+    {
+        TEST_EXPECT(tests, debug_system::uninstall_service(service.operator->()));
+        return;
+    }
     for (unsigned n = 0u; n <= static_cast<unsigned>(ECase::interface_failure); ++n)
     {
         run(tests, static_cast<ECase>(n));
     }
+    TEST_EXPECT(tests, service->stop());
+    TEST_EXPECT(tests, debug_system::uninstall_service(service.operator->()));
+
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "native rejection: phase translate"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "field mode.index"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "field mode.id"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "native failure: phase translate"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "native cursor: snapshot 0"));
+    TEST_EXPECT(tests, !tests::file_contains(event_path.c_str(), "Invalid transported debug event"));
 }
 #endif
