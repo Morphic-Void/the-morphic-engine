@@ -496,6 +496,23 @@ EReportStep CWindowsQueries::ccd() noexcept
     return EReportStep::failed;
 }
 
+static void log_mode_link(const DISPLAYCONFIG_PATH_INFO& path, const std::uint32_t component,
+    const bool virtual_mode, const std::uint32_t index, const std::uint32_t count) noexcept
+{
+    using debug_system::CInlineText16;
+    static constexpr CInlineText16 components[]{ CInlineText16{ "source" }, CInlineText16{ "target" }, CInlineText16{ "desktop_image" } };
+    const std::uint32_t source_word = path.sourceInfo.modeInfoIdx;
+    const std::uint32_t target_word = path.targetInfo.modeInfoIdx;
+    constexpr std::uint32_t k_index_mask = UINT16_MAX;
+    constexpr std::uint32_t k_index_shift = 16u;
+    MV_LOG(info, "Platform report native mode link: component {} ({}), path flags {}, virtual mode {}, index {}, mode count {}",
+        components[component], component, path.flags, virtual_mode, index, count);
+    //  Show both raw union words and their packed fields, regardless of the selected interpretation.
+    MV_LOG(info, "Platform report index words: source {}, target {}, clone group {}, source index {}, desktop image index {}, target index {}",
+        source_word, target_word, (source_word & k_index_mask), (source_word >> k_index_shift),
+        (target_word & k_index_mask), (target_word >> k_index_shift));
+}
+
 bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation& o) noexcept
 {
     const bool active = (p.flags & DISPLAYCONFIG_PATH_ACTIVE) != 0u;
@@ -515,12 +532,17 @@ bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation
     for (UINT32 n = 0u; n < 3u; ++n)
     {
         const UINT32 index = indices[n];
+        const auto log_link = [&]() noexcept
+        {
+            log_mode_link(p, n, virtual_mode, index, w.modes[w.snapshot]);
+        };
         if ((index == UINT32_MAX) || (virtual_mode && (index == UINT16_MAX)))
         {
             continue;
         }
         if (index >= w.modes[w.snapshot])
         {
+            log_link();
             (void)reject("mode.index", index, w.modes[w.snapshot]);
             return false;
         }
@@ -528,21 +550,25 @@ bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation
         const SCcdKey associated = n ? o.target : o.source;
         if (m.infoType != (n + 1u))
         {
+            log_link();
             (void)reject("mode.infoType", m.infoType, (n + 1u));
             return false;
         }
         if (m.adapterId.LowPart != associated.low)
         {
+            log_link();
             (void)reject("mode.luidLow", m.adapterId.LowPart, associated.low);
             return false;
         }
         if (static_cast<std::uint32_t>(m.adapterId.HighPart) != associated.high)
         {
+            log_link();
             (void)reject("mode.luidHigh", static_cast<std::uint32_t>(m.adapterId.HighPart), associated.high);
             return false;
         }
         if (m.id != associated.endpoint)
         {
+            log_link();
             (void)reject("mode.id", m.id, associated.endpoint);
             return false;
         }
@@ -571,16 +597,19 @@ bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation
             const DISPLAYCONFIG_DESKTOP_IMAGE_INFO& image = m.desktopImageInfo;
             if (image.PathSourceSize.x < 0)
             {
+                log_link();
                 (void)reject("image.width", image.PathSourceSize.x, 0u);
                 return false;
             }
             if (image.PathSourceSize.y < 0)
             {
+                log_link();
                 (void)reject("image.height", image.PathSourceSize.y, 0u);
                 return false;
             }
             if (!rectangle(image.DesktopImageRegion, o.image.image_region))
             {
+                log_link();
                 MV_LOG(info, "Platform report rejected DesktopImageRegion: left {}, top {}, right {}, bottom {}",
                     static_cast<std::int32_t>(image.DesktopImageRegion.left), static_cast<std::int32_t>(image.DesktopImageRegion.top),
                     static_cast<std::int32_t>(image.DesktopImageRegion.right), static_cast<std::int32_t>(image.DesktopImageRegion.bottom));
@@ -589,6 +618,7 @@ bool CWindowsQueries::observe(const DISPLAYCONFIG_PATH_INFO& p, SCoreObservation
             }
             if (!rectangle(image.DesktopImageClip, o.image.image_clip))
             {
+                log_link();
                 MV_LOG(info, "Platform report rejected DesktopImageClip: left {}, top {}, right {}, bottom {}",
                     static_cast<std::int32_t>(image.DesktopImageClip.left), static_cast<std::int32_t>(image.DesktopImageClip.top),
                     static_cast<std::int32_t>(image.DesktopImageClip.right), static_cast<std::int32_t>(image.DesktopImageClip.bottom));

@@ -390,3 +390,45 @@ it does not establish those historical causes or close the compact-layout,
 Host schema-service handoff, native placement/deadline or full prerequisite
 acceptance work. Another CI run remains necessary evidence for the reported CI
 environments; the user performs the push.
+
+## Effective-worker and mode-link CI follow-up, 18 November 2026
+
+Independently reviewed the four-file diff against
+`2ec979d3c37b7c057bf84c0c4cac2ddbe400ec79`: the Host-pump Python runner, Linux CI
+artifact upload, Windows native mode-link diagnostics and Windows SDK replay tests.
+**No blocking findings; cleared for the user-authorised CI follow-up commit**, with
+this review record. The review changed no implementation and performed no commit
+or push.
+
+The placement check uses the single effective Host startup configuration rather
+than assuming the requested worker count was granted. It retains the exact two
+conditioning/two reclamation events and their expected worker identity. This fixes
+the four-core request-two/effective-one case without changing Host worker policy.
+The added `build/linux-ci/host-pump/` artifact path matches CMake's runner output.
+
+Windows logging is confined to existing rejection paths and records source,
+target or desktop-image component, path flags, selected virtual-mode interpretation,
+chosen index/count and raw/packed union fields. It changes neither decoding nor
+rejection policy. The added SDK replays check target/desktop-image invalid indices
+and a synthetic legacy-decoder case carrying the packed-looking word 131071.
+That synthetic case does not establish what flags the CI driver returned.
+
+Inspected retained evidence under `build/platform-ci-investigation/`:
+
+- `effective-workers-four/schema-process-2-eaeoixja`: one effective worker on four
+  reported CPUs, with exactly two conditioning and two reclamation events on
+  `bg_file_io` and fixture success.
+- `effective-workers-two/schema-process-2-vvadz6cq`: two effective workers, with
+  the same exact event counts on `bg_conditioning` and fixture success.
+- `mode-link-final-pump/schema-process-1-hcql6jpe`: Windows one-worker placement
+  and fixture success. The native `platform-report-1-l5dcqahh` lifecycle also passed.
+- The three affected Windows x64 Debug builds succeeded without warnings/errors.
+  Saved real-logger replay output contains all three components, flags/decoder and
+  raw/packed words, with no invalid transported event. The supplied focused test
+  result was 1,279 passed and zero failed.
+
+Passing validation was reused rather than rerun. The Windows CI rejection of index
+131071 against two mode records still lacks its historical path flags/component;
+the new logs prepare the next CI diagnosis and do not fix or establish that root
+cause. Compact-layout, Host capture handoff, native placement/deadline and full
+prerequisite acceptance remain outside this checkpoint.

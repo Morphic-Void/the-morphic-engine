@@ -34,7 +34,8 @@ enum class ECase
     bad_index, wrong_identity, topology_changed, ambiguous, zero_modes, more_data, more_exhausted,
     dxgi_denied, api_failure, mode_cap, aggregate_cap, adapter_cap, path_cap, memory_failure,
     native_call_cap, deadline, missing_names, desktop_image, unknown_codes, missing_fields,
-    exact_limits, display_cap, source_cap, monitor_cap, output_cap, ccd_mode_cap, interface_failure
+    exact_limits, display_cap, source_cap, monitor_cap, output_cap, ccd_mode_cap, interface_failure,
+    bad_target_index, bad_desktop_index, legacy_target_index
 };
 
 struct SReplay
@@ -152,6 +153,15 @@ struct SReplay
             path.targetInfo.refreshRate = { 60u, 1u };
             if (flags & QDC_VIRTUAL_REFRESH_RATE_AWARE) path.flags |= DISPLAYCONFIG_PATH_BOOST_REFRESH_RATE;
             if (s.scenario == ECase::bad_index) path.sourceInfo.modeInfoIdx = 0x77777777u;
+            if (s.scenario == ECase::bad_target_index) path.targetInfo.targetModeInfoIdx = 0x7777u;
+            if (s.scenario == ECase::bad_desktop_index) path.targetInfo.desktopModeInfoIdx = 0x7777u;
+            if (s.scenario == ECase::legacy_target_index)
+            {
+                //  Exercise diagnostics for a packed-looking word interpreted as a legacy index.
+                path.flags &= ~DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE;
+                path.sourceInfo.modeInfoIdx = 0u;
+                path.targetInfo.modeInfoIdx = 0x0001ffffu;
+            }
         }
         if (s.scenario == ECase::wrong_identity) ++m[1].id;
         return ERROR_SUCCESS;
@@ -342,6 +352,9 @@ static void run(tests::TTestContext& tests, const ECase scenario)
             }
             case ECase::bad_index:
             case ECase::wrong_identity:
+            case ECase::bad_target_index:
+            case ECase::bad_desktop_index:
+            case ECase::legacy_target_index:
             {
                 failure = EReason::invalid_data;
                 break;
@@ -476,7 +489,7 @@ void run_platform_report_windows_tests(tests::TTestContext& tests)
         TEST_EXPECT(tests, debug_system::uninstall_service(service.operator->()));
         return;
     }
-    for (unsigned n = 0u; n <= static_cast<unsigned>(ECase::interface_failure); ++n)
+    for (unsigned n = 0u; n <= static_cast<unsigned>(ECase::legacy_target_index); ++n)
     {
         run(tests, static_cast<ECase>(n));
     }
@@ -488,6 +501,11 @@ void run_platform_report_windows_tests(tests::TTestContext& tests)
     TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "field mode.id"));
     TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "native failure: phase translate"));
     TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "native cursor: snapshot 0"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "mode link: component source (0), path flags 25, virtual mode true"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "mode link: component target (1), path flags 25, virtual mode true"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "mode link: component desktop_image (2), path flags 25, virtual mode true"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "mode link: component target (1), path flags 17, virtual mode false, index 131071"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "target 131071, clone group 0, source index 0, desktop image index 65535, target index 1"));
     TEST_EXPECT(tests, !tests::file_contains(event_path.c_str(), "Invalid transported debug event"));
 }
 #endif

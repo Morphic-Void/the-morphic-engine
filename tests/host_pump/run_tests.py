@@ -86,11 +86,20 @@ def main():
             if terminal not in events:
                 raise RuntimeError(f"{case}: missing {terminal}; inspect {runtime}")
         if case == "schema-process":
-            worker = "bg_file_io" if args.host_workers == 1 else "bg_conditioning"
+            configurations = re.findall(
+                r"\[executable:host\].* Host: Background workers ([12]), dedicated conditioning workers ([01]), reported hardware threads \d+$",
+                events, re.MULTILINE)
+            if len(configurations) != 1:
+                raise RuntimeError(f"{case}: expected one effective Host worker configuration; inspect {runtime}")
+            workers, conditioning = map(int, configurations[0])
+            if workers > args.host_workers or conditioning != workers - 1:
+                raise RuntimeError(f"{case}: invalid effective Host worker configuration {configurations[0]}; inspect {runtime}")
+            worker = "bg_conditioning" if conditioning else "bg_file_io"
             for marker in ("Host schema request conditioning", "Host schema output reclamation"):
                 placements = [line for line in events.splitlines() if marker in line]
                 if len(placements) != 2 or any(f"[executable:{worker}]" not in line for line in placements):
-                    raise RuntimeError(f"{case}: expected two {marker} events on {worker}; inspect {runtime}")
+                    raise RuntimeError(f"{case}: expected two {marker} events on {worker} "
+                                       f"({workers} effective workers); inspect {runtime}")
         if case == "platform-report" and sys.platform == "win32":
             for original, historical in (("cold", "historical"), ("refresh", "historical-refresh")):
                 if (runtime / f"{original}.bsd").read_bytes() != (runtime / f"{historical}.bsd").read_bytes():
