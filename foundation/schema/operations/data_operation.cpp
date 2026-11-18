@@ -22,6 +22,7 @@ namespace schema::detail
 static thread_local CDataOperation* s_operation{};
 
 bool data_active() noexcept { return s_operation != nullptr; }
+bool schema_processing() noexcept { return s_operation && s_operation->schema_processing(); }
 
 //  Traverse before calling the generic document analyses: their value_count()
 //  and maximum_depth() are complete crawls, not cached constant-time queries.
@@ -138,8 +139,8 @@ CDataOperationScope::~CDataOperationScope() noexcept
     (void)memory::set_thread_memory_context(m_prior);
 }
 
-CDataOperation::CDataOperation(const SDataOperationLimits limits) noexcept :
-    m_limits(limits), m_work(limits.work_credits), m_parent(memory::get_ambient_memory_context()),
+CDataOperation::CDataOperation(const SDataOperationLimits limits, const bool schema_processing) noexcept :
+    m_schema_processing(schema_processing), m_limits(limits), m_work(limits.work_credits), m_parent(memory::get_ambient_memory_context()),
     m_allocator(this, &allocate, &deallocate), m_memory(m_allocator), m_sources(m_memory) {}
 
 bool CDataOperation::valid() const noexcept
@@ -155,6 +156,7 @@ bool CDataOperation::valid() const noexcept
 bool CDataOperation::limited(const EDataOperationLimit kind, const std::uint64_t requested,
     const std::uint64_t allowed) noexcept
 {
+    if (m_error.reason == EDataOperationReason::limit_exceeded) return false;
     m_error.reason = EDataOperationReason::limit_exceeded;
     m_error.limit = kind;
     m_error.requested = requested;
@@ -175,7 +177,9 @@ bool CDataOperation::charge(std::uint64_t& used, const std::uint64_t amount,
 
 bool CDataOperation::work(const std::uint64_t credits) noexcept
 {
-    return m_work.try_consume(credits) || limited(EDataOperationLimit::work_credits, credits, m_limits.work_credits);
+    const std::uint64_t used = m_limits.work_credits - m_work.remaining();
+    return m_work.try_consume(credits) || limited(EDataOperationLimit::work_credits,
+        ((credits > (UINT64_MAX - used)) ? UINT64_MAX : (used + credits)), m_limits.work_credits);
 }
 
 bool CDataOperation::bytes_work(const std::uint64_t bytes) noexcept
@@ -195,7 +199,8 @@ bool CDataOperation::records(const std::uint64_t count) noexcept
 
 bool CDataOperation::depth(const std::uint32_t value) noexcept
 {
-    return (value < m_limits.depth) || limited(EDataOperationLimit::depth, value, m_limits.depth);
+    return (value < m_limits.depth) || limited(EDataOperationLimit::depth,
+        (static_cast<std::uint64_t>(value) + 1u), m_limits.depth);
 }
 
 bool CDataOperation::source(const void* const identity, const std::uint64_t bytes) noexcept
@@ -250,6 +255,7 @@ void CDataOperation::diagnose(SDataOperationDiagnostic& diagnostic) const noexce
         diagnostic.reason = EDataOperationReason::limit_exceeded;
         diagnostic.limit = EDataOperationLimit::work_credits;
         diagnostic.allowed = m_limits.work_credits;
+        diagnostic.requested = m_limits.work_credits + 1u;
     }
 }
 

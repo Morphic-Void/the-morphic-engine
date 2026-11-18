@@ -179,6 +179,11 @@ bool CSchema::copy_from(const CSchemaDocumentQuery& source, SSchemaDiagnostic& d
     return true;
 }
 
+bool CSchema::validate_structure(SSchemaDiagnostic& diagnostic) const noexcept
+{
+    return admit(CDocumentRead{ m_document }, diagnostic);
+}
+
 bool CSchema::save(CBakedDocumentBlock& destination, SSchemaDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
@@ -188,7 +193,7 @@ bool CSchema::save(CBakedDocumentBlock& destination, SSchemaDiagnostic& diagnost
         diagnostic.reason = ESchemaReason::invalid_source;
         return false;
     }
-    if (!admit(CDocumentRead{ m_document }, diagnostic))
+    if (!validate_structure(diagnostic))
     {
         return false;
     }

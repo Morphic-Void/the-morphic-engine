@@ -26,7 +26,8 @@ namespace schema::detail
 class CDataOperation
 {
 public:
-    explicit CDataOperation(const SDataOperationLimits limits) noexcept;
+    explicit CDataOperation(const SDataOperationLimits limits, const bool schema_processing = false) noexcept;
+    [[nodiscard]] bool schema_processing() const noexcept { return m_schema_processing; }
     CDataOperation(const CDataOperation&) = delete;
     CDataOperation& operator=(const CDataOperation&) = delete;
 
@@ -68,6 +69,7 @@ private:
     static void* MV_STD_ABI_CALL allocate(void* const context, const std::size_t alignment, const std::size_t bytes) noexcept;
     static bool MV_STD_ABI_CALL deallocate(void* const context, const std::size_t alignment, void* const pointer) noexcept;
 
+    const bool m_schema_processing;
     const SDataOperationLimits m_limits;
     CValueWorkBudget m_work;
     memory::CMemoryContext* const m_parent;

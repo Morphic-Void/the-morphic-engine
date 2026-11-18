@@ -17,6 +17,7 @@
 #define TYPE_COMPATIBILITY_HPP_INCLUDED
 
 #include "schema/resolved_types.hpp"
+#include "schema/operations/operation_meter.hpp"
 #include "containers/TPodVector.hpp"
 #include "memory/memory_policies.hpp"
 
@@ -67,20 +68,25 @@ public:
         {
             return false;
         }
-        staged.rebuild(existing, hash);
+        if (!staged.rebuild(existing, hash)) return false;
         m_slots = std::move(staged.m_slots);
         return true;
     }
 
-    void insert(const std::uint32_t ordinal, const std::uint32_t hash) noexcept
+    [[nodiscard]] bool insert(const std::uint32_t ordinal, const std::uint32_t hash) noexcept
     {
         const std::size_t mask = m_slots.size() - 1u;
         std::size_t slot = static_cast<std::size_t>(hash) & mask;
         while (m_slots[slot] != k_missing_record)
         {
+            if (detail::schema_processing() && !detail::data_work())
+            {
+                return false;
+            }
             slot = (slot + 1u) & mask;
         }
         m_slots[slot] = ordinal;
+        return true;
     }
 
     template<class THash>
@@ -117,6 +123,10 @@ public:
         std::size_t slot = static_cast<std::size_t>(hash) & mask;
         while (m_slots[slot] != k_missing_record)
         {
+            if (detail::schema_processing() && !detail::data_work())
+            {
+                return k_missing_record;
+            }
             const std::uint32_t ordinal = m_slots[slot];
             if (match(ordinal))
             {
@@ -129,16 +139,21 @@ public:
 
 private:
     template<class THash>
-    void rebuild(const std::size_t count, const THash& hash) noexcept
+    [[nodiscard]] bool rebuild(const std::size_t count, const THash& hash) noexcept
     {
+        if (detail::schema_processing() && (!detail::data_work(count) || !detail::data_bytes(m_slots.size() * sizeof(std::uint32_t))))
+        {
+            return false;
+        }
         if (m_slots.size())
         {
             std::fill_n(m_slots.data(), m_slots.size(), k_missing_record);
         }
         for (std::size_t i = 0u; i < count; ++i)
         {
-            insert(static_cast<std::uint32_t>(i), hash(i));
+            if (!insert(static_cast<std::uint32_t>(i), hash(i))) return false;
         }
+        return true;
     }
 
     TPodVector<std::uint32_t> m_slots;

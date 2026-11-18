@@ -1191,7 +1191,7 @@ visibility. Rendering still performs Vulkan-specific queries independently.
 | Virtual-mode/refresh interpretation | Request `QDC_VIRTUAL_MODE_AWARE` and `QDC_VIRTUAL_REFRESH_RATE_AWARE` where accepted. Use a finite compatibility fallback to older flag profiles when those flags are rejected; record the actual profile and reduced coverage. Keep reported virtual/physical refresh distinct without claiming VRR ranges. |
 | Names and native identity evidence | `DisplayConfigGetDeviceInfo` with source-name, target-name and adapter-name packets. Preserve GDI source names, monitor device paths and tagged adapter identity evidence; friendly names are labels and may be unavailable. Connector technology comes from valid path/device information. |
 | Session desktop/primary information | `EnumDisplayDevicesW` for adapter/source and monitor records; use `EDD_GET_DEVICE_INTERFACE_NAME` for monitor interface evidence. Read primary/desktop participation flags and correlate with CCD identities/source names where possible. Do not promote remembered or unmatched entries to confirmed connected displays. |
-| Format-qualified mode lists (initial profile; revised scope below) | A fresh `CreateDXGIFactory1`, `EnumAdapters1`/adapter descriptions, `EnumOutputs`/output descriptions and `IDXGIOutput1::GetDisplayModeList1`. The initial implementation queries `R8G8B8A8_UNORM` and `B8G8R8A8_UNORM`, including interlaced/scaled modes through their enumeration flags, without requesting stereo. The [18 November scope and condensation decision](#platform-report-scope-and-condensation) supersedes collecting these as a two-format inventory; the concrete replacement query profile remains to be settled. |
+| Format-qualified mode lists (initial profile; revised scope below) | A fresh `CreateDXGIFactory1`, `EnumAdapters1`/adapter descriptions, `EnumOutputs`/output descriptions and `IDXGIOutput1::GetDisplayModeList1`. The initial implementation queries `R8G8B8A8_UNORM` and `B8G8R8A8_UNORM`, including interlaced/scaled modes through their enumeration flags, without requesting stereo. The [scope and condensation decision](#platform-report-scope-and-condensation) and agreed compact layout below replace this with one RGBA8-filtered catalogue per output; implementation of that revision is outstanding. |
 | Current desktop depth and restricted fallback | `EnumDisplaySettingsExW(ENUM_CURRENT_SETTINGS)` for valid `dmFields`, and sequential indexed enumeration only when the relevant DXGI mode query is unavailable/unsupported/failed. Use flags zero: no raw driver modes and no all-orientation expansion. Record integer refresh precision and source scope; never use registry settings as current state. |
 
 Use a new DXGI factory per capture so an earlier factory's adapter inventory is not
@@ -2825,7 +2825,7 @@ On 18 November 2026 the user accepted the native filter and compact layout below
 This supersedes the initial two-format mode profile, per-mode IDs/back-references
 and prohibition on cross-catalogue range sharing. The user requested agreement on
 the generic Host schema service contract before starting its dedicated
-implementation chat; that chat has not been started by this record.
+implementation chat. Its handoff is recorded below.
 
 For the first Windows profile, enumerate one catalogue per output through
 `GetDisplayModeList1`, using the bounded count/fetch sequence with
@@ -2988,9 +2988,11 @@ worker; Host's owner thread performs bounded admission, source protection, final
 lifecycle/deadline checks and result publication. Qualify the existing one-worker
 I/O/conditioning configuration as well as normal worker placement.
 
-#### Proposed concrete messages and ownership handoff
+#### Agreed concrete messages and ownership handoff
 
-The following message design is proposed, not yet agreed. Use the existing
+On 18 November 2026 the user accepted the concrete request/result schema and
+ownership handoff below and explicitly requested its dedicated implementation
+chat using Astra at Extra-High. Use the existing
 authenticated owning-request route to Host and POD replies to the requesting async
 slot. Register shared Framework types and nested memory attribution; introduce no
 module callbacks or new general reply transport. Preserve the existing
@@ -3017,7 +3019,7 @@ input is an immutable schema document, not an unvalidated runtime payload treate
 as an interchangeable document. No implicit files, external declarations or
 parser operation are added to this request.
 
-Propose three small POD messages on the same registered contract:
+Use three small POD messages on the same registered contract:
 
 - `SchemaProcessAccepted`: request ID and contract version, on the original async
   slot. Host queues this after admission/source protection and before worker
@@ -3060,7 +3062,8 @@ Ownership linearisation and retirement:
    retry an explicit untransferred busy outcome. After transport takes ownership,
    the sender never reads, mutates, frees or retries that envelope, even if Host
    later rejects admission. Transport success is not service admission.
-2. Host performs bounded envelope/identity checks, reserves operation and reply
+2. The caller keeps retained source assets alive until `Accepted` or rejection.
+   Host performs bounded envelope/identity checks, reserves operation and reply
    capacity, and pins every retained source. Host rejection owns retirement of
    transferred inputs and produces one failure result. Use bounded transport and
    reclamation capacity; a busy result must not force large owner-thread teardown.
@@ -3085,7 +3088,7 @@ Ownership linearisation and retirement:
    for report publication or reusable declarations without retaining an execution
    slot indefinitely. Normal heavy output retirement uses conditioning.
 
-The proposed descriptor-based reply is necessary to carry the existing full byte
+The agreed descriptor-based reply carries the existing full byte
 view and asset/acquisition together within the POD ceiling. It introduces no
 persisted external schema dependency and does not change byte-block format markers.
 Compile-time message/descriptor checks and injected delivery/cancel/unload cases
@@ -3095,15 +3098,60 @@ must validate the final implementation on the supported architectures.
 
 The user authorised the Platform implementing chat to fix F1, obtain coordinator
 review and then commit a checkpoint of the outstanding Platform work. F1 is now
-corrected and independently reviewed; the checkpoint is cleared for commit with
-the current design/review/usage/validation records. This baseline
-may record the known placement/Win32 deadline qualification and newly agreed compact
-layout/Host service integration as outstanding; it is not full prerequisite
-acceptance and does not authorise Rendering. The implementing chat was instructed
-to make the targeted correction and return evidence for review before receiving
-the final commit go-ahead. The focused coordinator maintains the shared design and
-review documents. The Host service implementation chat starts only after its
-concrete contract/handoff is settled.
+corrected and independently reviewed. The checkpoint was committed on shared main
+as `c818202c319c542f16cd948a2818996f23ff1ac8`, with 64 reviewed files and a clean
+checkout, including submodules. Nothing was pushed. The known placement/Win32
+deadline qualification and agreed compact layout/Host service integration remain
+outstanding; this checkpoint is not full prerequisite acceptance and does not
+authorise Rendering. The focused coordinator maintains the shared design and
+review documents. The user has now agreed the concrete Host service contract and
+handoff and requested its separate implementation chat.
+
+#### Generic Host schema services implementation handoff
+
+On 18 November 2026 the user explicitly requested the dedicated implementation
+chat using Astra at Extra-High after accepting the service contract, concrete
+messages and ownership handoff. Chat `01a1ef60-9f5f-73a3-9bbc-29a759689977`,
+"Implement generic Host schema services", was created with `gpt-6.2-astra` and
+`xhigh` reasoning. Work starts in the shared main checkout from
+`c818202c319c542f16cd948a2818996f23ff1ac8` plus the coordinator's uncommitted
+agreement/handoff documentation. The focused stage-1 design chat remains the
+implementation-review coordinator.
+
+Authorised scope is the generic Framework request/result/owner types, Host
+admission/source protection/conditioning/publication/acquisition/retirement service,
+necessary bounded Foundation composition/merge/bake integration, reusable immutable
+schema-document assets, build integration, service documentation and applicable
+portable/Host validation. Preserve the separate prepared-schema materialisation
+service. Implement the agreed general service, not a Platform-specific worker or
+an arbitrary callback/job facility.
+
+The compact Platform filter/layout, conversion of Platform capture to an authored
+input handoff, native capture execution placement, outstanding native deadline
+qualification and Rendering remain follow-up work. The generic service must be
+usable by authenticated non-Platform clients without depending on report startup.
+Keep existing report behaviour covered by affected shared-route regressions.
+
+The implementing chat delivers review-ready evidence before claiming independent
+acceptance. No commit, push, branch/worktree, extra implementation chat or subagent
+is authorised for this new task. The coordinator maintains this design and the
+Platform review record; the implementing chat owns its service usage/validation
+records and production changes. Substantive contract deviations require discussion;
+routine names and implementation mechanics under the agreed contract do not.
+
+#### Generic Host schema services independent review
+
+On 18 November 2026 the focused coordinator completed independent review of the
+uncommitted implementation from `c818202`, including the new Host source and both
+service documents. No blocking findings were identified; the generic service is
+independently accepted within its agreed scope. The
+[coordinator review record](../schema/host-schema-processing-review.md) records
+ownership/budget assessment, the inspected four-target and real-module evidence,
+and the unresolved cause of the earlier incremental Release discrepancy. Current
+Release qualification uses the successful clean test and Host rebuilds.
+
+This acceptance does not authorise a commit or push. Compact Platform integration,
+native placement/deadline qualification and Rendering remain follow-up work.
 
 ### Remaining Rendering decisions
 

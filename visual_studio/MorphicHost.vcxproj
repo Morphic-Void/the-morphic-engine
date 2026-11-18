@@ -254,6 +254,7 @@
     <ClCompile Include="..\host\runtime\host_maintenance.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\host\runtime\asset_schema.cpp" />
+    <ClCompile Include="..\host\runtime\asset_schema_process.cpp" />
     <ClCompile Include="..\host\runtime\asset_platform_report.cpp" />
     <ClCompile Include="..\host\runtime\module_service.cpp" />
     <ClCompile Include="..\host\system\host_context.cpp" />

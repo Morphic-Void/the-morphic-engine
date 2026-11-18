@@ -82,6 +82,7 @@
     <ClCompile Include="..\host\runtime\host_maintenance.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_schema.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\asset_schema_process.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_platform_report.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\module_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\system\host_context.cpp"><Filter>Host\src\system</Filter></ClCompile>

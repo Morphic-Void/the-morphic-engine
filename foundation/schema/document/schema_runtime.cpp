@@ -172,8 +172,9 @@ void CSchemaConstruction::map_types_diagnostic(SDiagnostic& diagnostic) const no
             to = m_source.first_child(to);
             continue;
         }
-        while (from != root && !copied.next_sibling(from))
+        while ((from != root) && !copied.next_sibling(from))
         {
+            if (!data_work()) return;
             from = copied.parent(from);
             to = m_source.parent(to);
         }
@@ -664,6 +665,275 @@ bool CSchema::bake(CBakedDataBlock& destination, const SDataOperationLimits limi
     return detail::finish_schema_operation(success, operation, diagnostic);
 }
 
+
+bool SSchemaAssemblyPlan::valid() const noexcept
+{
+    if (!count || (count > 3u) ||
+        ((output != ESchemaOutput::schema_document) && (output != ESchemaOutput::runtime_data_block)))
+    {
+        return false;
+    }
+    std::uint32_t selected{};
+    for (const std::int32_t source : roles)
+    {
+        if (source == -1) continue;
+        if ((operation != ESchemaAssembly::compose_roles) || (source < 0) ||
+            (static_cast<std::uint32_t>(source) >= count))
+        {
+            return false;
+        }
+        selected |= 1u << source;
+    }
+    switch (operation)
+    {
+        case ESchemaAssembly::existing: return count == 1u;
+        case ESchemaAssembly::compose_roles: return selected == ((1u << count) - 1u);
+        case ESchemaAssembly::merge_two: return count == 2u;
+    }
+    return false;
+}
+
+// Count source records independently of output selection. Bulk collections
+// contribute their element count and instance specialisations each count once.
+static bool count_source_records(const CSchemaDocumentQuery& query, const CSchemaHandle group,
+    const bool bulk, detail::CDataOperation& operation, std::uint64_t& total) noexcept
+{
+    for (CSchemaHandle entry = query.first_child(group); entry; entry = query.next_sibling(entry))
+    {
+        total += bulk ? query.child_count(query.object_child(entry, CStringView{ "data" })) : 1u;
+        if (!operation.records(total)) return false;
+        const CSchemaHandle children = query.object_child(entry, CStringView{ "specialisation" });
+        if (!bulk && children && !count_source_records(query, children, false, operation, total))
+        {
+            return false;
+        }
+    }
+    return detail::data_healthy();
+}
+
+static bool inspect_process_source(const CSchemaDocumentQuery& query, detail::CDataOperation& operation,
+    std::uint64_t& records) noexcept
+{
+    const CSchemaHandle root = query.root();
+    CSchemaHandle node = root;
+    std::uint32_t depth{};
+    while (node)
+    {
+        if (!operation.nodes(1u) || !operation.depth(depth))
+        {
+            return false;
+        }
+        if (const CSchemaHandle child = query.first_child(node))
+        {
+            ++depth;
+            node = child;
+            continue;
+        }
+        while ((node != root) && !query.next_sibling(node))
+        {
+            if (!operation.work()) return false;
+            node = query.parent(node);
+            --depth;
+        }
+        node = (node == root) ? CSchemaHandle{} : query.next_sibling(node);
+    }
+    for (const bool bulk : { false, true })
+    {
+        const auto section = query.object_child(root, CStringView{ bulk ? "data" : "instances" });
+        for (CSchemaHandle group = query.first_child(section); group; group = query.next_sibling(group))
+        {
+            if (!count_source_records(query, group, bulk, operation, records))
+            {
+                return false;
+            }
+        }
+    }
+    return query.is_ready() && detail::data_healthy();
+}
+
+static bool assemble_schema(const SSchemaAssemblyPlan& plan, const CSchemaDocumentQuery (&sources)[3],
+    CSchema& schema, SSchemaDiagnostic& diagnostic) noexcept
+{
+    const CSchemaDocumentQuery absent;
+    const auto role = [&](const unsigned index) noexcept -> const CSchemaDocumentQuery&
+    {
+        return (plan.roles[index] < 0) ? absent : sources[plan.roles[index]];
+    };
+    switch (plan.operation)
+    {
+        case ESchemaAssembly::existing: return schema.copy_from(sources[0], diagnostic);
+        case ESchemaAssembly::compose_roles: return schema.compose_from(role(0u), role(1u), role(2u), diagnostic);
+        case ESchemaAssembly::merge_two: return schema.merge_from(sources[0], sources[1], diagnostic);
+    }
+    return false;
+}
+
+static void copy_process_path(const CSchemaDocumentQuery& query, CSchemaHandle value,
+    SSchemaProcessingDiagnostic& error) noexcept
+{
+    char path[sizeof(error.operation.path)]{};
+    std::size_t begin = sizeof(path) - 1u;
+    const CSchemaHandle root = query.root();
+    while (value && (value != root) && begin)
+    {
+        const CStringView name = query.name(value);
+        const CSchemaHandle parent = query.parent(value);
+        if (parent == root)
+        {
+            if (name == CStringView{ "types" }) error.role = ESchemaSource::types;
+            else if (name == CStringView{ "instances" }) error.role = ESchemaSource::instances;
+            else if (name == CStringView{ "data" }) error.role = ESchemaSource::bulk_data;
+        }
+        const std::size_t length = std::min(begin, name.length());
+        begin -= length;
+        if (length) std::memcpy((path + begin), name.string(), length);
+        if (begin) path[--begin] = '/';
+        value = parent;
+    }
+    if (detail::data_healthy()) std::memcpy(error.operation.path, (path + begin), (sizeof(path) - begin));
+}
+
+bool process_schema(const SSchemaAssemblyPlan& plan, const SSchemaProcessSource (&sources)[3],
+    const SDataOperationLimits limits, CBakedDocumentBlock& output, SSchemaProcessingDiagnostic& error,
+    const std::atomic<bool>* const stop) noexcept
+{
+    error = {};
+    SSchemaDiagnostic diagnostic;
+    if (!plan.valid() || output.buffer_capacity())
+    {
+        error.reason = ESchemaReason::invalid_source;
+        return false;
+    }
+    detail::CDataOperation operation{ limits, true };
+    const detail::CDataOperationScope scope{ operation };
+    operation.stage(EDataOperationStage::binding);
+    CSchemaDocumentQuery queries[3];
+    CSchema assembled;
+    const auto failed = [&]() noexcept
+    {
+        (void)detail::finish_schema_operation(false, operation, diagnostic);
+        error.reason = diagnostic.reason;
+        error.stage = diagnostic.stage;
+        error.role = diagnostic.source;
+        error.types = diagnostic.types.reason;
+        error.instances = diagnostic.instances.reason;
+        error.bulk = diagnostic.bulk_data.reason;
+        error.operation = diagnostic.operation;
+        if (error.role == ESchemaSource::none)
+        {
+            if (error.stage == ESchemaStage::types) error.role = ESchemaSource::types;
+            else if (error.stage == ESchemaStage::instances) error.role = ESchemaSource::instances;
+            else if (error.stage == ESchemaStage::bulk_data) error.role = ESchemaSource::bulk_data;
+        }
+        if ((plan.operation == ESchemaAssembly::compose_roles) && (error.role != ESchemaSource::none))
+        {
+            error.input = static_cast<std::int8_t>(plan.roles[static_cast<unsigned>(error.role) - 1u]);
+        }
+        else if (plan.operation == ESchemaAssembly::existing) error.input = 0;
+        else if ((error.encoding == ESchemaOutput::none) && (plan.operation == ESchemaAssembly::merge_two) &&
+            (diagnostic.first || diagnostic.second)) error.input = diagnostic.first ? 0 : 1;
+        const CSchemaHandle where = diagnostic.first ? diagnostic.first : diagnostic.second;
+        if (where && !error.operation.path[0] && detail::data_healthy())
+        {
+            if (error.encoding != ESchemaOutput::none) copy_process_path(assembled.document_query(), where, error);
+            else if (error.input >= 0) copy_process_path(queries[error.input], where, error);
+        }
+        return false;
+    };
+    std::uint64_t records{};
+    for (std::uint32_t i = 0u; i < plan.count; ++i)
+    {
+        if (stop && stop->load(std::memory_order_acquire))
+        {
+            return false;
+        }
+        error.input = static_cast<std::int8_t>(i);
+        operation.source_ordinal(i);
+        const auto& input = sources[i];
+        if (!operation.valid() || (static_cast<bool>(input.live) == static_cast<bool>(input.retained)))
+        {
+            error.reason = ESchemaReason::invalid_source;
+            return false;
+        }
+        const std::uint64_t bytes = input.live ? input.live->memory_attribution().allocation_size :
+            input.retained->buffer_bytes().size();
+        queries[i] = input.live ? CSchemaDocumentQuery{ *input.live } : CSchemaDocumentQuery{ input.retained->document() };
+        bool duplicate{};
+        for (std::uint32_t j = 0u; j < i; ++j)
+        {
+            if ((input.live == sources[j].live) && (input.retained == sources[j].retained)) duplicate = true;
+        }
+        if (duplicate) continue;
+        const void* const identity = input.live ? static_cast<const void*>(input.live) : static_cast<const void*>(input.retained);
+        if (!operation.source(identity, bytes) || (input.live && (!operation.reserve_external(bytes) || !operation.bytes_work(bytes))) ||
+            !inspect_process_source(queries[i], operation, records))
+        {
+            return failed();
+        }
+    }
+    if (stop && stop->load(std::memory_order_acquire))
+    {
+        return false;
+    }
+    error.input = -1;
+    operation.source_ordinal(UINT32_MAX);
+    operation.stage(EDataOperationStage::planning);
+    if (!assemble_schema(plan, queries, assembled, diagnostic) || !detail::data_healthy() ||
+        !detail::admit_data_document(assembled.document()))
+    {
+        return failed();
+    }
+    if (stop && stop->load(std::memory_order_acquire))
+    {
+        return false;
+    }
+    error.encoding = plan.output;
+    operation.stage(EDataOperationStage::baking);
+    CBakedDocumentBlock encoded;
+    if (plan.output == ESchemaOutput::runtime_data_block)
+    {
+        detail::CSchemaConstruction construction{ assembled.document(), operation.value_work(), limits.result_bytes, &operation };
+        CBakedDataBlock typed;
+        if (!assembled.validate_structure(diagnostic) || !construction.bake(typed, diagnostic) || !typed.release_local(encoded))
+        {
+            return failed();
+        }
+    }
+    else if (!detail::prepare_data_document_bake(assembled.document()) || !assembled.save(encoded, diagnostic))
+    {
+        return failed();
+    }
+    if (stop && stop->load(std::memory_order_acquire))
+    {
+        return false;
+    }
+    const CByteConstView bytes = static_cast<const CBakedDocumentBlock&>(encoded).buffer_bytes();
+    const std::size_t alignment = bytes.align();
+    const std::size_t retained = operation.parent_context()->condition_bytes(alignment, bytes.size());
+    if (!detail::data_healthy() || !operation.output(bytes.size()) || !operation.bytes_work(bytes.size()) ||
+        !operation.work(encoded.document().value_count()) || !operation.reserve_external(retained))
+    {
+        return failed();
+    }
+    CByteBuffer copy;
+    {
+        const detail::CDataOperationScope parent{ operation.parent_context() };
+        CByteBuffer independent;
+        if (!independent.allocate(bytes.size(), alignment) || !independent.set_size(bytes.size()))
+        {
+            (void)operation.fail(EDataOperationReason::allocation_failed);
+            return failed();
+        }
+        std::memcpy(independent.data(), bytes.data(), bytes.size());
+        copy = std::move(independent);
+    }
+    if (!output.adopt_buffer(std::move(copy)))
+    {
+        return failed();
+    }
+    error = {};
+    return true;
+}
 
 bool CSchema::import_types(const CTypesDocumentQuery& source, SSchemaDiagnostic& diagnostic) noexcept
 {

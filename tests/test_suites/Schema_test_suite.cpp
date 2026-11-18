@@ -2866,7 +2866,7 @@ static void test_record_index_scaling(TTestContext& ctx)
     TEST_EXPECT(ctx, collisions.reserve(32u, 0u, hash));
     for (std::uint32_t i = 0u; i < 32u; ++i)
     {
-        collisions.insert(i, hash(i));
+        TEST_EXPECT(ctx, collisions.insert(i, hash(i)));
     }
     for (std::uint32_t i = 0u; i < 32u; i += 2u)
     {

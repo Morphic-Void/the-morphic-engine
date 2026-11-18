@@ -18,7 +18,7 @@ import time
 REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
             "bad-provider-size", "bad-provider-version", "bad-provider-flags", "bad-provider-count",
             "bad-provider-null", "bad-provider-contract", "bad-provider-duplicate", "bad-provider-query")
-CASES = ("normal", "sequence", "empty-provider", "platform-shell", "platform-report", "platform-report-injected",
+CASES = ("normal", "sequence", "empty-provider", "schema-process", "platform-shell", "platform-report", "platform-report-injected",
          "platform-report-cancel", "platform-report-shutdown", "platform-report-departure") + REJECTED + (
          "activation-failed", "activation-null", "unauthorised-native-stop", "unauthorised-native-events", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
@@ -77,7 +77,7 @@ def main():
             if case == "stop-timeout" and "Host: shutdown grace expired; continuing progress with live resources retained" in line:
                 continue
             raise RuntimeError(f"{case}: unexpected diagnostic {line}; inspect {runtime}")
-        if case not in REJECTED + ("activation-null", "platform-shell", "platform-report", "platform-report-injected",
+        if case not in REJECTED + ("activation-null", "schema-process", "platform-shell", "platform-report", "platform-report-injected",
                                    "platform-report-cancel", "platform-report-shutdown", "platform-report-departure") + NATIVE_CASES:
             for marker in ("activation context and foreign-thread rejection passed", "begin stop", "stopped after continued progress"):
                 if marker not in events:
@@ -85,6 +85,12 @@ def main():
             terminal = "quiescent state retained" if case == "deactivate-failed" else "deactivated"
             if terminal not in events:
                 raise RuntimeError(f"{case}: missing {terminal}; inspect {runtime}")
+        if case == "schema-process":
+            worker = "bg_file_io" if args.host_workers == 1 else "bg_conditioning"
+            for marker in ("Host schema request conditioning", "Host schema output reclamation"):
+                placements = [line for line in events.splitlines() if marker in line]
+                if len(placements) != 2 or any(f"[executable:{worker}]" not in line for line in placements):
+                    raise RuntimeError(f"{case}: expected two {marker} events on {worker}; inspect {runtime}")
         if case == "platform-report" and sys.platform == "win32":
             for original, historical in (("cold", "historical"), ("refresh", "historical-refresh")):
                 if (runtime / f"{original}.bsd").read_bytes() != (runtime / f"{historical}.bsd").read_bytes():
@@ -96,6 +102,7 @@ def main():
         if case in ("inbox-full", "emergency") and "full inbox and outbound backpressure established" not in events:
             raise RuntimeError(f"Backpressure not reached; inspect {runtime}")
         required = {
+            "schema-process": ("Replacement composed retained declarations and read remapped text and span",),
             "platform-report-cancel": ("Platform consumed the pending-capture interruption receipt",),
             "platform-report-shutdown": ("Platform consumed the pending-capture interruption receipt",),
             "platform-report-departure": ("Host published maintenance capture across requester departure",

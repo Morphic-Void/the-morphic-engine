@@ -26,4 +26,7 @@
     type_macro(module_work, ModuleWorkRequest) \
     type_macro(module_done, ModuleWorkResult) \
     type_macro(filesystem_scan, FilesystemScanRequest) \
-    type_macro(filesystem_done, FilesystemScanResult)
+    type_macro(filesystem_done, FilesystemScanResult) \
+    type_macro(schema_output, SchemaOutputAsset) \
+    type_macro(schema_process, SchemaProcessWork) \
+    type_macro(schema_settled, SchemaProcessDone)

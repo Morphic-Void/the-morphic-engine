@@ -163,6 +163,7 @@ void print_usage()
         "               Long-form equivalent of -t0..-t3\n"
         "  --bulk-transport   Run focused TBulk transport regressions\n"
         "  --schema           Run schema regression tests\n"
+        "  --schema-process   Run focused Host schema service regressions\n"
         "  --schema-references  Run focused text/span regressions\n"
         "  --schema-traversal   Run bounded traversal/depth regressions\n"
         "  --platform-report  Run focused portable report capture tests\n"

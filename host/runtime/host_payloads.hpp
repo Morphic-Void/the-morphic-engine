@@ -22,6 +22,8 @@
 #include "framework/assets/asset_messages.hpp"
 #include "host/assets/asset_storage.hpp"
 #include "framework/assets/schema_messages.hpp"
+#include "foundation/schema/schema.hpp"
+#include <atomic>
 #include "host/filesystem/filesystem_image.hpp"
 
 //==============================================================================
@@ -52,6 +54,40 @@ struct SchemaConditioning
 };
 struct SchemaConditionWork { SchemaConditioning* state{ nullptr }; bool retire{ false }; };
 struct SchemaConditionResult { bool retire{ false }; };
+
+struct SchemaOutputAsset
+{
+    const CBakedDocumentBlock* document{};
+    const SSchemaOutputV1* descriptor{};
+};
+
+namespace host
+{
+struct SchemaProcessConditioning
+{
+    void execute() noexcept;
+    CErasedOwner envelope;
+    schema::SSchemaProcessSource sources[3];
+    schema::SSchemaAssemblyPlan plan;
+    schema::SDataOperationLimits limits;
+    CBakedDocumentBlock* output{};
+    memory::CMemoryContext* parent{};
+    std::atomic<bool>* stop{};
+    modules::SEligibleBudgetAnchor deadline;
+    modules::SHostRestrictionReader restriction;
+    ESchemaProcessStatus status{ ESchemaProcessStatus::invalid_schema };
+    SSchemaProcessFailure failure;
+    std::uint64_t client{}, request{};
+};
+
+}   // namespace host
+
+struct SchemaProcessWork
+{
+    host::SchemaProcessConditioning* process{};
+    CBakedDocumentBlock* reclaim{};
+};
+struct SchemaProcessDone { bool reclaimed{}; };
 
 //  The worker borrows a private Host capture; the completion owns full storage.
 struct BundleBuildWork { const filesystem_image::CBakeInput* input{ nullptr }; };

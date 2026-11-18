@@ -378,11 +378,24 @@ bool admit_types_section(const CDocumentRead& source, const SOccurrence section,
     while (begin < end)
     {
         const std::size_t middle = begin + (end - begin) / 2u;
+        if (!data_work() || !data_bytes(std::min(name.length(), catalogue[middle].name.length())))
+        {
+            reason = EReason::storage_limit;
+            return false;
+        }
         if (catalogue[middle].name.relationship(name) < 0) begin = middle + 1u;
         else end = middle;
     }
     if (begin == catalogue.size() || !(catalogue[begin].name == name)) { reason = EReason::unknown_type; return false; }
-    for (std::size_t i = 0u; i < queue.size(); ++i) if (queue[i] == begin) return true;
+    for (std::size_t i = 0u; i < queue.size(); ++i)
+    {
+        if (!data_work())
+        {
+            reason = EReason::storage_limit;
+            return false;
+        }
+        if (queue[i] == begin) return true;
+    }
     if (!queue.push_back(begin)) { reason = EReason::allocation_failed; return false; }
     return true;
 }
@@ -488,6 +501,10 @@ bool compatible_type_sections(const CDocumentRead& first, const STypesCatalogue&
     std::size_t i = 0u, j = 0u;
     while ((i < a.size()) && (j < b.size()))
     {
+        if (!data_work() || !data_bytes(std::min(a[i].name.length(), b[j].name.length())))
+        {
+            return fail(diagnostic, EReason::storage_limit, a[i].source, b[j].source);
+        }
         const auto order = a[i].name.relationship(b[j].name);
         if (order < 0) { ++i; continue; }
         if (order > 0) { ++j; continue; }

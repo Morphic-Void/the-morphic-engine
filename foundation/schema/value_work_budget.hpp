@@ -27,6 +27,7 @@ public:
     [[nodiscard]] static CValueWorkBudget unbounded() noexcept { return CValueWorkBudget{ SUnbounded{} }; }
     [[nodiscard]] bool exhausted() const noexcept { return !m_unbounded && !m_remaining; }
     [[nodiscard]] bool rejected() const noexcept { return m_rejected; }
+    [[nodiscard]] std::uint64_t remaining() const noexcept { return m_remaining; }
     [[nodiscard]] bool try_consume(const std::uint64_t credits = 1u) noexcept
     {
         if (m_unbounded) return true;

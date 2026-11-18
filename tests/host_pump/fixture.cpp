@@ -26,7 +26,10 @@
 #include "system/system_context.hpp"
 #include "framework/assets/asset_messages.hpp"
 #include "framework/platform/report_messages.hpp"
-#if MV_PLATFORM_WINDOWS && MV_PUMP_EXECUTIVE
+#if MV_PUMP_EXECUTIVE
+#include "framework/assets/schema_messages.hpp"
+#include "data_model/document_parser.hpp"
+#include "schema/data_block_view.hpp"
 #include "platform/filesystem/file.hpp"
 #endif
 #include "containers/TInstance.hpp"
@@ -847,6 +850,109 @@ static bool cancel_report(threading::CThreadContext& context)
         !unavailable.update_in_progress && self_stop(context, false);
 }
 
+static bool schema_process(threading::CThreadContext& context)
+{
+    auto envelope = threading::make_owner_message<SchemaProcessRequest>(290);
+    auto* const request = envelope.owner().payload<SchemaProcessRequest>();
+    if (!request) return false;
+    request->request_id = { 1u };
+    CAssetId declarations;
+#if MV_PUMP_REPLACEMENT
+    const CByteBuffer handoff = platform::filesystem::loadFile("declaration-id.bin");
+    if (handoff.size() != sizeof(declarations))
+    {
+        return false;
+    }
+    std::memcpy(&declarations, handoff.data(), sizeof(declarations));
+    request->operation = schema::ESchemaAssembly::compose_roles;
+    request->output_kind = schema::ESchemaOutput::runtime_data_block;
+    request->input_count = 2u;
+    request->types_source = 0;
+    request->instances_source = request->data_source = 1;
+    request->inputs.slots[0].kind = ESchemaInput::retained_document;
+    request->inputs.slots[0].asset = declarations;
+    auto& authored = request->inputs.slots[1];
+    constexpr char text[] = R"({"instances":{"Report":{"main":{"declaration":{"rows":{"collection":"all","first":1,"count":1}}}}},"data":{"Row":{"all":{"data":[{"label":"Alpha"},{"label":"Zulu"}]}}}})";
+#else
+    request->output_kind = schema::ESchemaOutput::schema_document;
+    request->input_count = 1u;
+    auto& authored = request->inputs.slots[0];
+    constexpr char text[] = R"({"types":{"structures":{"Row":{"members":[{"label":{"type":{"kind":"text"}}}]},"Report":{"members":[{"rows":{"type":{"kind":"span","element":"Row"}}}]}}}})";
+#endif
+    authored.kind = ESchemaInput::owned_document;
+    if (!document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(text), sizeof(text) - 1u },
+        authored.document).accepted() || !context.post(std::move(envelope)) || envelope.has_owner())
+    {
+        return false;
+    }
+    threading::CErasedPodMsg message;
+    SchemaProcessAccepted accepted;
+    SchemaProcessResult result;
+    if (!receive(context, message) || (message.query_async_slot() != 290) || !message.copy_payload_to(accepted) ||
+        (accepted.request_id.value != 1u) || (accepted.contract_version != 1u) || !receive(context, message) ||
+        (message.query_async_slot() != 290) || !message.copy_payload_to(result) || (result.request_id.value != 1u) ||
+        (result.contract_version != 1u) || result.reserved || (result.status != ESchemaProcessStatus::success) ||
+        !result.success.asset || !result.success.acquisition || !result.success.descriptor)
+    {
+        return false;
+    }
+    const SSchemaOutputV1& output = *result.success.descriptor;
+    if ((output.size != sizeof(output)) || (output.version != 1u) || (output.kind != result.output_kind) ||
+        !output.bytes.is_ready())
+    {
+        return false;
+    }
+#if MV_PUMP_REPLACEMENT
+    {
+        schema::CBakedDataBlock block;
+        schema::SDataBlockDiagnostic error;
+        schema::CDataBlockView view;
+        schema::SDataOperationDiagnostic diagnostic;
+        schema::CDataValueView value, field;
+        schema::SDataRangeView span;
+        schema::SDataTextView label;
+        if ((output.kind != schema::ESchemaOutput::runtime_data_block) ||
+            !block.attach_asset(result.success.asset, output.bytes, error) || !view.bind(block, {}, diagnostic) ||
+            !view.value(view.find_instance(CStringView{ "Report" }, CStringView{ "main" }), 0u, value) ||
+            !view.member(value, CStringView{ "rows" }, field) || !view.span(field, span) ||
+            (span.first != 1u) || (span.count != 1u) || !view.element(span, 0u, value) ||
+            !view.member(value, CStringView{ "label" }, field) || !view.text(field, label) ||
+            !(label.stored_text == CStringView{ "Zulu" }) || !view.value(span.collection, 0u, value) ||
+            !view.member(value, CStringView{ "label" }, field) || !view.text(field, label) ||
+            !(label.stored_text == CStringView{ "Alpha" }) || (output.bytes.align() < 128u) ||
+            (block.file_bytes().size() != output.bytes.size()) || !block.bulk_payload_view().is_ready())
+        {
+            return false;
+        }
+    }
+    if (!release_report(context, result.success.acquisition))
+    {
+        return false;
+    }
+    for (const CAssetId asset : { declarations, result.success.asset })
+    {
+        AssetDisposeResult disposed;
+        if (!context.post(threading::make_pod_message(291, AssetDisposeRequest{ asset })) ||
+            !receive(context, message) || !message.copy_payload_to(disposed) || (disposed.status != EAssetStatus::success))
+        {
+            return false;
+        }
+    }
+    MV_LOG(info, "Replacement composed retained declarations and read remapped text and span");
+    return self_stop(context, false);
+#else
+    declarations = result.success.asset;
+    if ((output.kind != schema::ESchemaOutput::schema_document) ||
+        !platform::filesystem::saveFile("declaration-id.bin",
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(&declarations), sizeof(declarations) }) ||
+        !release_report(context, result.success.acquisition))
+    {
+        return false;
+    }
+    return self_stop(context, true);
+#endif
+}
+
 static bool injected_report(threading::CThreadContext& context)
 {
     using namespace platform::reports;
@@ -1417,6 +1523,7 @@ static bool probe_sequence(threading::CThreadContext& context, const SServiceRou
 
 static bool run(threading::CThreadContext& context)
 {
+    if (scenario("schema-process")) return schema_process(context);
     if (scenario("platform-report-departure")) return report_departure(context);
     if (scenario("platform-report-cancel") || scenario("platform-report-shutdown"))
     {

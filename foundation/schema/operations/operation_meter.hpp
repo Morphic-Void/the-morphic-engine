@@ -28,6 +28,8 @@ namespace schema::detail
 [[nodiscard]] bool data_output(const std::uint64_t bytes) noexcept;
 [[nodiscard]] bool data_healthy() noexcept;
 [[nodiscard]] bool data_active() noexcept;
+// Additional assembly/compatibility charges apply to the atomic schema process.
+[[nodiscard]] bool schema_processing() noexcept;
 [[nodiscard]] bool admit_data_document(const CLiveDocument& document) noexcept;
 [[nodiscard]] bool prepare_data_document_bake(const CLiveDocument& document) noexcept;
 

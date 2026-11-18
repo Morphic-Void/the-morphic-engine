@@ -19,7 +19,7 @@ namespace host
 
 static std::uint32_t reply_count(const threading::CErasedPodMsg& message) noexcept
 {
-    if (message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
+    if (message.is_payload_a<SchemaProcessCancel>() || message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
         connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
         message.is_payload_a<services::ServiceBorrowQuiescent>() || message.is_payload_a<services::CancelServiceRequest>())
     {
@@ -532,7 +532,11 @@ void CHostMaintenance::replay() noexcept
             auto& source = owner->source;
             if (source.client)
             {
-                if (!owner->message.is_message_a<modules::ModuleRequest>())
+                if (owner->message.is_message_a<SchemaProcessRequest>() && !m_host.m_asset_service.schema_ingress_available())
+                {
+                    continue;
+                }
+                if (!owner->message.is_message_a<modules::ModuleRequest>() && !owner->message.is_message_a<SchemaProcessRequest>())
                 {
                     const std::uint32_t required = owner->message.is_message_a<platform::reports::PlatformReportCaptured>() ? 0u : 1u;
                     source.client->cancel_reservation(source.credits - required);

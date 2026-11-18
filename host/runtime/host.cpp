@@ -615,6 +615,11 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
 
 void CHost::receive_request(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept
 {
+    if (message.is_message_a<SchemaProcessRequest>())
+    {
+        m_asset_service.request_process(message, executive, m_work_admission_closed, m_workers_unavailable);
+        return;
+    }
     if (message.is_message_a<platform::reports::PlatformReportCaptured>())
     {
         m_asset_service.report_candidate(executive, message);
@@ -682,6 +687,7 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     AssetAcquireRequest acquire;
     AssetReleaseRequest release;
     SchemaPrepareRequest prepare_schema;
+    SchemaProcessCancel cancel_schema;
     services::OpenServiceRequest open;
     services::CloseServiceRequest close;
     services::ServiceRequest command;
@@ -697,6 +703,11 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     connections::Quiescent direct_quiescent;
     const auto slot = message.query_async_slot();
     platform::reports::PlatformReportCaptureFailed outcome;
+    if (message.copy_payload_to(cancel_schema))
+    {
+        m_asset_service.cancel_process(cancel_schema, client);
+        return;
+    }
     if (message.copy_payload_to(outcome))
     {
         m_asset_service.report_failed(client, outcome);
@@ -1105,6 +1116,8 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             //  Dependent assets were disposed of before each module unload.
             if (!m_retain_runtime)
             {
+                m_asset_service.close_schema_outputs();
+                if (!m_asset_service.work_idle()) return;
                 m_asset_service.deallocate();
             }
             m_phase = EPhase::complete;
@@ -1118,7 +1131,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
 
 static bool zero_reply_control(const threading::CErasedPodMsg& message) noexcept
 {
-    return message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
+    return message.is_payload_a<SchemaProcessCancel>() || message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
         connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
         message.is_payload_a<services::ServiceBorrowQuiescent>() || message.is_payload_a<services::CancelServiceRequest>();
 }
@@ -1171,8 +1184,12 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
             owners_drained = true;
             break;
         }
+        if (offered->is_message_a<SchemaProcessRequest>() && !m_asset_service.schema_ingress_available())
+        {
+            break;
+        }
         const std::uint32_t replies = offered->is_message_a<platform::reports::PlatformReportCaptured>() ? 0u :
-            (offered->is_message_a<modules::ModuleRequest>() ? 2u : 1u);
+            ((offered->is_message_a<modules::ModuleRequest>() || offered->is_message_a<SchemaProcessRequest>()) ? 2u : 1u);
         if (!client.reserve_replies(replies)) break;
         threading::CErasedOwnerMsg message;
         (void)pump.capture(message);
@@ -1347,6 +1364,11 @@ void CHost::run_turn() noexcept
             {
                 break;
             }
+            if (client && !m_asset_service.schema_ingress_available())
+            {
+                client->cancel_reservation(2u);
+                break;
+            }
             threading::CErasedOwnerMsg owned;
             if (!package.read(owned))
             {
@@ -1359,7 +1381,7 @@ void CHost::run_turn() noexcept
             }
             if (client != nullptr)
             {
-                if (!owned.is_message_a<modules::ModuleRequest>())
+                if (!owned.is_message_a<modules::ModuleRequest>() && !owned.is_message_a<SchemaProcessRequest>())
                 {
                     client->cancel_reservation(owned.is_message_a<platform::reports::PlatformReportCaptured>() ? 2u : 1u);
                 }

@@ -15,6 +15,7 @@
 #include "system/system_id_registry.hpp"
 #include "framework/assets/asset_messages.hpp"
 #include "framework/platform/report_messages.hpp"
+#include "framework/assets/schema_messages.hpp"
 
 namespace host
 {
@@ -318,7 +319,7 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* const con
     }
     platform::reports::PlatformReportCaptureFailed outcome;
     const bool report = message->copy_payload_to(outcome);
-    auto& queue = (report || message->is_payload_a<AssetReleaseRequest>() ||
+    auto& queue = (report || message->is_payload_a<SchemaProcessCancel>() || message->is_payload_a<AssetReleaseRequest>() ||
         message->is_payload_a<services::ReleaseServiceBorrow>() || message->is_payload_a<services::ServiceBorrowQuiescent>() ||
         message->is_payload_a<services::CancelServiceRequest>()) ?
         self->m_controls : self->m_pods;
@@ -387,7 +388,7 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* const c
             return services::EServiceStatus::busy;
         }
     }
-    if (message->is_message_a<platform::reports::PlatformReportCaptured>() &&
+    if ((message->is_message_a<platform::reports::PlatformReportCaptured>() || message->is_message_a<SchemaProcessRequest>()) &&
         !message->owner().can_reattribute_to(self->m_owners.memory_context()))
     {
         return services::EServiceStatus::invalid_request;

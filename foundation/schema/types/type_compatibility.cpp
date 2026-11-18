@@ -48,6 +48,10 @@ ETypeMatchResult CTypeCompatibility::add(const SPair pair) noexcept
     {
         return ETypeMatchResult::match;
     }
+    if (detail::schema_processing() && !detail::data_work())
+    {
+        return ETypeMatchResult::invalid_input;
+    }
     const std::uint32_t key = hash(pair);
     const std::uint32_t found = m_index.find(key, [&](const std::uint32_t i) noexcept
     {
@@ -64,7 +68,11 @@ ETypeMatchResult CTypeCompatibility::add(const SPair pair) noexcept
     {
         return ETypeMatchResult::allocation_failed;
     }
-    m_index.insert(static_cast<std::uint32_t>(m_pairs.size() - 1u), key);
+    if (!m_index.insert(static_cast<std::uint32_t>(m_pairs.size() - 1u), key))
+    {
+        (void)m_pairs.discard_back();
+        return ETypeMatchResult::invalid_input;
+    }
     return ETypeMatchResult::match;
 }
 
@@ -159,6 +167,10 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
         (a.category == ECategory::bit_structure);
     for (std::uint32_t i = 0u; i < (has_children ? a.count : 0u); ++i)
     {
+        if (detail::schema_processing() && !detail::data_work())
+        {
+            return ETypeMatchResult::invalid_input;
+        }
         if (a.category == ECategory::structure)
         {
             SMember am, bm;
@@ -319,6 +331,14 @@ ETypeMatchResult CTypeCompatibility::compare_graph(const CTypesIndex source, con
     }
     if (result != ETypeMatchResult::match)
     {
+        // Bounded rollback discards the private cache in bulk. Repeated probe-chain
+        // repair after exhaustion would spend unmetered work on discarded proofs.
+        if (detail::schema_processing())
+        {
+            m_index = {};
+            m_pairs.deallocate();
+            return result;
+        }
         //  A seen pair is not proof of compatibility. Discard this traversal's
         //  unfinished pairs; retain only a proven mismatch for its root.
         const std::size_t keep = first + (((result == ETypeMatchResult::mismatch) && (m_pairs.size() > first)) ? 1u : 0u);

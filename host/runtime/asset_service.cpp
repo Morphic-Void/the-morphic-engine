@@ -68,7 +68,7 @@ static bool matches_load_format(const EAssetKind kind, const EAssetFileFormat fo
 bool CAssetService::initialise() noexcept
 {
     return m_bundles.initialise() && m_assets.initialise() && m_acquisitions.initialise() &&
-        m_operations.initialise() && m_schemas.initialise() &&
+        m_operations.initialise() && m_schemas.initialise() && m_schema_outputs.initialise() &&
         m_report_backings.initialise() && m_report_deliveries.initialise();
 }
 
@@ -95,6 +95,18 @@ bool CAssetService::is_idle() const noexcept
 
 bool CAssetService::work_idle() const noexcept
 {
+    for (const auto& process : m_processes)
+    {
+        if (process.client) return false;
+    }
+    for (std::int32_t i = m_schema_outputs.first_live(); i >= 0; i = m_schema_outputs.next_live(i))
+    {
+        const SOutputBacking& output = *m_schema_outputs.get_object(i);
+        if (!output.asset && !output.references.records && !output.references.operations)
+        {
+            return false;
+        }
+    }
     for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
     {
         if (m_schemas.get_object(slot)->phase != ESchemaPhase::acquired) return false;
@@ -125,6 +137,12 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
         reply(client, slot, result);
         return;
     }
+    if (source->payload<SchemaOutputAsset>() && client.delivery_protected())
+    {
+        result.status = EAssetStatus::busy;
+        reply(client, slot, result);
+        return;
+    }
     AssetResult described;
     describe_views((*source), described);
     const bool bytes = request.view == EAssetAcquireView::bytes;
@@ -147,6 +165,7 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
     record->identity = CAssetAcquisitionId{ m_next_acquisition++ };
     record->client = &client;
     record->source = request.source;
+    record->schema_output = source->payload<SchemaOutputAsset>() != nullptr;
     result.acquisition = record->identity;
     result.view = request.view;
     result.views = bytes ? AssetAcquiredViews{ described.byte_view() } : AssetAcquiredViews{ described.bundle_view() };
@@ -158,8 +177,12 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
     }
     else if (!client.reply(threading::make_pod_message(slot, result)))
     {
-        //  The client never received the token, so it cannot release it.
-        (void)m_acquisitions.erase(record_slot);
+        // A poisoned threaded publication can expose the token before failing.
+        if (record->schema_output && client.thread && client.thread->pod_delivery_poisoned())
+        {
+            client.request_exit();
+        }
+        else (void)m_acquisitions.erase(record_slot);
         m_failed = true;
         MV_CRITICAL_EVENT("Host: Asset acquisition reply delivery failed");
     }
@@ -202,7 +225,11 @@ void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
     for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0;)
     {
         const std::int32_t next = m_acquisitions.next_live(slot);
-        if (m_acquisitions.get_object(slot)->client == &client) (void)m_acquisitions.erase(slot);
+        const SAcquisition& acquisition = *m_acquisitions.get_object(slot);
+        if ((acquisition.client == &client) && (!acquisition.schema_output || client.execution_quiescent()))
+        {
+            (void)m_acquisitions.erase(slot);
+        }
         slot = next;
     }
     for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
@@ -226,6 +253,17 @@ void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
 
 bool CAssetService::client_idle(const SClientRecord& client) const noexcept
 {
+    for (const auto& process : m_processes)
+    {
+        if (process.client == &client) return false;
+    }
+    for (std::int32_t i = m_schema_outputs.first_live(); i >= 0; i = m_schema_outputs.next_live(i))
+    {
+        if (m_schema_outputs.get_object(i)->ambiguous_client == &client)
+        {
+            return false;
+        }
+    }
     if ((m_report_provider == &client) && m_capture.identity.capture_id) return false;
     for (std::int32_t i = m_report_deliveries.first_live(); i >= 0; i = m_report_deliveries.next_live(i))
     {
@@ -481,12 +519,14 @@ void CAssetService::deallocate() noexcept
         const auto binding = m_operations.get_object(slot)->reserved_binding;
         if ((binding != 0u) && (m_filesystem != nullptr)) (void)m_filesystem->remove_bundle(binding);
     }
+    for (auto& process : m_processes) process = SProcess{};
     m_operations.deallocate();
     m_schemas.deallocate();
     m_acquisitions.deallocate();
     m_report_deliveries.deallocate();
     m_report_backings.deallocate();
     m_assets.deallocate();
+    m_schema_outputs.deallocate();
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {
         SBundleControl& control = *m_bundles.get_object(slot);
@@ -505,6 +545,7 @@ void CAssetService::deallocate() noexcept
 void CAssetService::fail_pending() noexcept
 {
     m_workers_stopped = true;
+    fail_processes();
     //  Workers have stopped: no callback or schema view can still be produced.
     //  Existing acquired results remain protected until their readers retire.
     for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
@@ -533,7 +574,12 @@ void CAssetService::fail_pending() noexcept
 template<typename TOwner>
 void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
 {
-    if (BorrowedBundleAsset* const borrowed = source.template payload<BorrowedBundleAsset>())
+    if (SchemaOutputAsset* const schema = source.template payload<SchemaOutputAsset>())
+    {
+        const CByteConstView bytes = schema->descriptor->bytes;
+        result.set_raw_view(memory::CMemoryConstView{ bytes.data(), bytes.size(), 1u, bytes.align() });
+    }
+    else if (BorrowedBundleAsset* const borrowed = source.template payload<BorrowedBundleAsset>())
     {
         result = borrowed->view;
     }
@@ -639,6 +685,11 @@ bool CAssetService::retain_candidate(SOperation& operation) noexcept
 
 bool CAssetService::disposal_pending(const CAssetId asset) const noexcept
 {
+    const CAssetRecord* const record = m_assets.resolve(asset);
+    if (record && record->payload<SchemaOutputAsset>() && !record->backing()->open)
+    {
+        return true;
+    }
     for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
     {
         const SOperation& operation = *m_operations.get_object(slot);
@@ -652,6 +703,11 @@ bool CAssetService::disposal_pending(const CAssetId asset) const noexcept
 
 bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
 {
+    const CAssetRecord* const record = m_assets.resolve(asset);
+    if (record && record->payload<SchemaOutputAsset>() && record->backing()->operations)
+    {
+        return true;
+    }
     for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
     {
         if (m_schemas.get_object(slot)->source == asset) return true;
@@ -706,6 +762,7 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
     operation.client_slot = slot;
     operation.phase = EPhase::disposing;
     operation.retained_asset = request.asset;
+    if (record.payload<SchemaOutputAsset>()) record.backing()->open = false;
     if (asset_in_use(request.asset))
     {
         MV_DETAIL("Host asset disposal deferred for accepted borrowers at client slot {}", slot);
@@ -715,6 +772,7 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
 void CAssetService::complete_disposals() noexcept
 {
     progress_schemas();
+    progress_processes();
     //  Save the next slot before erasing this operation. Disposal replies never
     //  publish the views that ordinary load/save completions may carry.
     for (std::int32_t slot = m_operations.first_live(); slot >= 0;)
@@ -727,11 +785,25 @@ void CAssetService::complete_disposals() noexcept
             {
                 m_failed = true;
             }
+            const CAssetRecord* const record = m_assets.resolve(operation.retained_asset);
+            if (record && record->payload<SchemaOutputAsset>())
+            {
+                for (std::int32_t i = m_schema_outputs.first_live(); i >= 0; i = m_schema_outputs.next_live(i))
+                {
+                    SOutputBacking& backing = *m_schema_outputs.get_object(i);
+                    if (backing.asset == operation.retained_asset)
+                    {
+                        backing.asset = {};
+                        break;
+                    }
+                }
+            }
             const bool erased = m_assets.erase(operation.retained_asset);
             finish_operation(slot, (erased ? EAssetStatus::success : EAssetStatus::invalid_asset));
         }
         slot = next;
     }
+    progress_schema_outputs();
     finalise_bundles();
 }
 
@@ -1128,6 +1200,12 @@ bool CAssetService::post_conditioning(const threading::CErasedPodMsg& message) n
 
 void CAssetService::complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept
 {
+    SchemaProcessDone processed;
+    if (message.copy_payload_to(processed))
+    {
+        complete_process(processed, message.query_async_slot(), worker);
+        return;
+    }
     SchemaConditionResult schema;
     if (message.copy_payload_to(schema))
     {

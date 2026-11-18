@@ -28,6 +28,9 @@ struct SDataOperationLimits
     std::uint32_t depth{ 256u };
 };
 
+enum class ESchemaAssembly : std::uint8_t { existing, compose_roles, merge_two };
+enum class ESchemaOutput : std::uint8_t { none, schema_document, runtime_data_block };
+
 enum class EDataOperationStage : std::uint8_t
 {
     none, binding, planning, construction, editing, baking, validation, publication

@@ -67,4 +67,8 @@
     type_macro(platform_report_captured) \
     type_macro(platform_report_capture_failed) \
     type_macro(platform_report_capture_cancel) \
-    type_macro(platform_report_capture_receipt)
+    type_macro(platform_report_capture_receipt) \
+    type_macro(schema_process_request) \
+    type_macro(schema_process_accepted) \
+    type_macro(schema_process_cancel) \
+    type_macro(schema_process_result)

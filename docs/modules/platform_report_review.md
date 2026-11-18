@@ -97,8 +97,10 @@ Win32 deadline qualification, nor implement the compact schema/Host services.
 
 The user-authorised checkpoint may include the existing Platform implementation,
 the F1 correction, its tests and current design/review/usage/validation documents.
-The generic Host service contract is agreed; concrete messages/handoff remain
-proposed. No further implementation chat or Rendering work starts with this commit.
+At checkpoint commit time the generic Host service contract was agreed and its
+concrete messages/handoff were proposed. The user subsequently accepted those
+messages/handoff and requested a dedicated Astra Extra-High implementation chat;
+see the current staged-design handoff. Rendering remains gated.
 
 ## Existing acceptance blocker: placement and the native deadline
 
@@ -200,8 +202,8 @@ native mode catalogues. The user accepted a single RGBA8-filtered enumeration,
 This refines the earlier index-membership suggestion. Implementation of the revised
 profile/layout is outstanding. The measurements above concern the initial layout
 and cannot predict the revised processing cost. The generic Host service extension
-has an agreed service contract in that design and requires its own implementation
-chat after agreement on concrete messages/handoff; that chat has not been started.
+has an agreed service contract and concrete messages/handoff in that design. The
+user requested its dedicated implementation chat after the checkpoint commit.
 
 ## Comment 2: known-field packing concern resolved
 
@@ -340,9 +342,16 @@ placement decision or turn injected-only cases into native observations.
 
 F1 and its focused regressions are reviewed and cleared for the user-authorised
 checkpoint commit. The compact filter/layout and generic Host
-service contract are agreed; concrete service messages/handoff are being settled
-before its separate implementation chat. Native capture execution remains open.
+service contract and concrete messages/handoff are agreed. The user requested the
+separate Host service implementation chat. Native capture execution remains open.
 After implementing the follow-ups, qualify the changed pipeline, including the
 same desktop live session, Win32 deadline case and any selected one-worker path,
 before seeking independent prerequisite acceptance. Rendering 1A remains outside
 this checkpoint and review.
+
+The generic Host schema service subsequently passed focused independent review
+within its own scope, with no blocking findings. See
+[the service review](../schema/host-schema-processing-review.md). Its acceptance
+does not implement the compact Platform schema or authored capture handoff and
+does not close this pipeline's native placement/deadline qualification. No commit
+for that service has been authorised by this review.

@@ -5,6 +5,7 @@
     payload_with_storage_macro(ByteStorage, buffer) \
     payload_with_storage_macro(BakedDocumentAsset, block) \
     payload_macro(BorrowedBundleAsset) \
+    payload_macro(SchemaOutputAsset) \
     payload_with_storage_macro(BundleBuildResult, block) \
     payload_with_storage_macro(DocumentConditionResult, storage) \
     payload_with_storage_macro(LiveDocumentAsset, document) \

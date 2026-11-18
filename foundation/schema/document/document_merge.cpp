@@ -312,6 +312,7 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
     {
         children[ordinal++] = { child, m_second.name_id(child), false };
     }
+    if (ordinal != count) return fail(EDocumentMergeReason::construction_failed);
     if (!small && (count > 1u))
     {
         if (!schema::detail::data_sort(children, (children + count), [](const SChild& a, const SChild& b) noexcept
@@ -325,6 +326,7 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
         {
             for (std::uint32_t i = 0u; i < count; ++i)
             {
+                if (!data_work()) return nullptr;
                 if (children[i].name == name)
                 {
                     return children + i;
@@ -335,7 +337,8 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
         std::uint32_t low = 0u, high = count;
         while (low < high)
         {
-            const std::uint32_t middle = low + ((high - low) / 2u);
+            if (!data_work()) return nullptr;
+            const std::uint32_t middle = low + ((high - low) >> 1u);
             if (children[middle].name.query_value() < name.query_value())
             {
                 low = middle + 1u;
@@ -361,6 +364,7 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
     for (SOccurrence child = m_second.first_child(second); child; child = m_second.next_sibling(child))
     {
         const SChild* const item = find(m_second.name_id(child));
+        if (!item) return fail(EDocumentMergeReason::construction_failed);
         if (item->consumed)
         {
             continue;

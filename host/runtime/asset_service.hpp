@@ -106,10 +106,56 @@ public:
     void request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request_release(const AssetReleaseRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request_schema(const SchemaPrepareRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
+    // Admission consumes two reserved client credits. A separate bounded slot
+    // retires a transferred rejection before its terminal response.
+    // Host-local posting reserves these credits internally and leaves the owner
+    // with its caller if ingress or reply capacity is exhausted.
+    [[nodiscard]] bool schema_ingress_available() const noexcept { return !m_processes[4].client; }
+    [[nodiscard]] bool post_internal_process(threading::CErasedOwnerMsg& message, SClientRecord& client) noexcept;
+    void request_process(threading::CErasedOwnerMsg& message, SClientRecord& client,
+        const bool closed, const bool workers_unavailable) noexcept;
+    void cancel_process(const SchemaProcessCancel& cancel, SClientRecord& client) noexcept;
+    void close_schema_outputs() noexcept;
     void complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept;
     void complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
 
 private:
+    enum class EProcessPhase { accepting, dispatch, executing, publishing, retiring };
+    struct SProcess
+    {
+        SchemaProcessConditioning work;
+        CAssetBackingLease pins[3];
+        SClientRecord* client{};
+        modules::SEligibleBudgetAnchor deadline;
+        modules::CHostEligibleBudget budget{};
+        SSchemaRequestId id;
+        std::int32_t slot{ -1 }, acquisition{ -1 }, backing{ -1 };
+        SchemaProcessResult result;
+        bool accepted{};
+        EProcessPhase phase{ EProcessPhase::accepting };
+        ESchemaProcessStatus outcome{ ESchemaProcessStatus::success };
+    };
+    struct SOutputBacking
+    {
+        SAssetBackingState references;
+        CBakedDocumentBlock block;
+        SSchemaOutputV1 descriptor;
+        CAssetId asset;
+        SClientRecord* ambiguous_client{};
+        bool private_output{ true }, reclaiming{};
+    };
+    SProcess m_processes[5];
+    std::atomic<bool> m_process_stop[5]{};
+    TUnorderedCollection<SOutputBacking> m_schema_outputs;
+    void progress_processes() noexcept;
+    void progress_schema_outputs() noexcept;
+    void fail_processes() noexcept;
+    void complete_process(const SchemaProcessDone& done, const std::int32_t slot,
+        threading::CThreadPackage& worker) noexcept;
+    void publish_process(SProcess& process) noexcept;
+    void validate_process(SProcess& process, const SchemaProcessRequest& request) noexcept;
+    [[nodiscard]] bool observe_process(SProcess& process) noexcept;
+
     enum class ESchemaPhase { preparing, publishing, acquired, retiring, reclaiming };
     struct SSchemaOperation
     {
@@ -217,6 +263,7 @@ private:
         SClientRecord* client{ nullptr };
         CAssetId source{};
         CAssetAcquisitionId identity{};
+        bool schema_output{};
     };
 
     struct SReportBacking

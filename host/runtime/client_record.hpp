@@ -92,6 +92,7 @@ struct SClientRecord
     bool prefix_failed{ false };
     std::uint64_t report_request_consumed{}, report_receipt_consumed{};
     std::uint64_t report_outcome_reserved{};
+    std::uint64_t last_schema_request{};
     std::uint32_t reserved_replies{ 0u };
     std::uint32_t message_count{ 0u };
     std::uint32_t reserved_control_replies{ 0u };

@@ -166,6 +166,7 @@
     <ClCompile Include="..\host\system\system_id_definitions.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\host\runtime\asset_schema.cpp" />
+    <ClCompile Include="..\host\runtime\asset_schema_process.cpp" />
     <ClCompile Include="..\host\runtime\asset_platform_report.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp" />

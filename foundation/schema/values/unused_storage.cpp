@@ -121,8 +121,7 @@ bool CClearTypes::validate(const CTypesIndex type, const unsigned depth, bool& h
     {
         return false;
     }
-    m_index.insert(static_cast<std::uint32_t>(m_types.size() - 1u), COrdinalHashIndex::hash_key(type.query_value()));
-    return true;
+    return m_index.insert(static_cast<std::uint32_t>(m_types.size() - 1u), COrdinalHashIndex::hash_key(type.query_value()));
 }
 
 bool CClearTypes::inspect(const CTypesIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept

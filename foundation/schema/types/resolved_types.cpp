@@ -1178,7 +1178,11 @@ bool CResolver::declarations(const CTypesHandle& container, const ECategory cate
         type_record.name = name;
         type_record.source = declaration;
         type_record.category = category;
-        m_type_index.insert(m_schema.m_definitions++, COrdinalHashIndex::hash_key(name.query_value()));
+        if (!m_type_index.insert(m_schema.m_definitions, COrdinalHashIndex::hash_key(name.query_value())))
+        {
+            return fail(EReason::storage_limit, declaration);
+        }
+        ++m_schema.m_definitions;
         if (!map(declaration, m_schema.index(resolver_util::k_type, static_cast<std::uint32_t>(m_schema.m_types.size() - 1u))))
         {
             return false;
@@ -1232,7 +1236,10 @@ bool CResolver::non_storage_declarations(const CTypesHandle& container, const ED
             return false;
         }
         m_schema.m_non_storage.last() = { name_id, source, {}, 0u, 0u, category, 0u };
-        m_type_index.insert(count, COrdinalHashIndex::hash_key(name_id.query_value()));
+        if (!m_type_index.insert(count, COrdinalHashIndex::hash_key(name_id.query_value())))
+        {
+            return fail(EReason::storage_limit, source);
+        }
         if (!map(source, m_schema.index(resolver_util::k_non_storage, count)))
         {
             return false;

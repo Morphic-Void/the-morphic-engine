@@ -14,6 +14,7 @@
 #define SCHEMA_SCHEMA_HPP_INCLUDED
 
 #include "schema/types_wrappers.hpp"
+#include <atomic>
 #include "schema/baked_instances.hpp"
 #include "schema/baked_bulk_data.hpp"
 #include "schema/data_block.hpp"
@@ -30,6 +31,23 @@ namespace detail
 struct STypesCatalogue;
 class CSchemaConstruction;
 }
+
+// Trusted retained documents have already been structurally admitted. Each source
+// supplies exactly one immutable owner for the duration of process_schema().
+struct SSchemaProcessSource
+{
+    const CLiveDocument* live{};
+    const CBakedDocumentBlock* retained{};
+};
+
+struct SSchemaAssemblyPlan
+{
+    ESchemaAssembly operation{};
+    ESchemaOutput output{};
+    std::uint32_t count{};
+    std::int32_t roles[3]{ -1, -1, -1 };
+    [[nodiscard]] bool valid() const noexcept;
+};
 
 class CSchemaHandle
 {
@@ -126,6 +144,24 @@ struct SSchemaDiagnostic
     SDataOperationDiagnostic operation;
 };
 
+// Durable after the assembled document and all source borrows retire.
+struct SSchemaProcessingDiagnostic
+{
+    ESchemaOutput encoding{}; // none while inspecting or assembling inputs
+    ESchemaStage stage{};
+    ESchemaReason reason{};
+    ESchemaSource role{};
+    std::int8_t input{ -1 };
+    EReason types{};
+    EInstanceLoadReason instances{};
+    EBulkDataLoadReason bulk{};
+    SDataOperationDiagnostic operation;
+};
+
+[[nodiscard]] bool process_schema(const SSchemaAssemblyPlan& plan, const SSchemaProcessSource (&sources)[3],
+    const SDataOperationLimits limits, CBakedDocumentBlock& output, SSchemaProcessingDiagnostic& diagnostic,
+    const std::atomic<bool>* const stop = nullptr) noexcept;
+
 class CSchema
 {
 public:
@@ -144,6 +180,7 @@ public:
         const CSchemaDocumentQuery& bulk_data, SSchemaDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool merge_from(const CSchemaDocumentQuery& first, const CSchemaDocumentQuery& second, SSchemaDiagnostic& diagnostic) noexcept;
     //  Full validation and runtime construction require contained types; no fallback.
+    [[nodiscard]] bool validate_structure(SSchemaDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool validate(SSchemaDiagnostic& diagnostic) const noexcept;
     //  Generic document save checks admission only. All output owners must be empty.
     [[nodiscard]] bool save(CBakedDocumentBlock& destination, SSchemaDiagnostic& diagnostic) const noexcept;

@@ -456,6 +456,65 @@ void CHostWorkerThread::startup() noexcept
     m_context.mark_running();
 }
 
+void SchemaProcessConditioning::execute() noexcept
+{
+    SchemaProcessConditioning& work = *this;
+    modules::CHostEligibleBudget budget;
+    if (work.deadline.generation && work.output)
+    {
+        const auto status = budget.resume(work.restriction, work.deadline);
+        if (status == modules::EBudgetStatus::expired) work.status = ESchemaProcessStatus::expired;
+        else if (status == modules::EBudgetStatus::failed) work.status = ESchemaProcessStatus::invalid_request;
+    }
+    if (!work.stop->load(std::memory_order_acquire) && work.output &&
+        (work.status == ESchemaProcessStatus::invalid_schema))
+    {
+        schema::SSchemaProcessingDiagnostic diagnostic;
+        // The independent publication allocation belongs to Host, including
+        // when the one-worker configuration also runs I/O on this thread.
+        auto* const prior = memory::set_thread_memory_context(work.parent);
+        const bool success = schema::process_schema(work.plan, work.sources, work.limits, *work.output, diagnostic, work.stop);
+        (void)memory::set_thread_memory_context(prior);
+        if (work.stop->load(std::memory_order_acquire)) work.status = ESchemaProcessStatus::cancelled;
+        else if (success) work.status = ESchemaProcessStatus::success;
+        else
+        {
+            const auto& op = diagnostic.operation;
+            auto& failure = work.failure;
+            failure.stage = (diagnostic.encoding == schema::ESchemaOutput::none) ? ESchemaProcessStage::assembly :
+                ((diagnostic.encoding == schema::ESchemaOutput::schema_document) ? ESchemaProcessStage::encoding : ESchemaProcessStage::baking);
+            failure.reason = static_cast<std::uint16_t>(diagnostic.reason);
+            failure.role = static_cast<std::uint8_t>(diagnostic.role);
+            failure.input = diagnostic.input;
+            failure.limit = op.limit;
+            failure.requested = op.requested;
+            failure.allowed = op.allowed;
+            if (op.entry[0])
+            {
+                failure.location = ESchemaLocation::record_member;
+                failure.first = op.record;
+                failure.second = UINT32_MAX;
+            }
+            if ((op.reason == schema::EDataOperationReason::limit_exceeded) ||
+                (diagnostic.reason == schema::ESchemaReason::storage_limit)) work.status = ESchemaProcessStatus::limit_exceeded;
+            else if ((op.reason == schema::EDataOperationReason::allocation_failed) ||
+                (diagnostic.reason == schema::ESchemaReason::allocation_failed)) work.status = ESchemaProcessStatus::allocation_failed;
+            else if ((diagnostic.reason == schema::ESchemaReason::conflicting_value) ||
+                (diagnostic.reason == schema::ESchemaReason::incompatible_definition) ||
+                (diagnostic.reason == schema::ESchemaReason::unestablished_compatibility)) work.status = ESchemaProcessStatus::conflict;
+            MV_LOG_RICH(info, "Host schema client %llu request %llu status %u schema %u/%u operation %u/%u types/instances/data %u/%u/%u entry %s path %s",
+                static_cast<unsigned long long>(work.client), static_cast<unsigned long long>(work.request),
+                static_cast<unsigned>(work.status), static_cast<unsigned>(diagnostic.stage),
+                static_cast<unsigned>(diagnostic.reason), static_cast<unsigned>(op.stage),
+                static_cast<unsigned>(op.reason), static_cast<unsigned>(diagnostic.types),
+                static_cast<unsigned>(diagnostic.instances), static_cast<unsigned>(diagnostic.bulk), op.entry, op.path);
+        }
+    }
+    // All worker reads and producer-compiled destruction precede acknowledgement.
+    for (auto& source : work.sources) source = {};
+    work.envelope.destroy();
+}
+
 void CHostWorkerThread::operate() noexcept
 {
     std::uint32_t epoch = 0u;
@@ -469,6 +528,32 @@ void CHostWorkerThread::operate() noexcept
 
             switch (inbound_msg.query_message_type_id().raw_value())
             {
+                case k_type_id_v<SchemaProcessWork>.raw_value():
+                {
+                    SchemaProcessWork work;
+                    if (!inbound_msg.copy_payload_to(work) || (static_cast<bool>(work.process) == static_cast<bool>(work.reclaim)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    if (work.reclaim)
+                    {
+                        MV_INFO("Host schema output reclamation, backing {}", inbound_msg.query_async_slot());
+                        work.reclaim->deallocate();
+                    }
+                    else
+                    {
+                        MV_INFO("Host schema request conditioning, client {} request {}", work.process->client, work.process->request);
+                        work.process->execute();
+                    }
+                    const SchemaProcessDone done{ work.reclaim != nullptr };
+                    if (!m_context.post(threading::make_pod_message(inbound_msg.query_async_slot(), done)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
                 case k_type_id_v<SchemaConditionWork>.raw_value():
                 {
                     SchemaConditionWork request;

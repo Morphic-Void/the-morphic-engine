@@ -1,5 +1,7 @@
 # Host prepared-schema conditioning
 
+For composition, merging or a complete retained runtime block, see [Host schema processing](host-schema-processing.md).
+
 Approved 6 November 2026. This is a nominated, platform-independent Host
 conditioning operation. Host workers execute Host/Foundation code; requests contain
 no module function, callback or arbitrary job. Batch runners and their inline
