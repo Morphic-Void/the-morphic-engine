@@ -34,8 +34,9 @@ static bool payload(const services::ServiceRequest& command, T& value) noexcept
 
 CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
     const native::SWindowAdapter& adapter, const platform::threading::SAwakeClock clock,
-    const native::SControllerAdapter& controllers) noexcept
-    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }, m_controller_adapter{ controllers }, m_preparation{ clock }
+    const native::SControllerAdapter& controllers, const native::SReportAdapter& reports) noexcept
+    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }, m_report{ context, clock, reports },
+      m_controller_adapter{ controllers }, m_preparation{ clock }
 {
     m_window.native.runtime = this;
     m_controllers.runtime = this;
@@ -405,6 +406,7 @@ bool CPlatformRuntime::message(const ::threading::CErasedPodMsg& message) noexce
     acceptance::message(message);
 #endif
     configuration_message(message);
+    m_report.message(message);
     input_message(message);
     services::ServiceBorrowControl control;
     services::ServiceRequestCancelled cancelled;
@@ -674,6 +676,7 @@ void CPlatformRuntime::progress_window() noexcept
 
 bool CPlatformRuntime::stopped() const noexcept
 {
+    if (m_report.active()) return false;
 #if defined(MV_INPUT_ACCEPTANCE)
     if (!acceptance::retired()) return false;
 #endif
@@ -713,6 +716,7 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
     progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
         !m_window.destruction_failed) ? 1u : 0u;
     if (m_configuration_runnable) progress.work_pending = 1u;
+    if (m_report.runnable()) progress.work_pending = 1u;
     if (m_desktop.runnable()) progress.work_pending = 1u;
     if (m_controllers.work_pending) progress.work_pending = 1u;
     for (const TInstance<CInputConnection>& connection : m_inputs)
@@ -819,12 +823,14 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_inputs();
     progress_window();
     progress_configurations(remaining());
+    m_report.progress((m_stopping || m_host_stop), std::min(remaining(), UINT64_C(500000)));
     progress_catalogues();
     progress(result.progress);
 #if defined(MV_INPUT_ACCEPTANCE)
     acceptance::progress(*this, m_stopping);
     acceptance::pump_end();
 #endif
+    if (clock_valid) m_report.observe_pump(start);
 }
 
 }   //  namespace platform::runtime

@@ -21,6 +21,7 @@
 #include "tests/test_suites/SchemaTraversal_test_cases.hpp"
 
 int run_platform_window_focused();
+int run_platform_report_focused();
 int run_platform_input_focused();
 int run_platform_native_tests();
 int run_platform_input_native(const bool interactive);
@@ -86,6 +87,11 @@ int main(const int argc, char** const argv)
             const int result = run_bulk_transport_tests();
             if (!test_environment::is_clean()) return 1;
             return result;
+        }
+        if (std::strcmp(argv[i], "--platform-report") == 0)
+        {
+            const int result = run_platform_report_focused();
+            return test_environment::is_clean() ? result : 1;
         }
         if (std::strcmp(argv[i], "--platform-window") == 0) return run_platform_window_focused();
         if (std::strcmp(argv[i], "--platform-input") == 0)

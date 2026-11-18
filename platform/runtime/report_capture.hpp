@@ -1,0 +1,51 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    report_capture.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    18 Nov 26
+//
+//  Single owner-pump capture with a retained outcome and exact receipt retirement.
+
+#pragma once
+
+#include "native/report.hpp"
+#include "framework/platform/report_memory.hpp"
+#include "framework/module/host_pump.hpp"
+#include "framework/threading/messages/CErasedOwnerMsg.hpp"
+
+namespace platform::runtime
+{
+
+class CReportCapture
+{
+public:
+    CReportCapture(const modules::SHostPumpContext& context, const platform::threading::SAwakeClock clock,
+        const native::SReportAdapter& adapter) noexcept : m_context{ context }, m_clock{ clock }, m_adapter{ adapter }, m_budget{ clock } {}
+    void message(const ::threading::CErasedPodMsg& message) noexcept;
+    void observe_pump(const std::uint64_t start) noexcept;
+    void progress(const bool stopping, const std::uint64_t share_ns) noexcept;
+    [[nodiscard]] bool active() const noexcept { return m_phase != EPhase::idle; }
+    [[nodiscard]] bool runnable() const noexcept { return active() && (m_phase != EPhase::receipt); }
+
+private:
+    enum class EPhase { idle, start, native, schema, post, receipt };
+    void fail(const reports::SFailure failure) noexcept;
+    bool eligible(const bool stopping) noexcept;
+    void build() noexcept;
+    const modules::SHostPumpContext& m_context;
+    const platform::threading::SAwakeClock m_clock;
+    const native::SReportAdapter& m_adapter;
+    modules::CHostEligibleBudget m_budget;
+    reports::SCaptureIdentity m_identity;
+    TInstance<reports::CReportMemory> m_memory;
+    TInstance<native::SReportSession> m_session;
+    ::threading::CErasedOwnerMsg m_envelope;
+    reports::SFailure m_failure;
+    std::uint64_t m_last_id{}, m_begin{}, m_max_call{}, m_schema_ns{}, m_max_pump{};
+    std::uint32_t m_attempts{}, m_calls{}, m_raw_modes{};
+    EPhase m_phase{ EPhase::idle };
+};
+
+}   //  namespace platform::runtime

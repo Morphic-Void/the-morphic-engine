@@ -71,7 +71,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>User32.lib;Gdi32.lib;Synchronization.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>User32.lib;Gdi32.lib;Dxgi.lib;Synchronization.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -116,10 +116,14 @@
     <ClInclude Include="..\platform\module\types\local_type_ids.hpp" />
     <ClInclude Include="..\platform\module\types\local_types.hpp" />
     <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
+    <ClCompile Include="..\platform\native\unsupported\report_unsupported.cpp" />
     <ClInclude Include="..\platform\native\window.hpp" />
     <ClInclude Include="..\platform\native\controllers.hpp" />
+    <ClInclude Include="..\platform\native\report.hpp" />
     <ClInclude Include="..\platform\native\controller_types.hpp" />
     <ClInclude Include="..\platform\native\windows\gameinput_state.hpp" />
+    <ClInclude Include="..\platform\native\windows\report_state.hpp" />
+    <ClInclude Include="..\platform\native\windows\report_api.hpp" />
     <ClCompile Include="..\platform\native\windows\controllers_windows.cpp" />
     <ClCompile Include="..\platform\native\unsupported\controllers_unsupported.cpp" />
     <ClCompile Include="..\platform\runtime\controller_input.cpp" />
@@ -127,8 +131,11 @@
     <ClInclude Include="..\platform\native\windows\input_windows.hpp" />
     <ClInclude Include="..\platform\native\desktop.hpp" />
     <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
+    <ClCompile Include="..\platform\native\windows\report_windows.cpp" />
     <ClCompile Include="..\platform\native\windows\input_windows.cpp" />
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
+    <ClCompile Include="..\platform\runtime\report_capture.cpp" />
+    <ClCompile Include="..\platform\runtime\report_candidate.cpp" />
     <ClCompile Include="..\platform\runtime\input_connection.cpp" />
     <ClCompile Include="..\platform\runtime\input_mapper.cpp" />
     <ClCompile Include="..\platform\runtime\desktop_input.cpp" />
@@ -142,6 +149,8 @@
     <ClInclude Include="..\platform\runtime\input_storage.hpp" />
     <ClInclude Include="..\platform\runtime\input_configuration.hpp" />
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
+    <ClInclude Include="..\platform\runtime\report_capture.hpp" />
+    <ClInclude Include="..\platform\runtime\report_candidate.hpp" />
     <ClCompile Include="..\platform\runtime\window_record.cpp" />
     <ClInclude Include="..\platform\runtime\window_record.hpp" />
     <ClInclude Include="..\platform\runtime\input_acceptance.hpp" />

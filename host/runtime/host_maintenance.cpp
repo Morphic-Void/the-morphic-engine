@@ -19,7 +19,8 @@ namespace host
 
 static std::uint32_t reply_count(const threading::CErasedPodMsg& message) noexcept
 {
-    if (connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
+    if (message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
+        connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
         message.is_payload_a<services::ServiceBorrowQuiescent>() || message.is_payload_a<services::CancelServiceRequest>())
     {
         return 0u;
@@ -301,7 +302,13 @@ bool CHostMaintenance::capture_owner(const bool worker) noexcept
         return false;
     }
     source.credits = source.client ? 2u : 0u;
-    if (source.client && !source.client->reserve_replies(source.credits))
+    if (source.client && !source.package)
+    {
+        const auto* const next = m_host.m_pumps[index]->peek_owner();
+        if (!next) return false;
+        if (next->is_message_a<platform::reports::PlatformReportCaptured>()) source.credits = 0u;
+    }
+    if (source.credits && !source.client->reserve_replies(source.credits))
     {
         m_pressure = true;
         return false;
@@ -527,7 +534,8 @@ void CHostMaintenance::replay() noexcept
             {
                 if (!owner->message.is_message_a<modules::ModuleRequest>())
                 {
-                    source.client->cancel_reservation(1u);
+                    const std::uint32_t required = owner->message.is_message_a<platform::reports::PlatformReportCaptured>() ? 0u : 1u;
+                    source.client->cancel_reservation(source.credits - required);
                 }
                 m_host.receive_request(owner->message, *source.client);
             }

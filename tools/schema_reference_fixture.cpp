@@ -245,7 +245,7 @@ static bool round_trip(const std::filesystem::path& directory, const unsigned co
     return allocations.current == 0u;
 }
 
-static bool read_fixture(const std::filesystem::path& path, const std::filesystem::path& inspection)
+static bool read_fixture(const std::filesystem::path& path, const std::filesystem::path& inspection, const bool schema_fixture)
 {
     std::ifstream input(path, (std::ios::binary | std::ios::ate));
     const std::streamoff size = input.tellg();
@@ -267,15 +267,63 @@ static bool read_fixture(const std::filesystem::path& path, const std::filesyste
     schema::SDataOperationDiagnostic error;
     schema::CDataBlockView view;
     CBakedDocumentBlock exported;
+    schema::SDataOperationLimits inspection_limits;
+    //  Full JSON reconstruction is an offline inspection, after report publication.
+    if (!schema_fixture) inspection_limits.work_credits = UINT64_C(1) << 26u;
     if (!generic.adopt_buffer(std::move(bytes)) || !block.adopt_local(std::move(generic), storage_error) ||
-        !view.bind(block, {}, error) || !inspect(view) || !schema::export_data(view, {}, exported, error))
+        !view.bind(block, {}, error) || (schema_fixture && !inspect(view)) || !schema::export_data(view, inspection_limits, exported, error))
     {
+        std::cerr << "Inspection failed, storage " << static_cast<unsigned>(storage_error.reason)
+            << ", operation " << static_cast<unsigned>(error.reason) << ", limit " << static_cast<unsigned>(error.limit)
+            << ", requested " << error.requested << ", allowed " << error.allowed << ", entry " << error.entry << ", path " << error.path << '\n';
         return false;
     }
     CDocumentWriteOptions options;
     options.mode = EDocumentWriteMode::strict_json;
     const CDocumentWriteResult written = document_writer::write(exported.document(), options);
     return written.report.succeeded() && write_bytes(inspection, written.output.data(), written.report.logical_text_byte_size);
+}
+
+static bool write_platform_layout(const std::filesystem::path& output)
+{
+    static constexpr char declarations[] =
+#include "../framework/platform/report_types.inl"
+    ;
+    CLiveDocument document;
+    schema::CResolvedTypes types;
+    schema::SDiagnostic diagnostic;
+    CByteBuffer header;
+    const CByteConstView bytes{ reinterpret_cast<const std::uint8_t*>(declarations), sizeof(declarations) - 1u, 1u };
+    if (!document_parser::parse(bytes, document).accepted() || !types.resolve(document, diagnostic) ||
+        !schema::generate_cpp(types, CStringView{ "platform_report_v1" }, header, diagnostic))
+    {
+        std::cerr << "Platform report layout generation failed, schema reason "
+            << static_cast<unsigned>(diagnostic.reason) << '\n';
+        return false;
+    }
+    std::string result(reinterpret_cast<const char*>(header.data()), header.size() - 1u);
+    result += "\n#include <cstddef>\n\nnamespace platform_report_v1\n{\n";
+    for (std::uint32_t i = 0u; i < types.definition_count(); ++i)
+    {
+        const schema::CTypesIndex index = types.definition_at(i);
+        schema::SType type;
+        if (!types.type(index, type)) return false;
+        if (type.category != schema::ECategory::structure) continue;
+        const CStringView name = types.name(type.name);
+        const std::string record(name.cstring(), name.length());
+        result += "static_assert(sizeof(" + record + ") == " + std::to_string(type.size) + "u);\n";
+        result += "static_assert(alignof(" + record + ") == " + std::to_string(type.alignment) + "u);\n";
+        for (std::uint32_t m = 0u; m < type.count; ++m)
+        {
+            schema::SMember member;
+            if (!types.member(types.member_at(index, m), member)) return false;
+            const CStringView field = types.name(member.name);
+            result += "static_assert(offsetof(" + record + ", " + std::string(field.cstring(), field.length()) +
+                ") == " + std::to_string(member.offset) + "u);\n";
+        }
+    }
+    result += "}\n";
+    return write_bytes(output, result.data(), result.size());
 }
 
 int main(const int argc, char** const argv)
@@ -285,9 +333,13 @@ int main(const int argc, char** const argv)
     memory::CMemoryContext memory{ allocator };
     (void)memory::set_module_memory_context(&memory);
     bool success{};
-    if ((argc == 4) && (std::strcmp(argv[1], "read") == 0))
+    if ((argc == 3) && (std::strcmp(argv[1], "platform-layout") == 0))
     {
-        success = read_fixture(argv[2], argv[3]);
+        success = write_platform_layout(argv[2]);
+    }
+    else if ((argc == 4) && ((std::strcmp(argv[1], "read") == 0) || (std::strcmp(argv[1], "inspect-platform") == 0)))
+    {
+        success = read_fixture(argv[2], argv[3], std::strcmp(argv[1], "read") == 0);
     }
     else if ((argc == 2) || ((argc == 3) && ((std::strcmp(argv[2], "64") == 0) || (std::strcmp(argv[2], "1024") == 0))))
     {
@@ -309,7 +361,8 @@ int main(const int argc, char** const argv)
     }
     else
     {
-        std::cerr << "Usage: MorphicSchemaFixture <output-directory> [64|1024] | read <input.bsd> <inspection.json>\n";
+        std::cerr << "Usage: MorphicSchemaFixture <output-directory> [64|1024] | read <input.bsd> <inspection.json>"
+            " | inspect-platform <input.bsd> <inspection.json> | platform-layout <output.inl>\n";
     }
     success = success && memory.is_attribution_empty() && !counts.current;
     (void)memory::set_module_memory_context(nullptr);

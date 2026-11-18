@@ -48,6 +48,15 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadResources.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_memory.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\platform\report_memory.cpp"><Filter>Framework\platform</Filter></ClCompile>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_types.inl"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_layout.inl"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_messages.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_validation.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\platform\report_validation.cpp"><Filter>Framework\platform</Filter></ClCompile>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_owner_payloads.def"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\controllers.hpp"><Filter>Framework\platform</Filter></ClInclude>

@@ -354,6 +354,7 @@ void CHost::start_pending_module() noexcept
         const auto& advertisement = m_module_service.pending_service_provider();
         m_providers[index] = { &client, advertisement.contracts, advertisement.contract_count };
         m_module_service.complete_thread_start(true);
+        if (module == module_ids::platform) m_asset_service.install_report_provider(client, pump);
         MV_LOG_RICH(info, "Host: Module %s host pump activated", system_id_registry::lookup_module_name(module));
     }
     else if (pump.failed() && pump.stopped() && client.incoming_drained &&
@@ -393,6 +394,7 @@ bool CHost::stop_module_thread(const mount_point_ids::id_type mount) noexcept
             }
             return false;
         }
+        m_asset_service.close_report_provider(client);
         pump.request_stop((m_module_service.pending_purpose() == CModuleService::EPurpose::shutdown) ?
             modules::EStopReason::shutdown : ((m_module_service.pending_action() == modules::EModuleAction::replace) ?
                 modules::EStopReason::replacement : modules::EStopReason::requested));
@@ -613,6 +615,11 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
 
 void CHost::receive_request(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept
 {
+    if (message.is_message_a<platform::reports::PlatformReportCaptured>())
+    {
+        m_asset_service.report_candidate(executive, message);
+        return;
+    }
     if (message.is_message_a<filesystem::FilesystemRefreshRequest>())
     {
         request_refresh(message, executive);
@@ -689,6 +696,18 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     connections::Close direct_close;
     connections::Quiescent direct_quiescent;
     const auto slot = message.query_async_slot();
+    platform::reports::PlatformReportCaptureFailed outcome;
+    if (message.copy_payload_to(outcome))
+    {
+        m_asset_service.report_failed(client, outcome);
+        return;
+    }
+    const bool update = message.is_payload_a<platform::reports::PlatformReportUpdateRequest>();
+    if (update || message.is_payload_a<platform::reports::PlatformReportRequest>())
+    {
+        m_asset_service.request_report(client, slot, update, m_work_admission_closed);
+        return;
+    }
     if (message.copy_payload_to(direct_register))
     {
         m_direct_connections.register_client(client, direct_register);
@@ -1099,7 +1118,8 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
 
 static bool zero_reply_control(const threading::CErasedPodMsg& message) noexcept
 {
-    return connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
+    return message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
+        connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
         message.is_payload_a<services::ServiceBorrowQuiescent>() || message.is_payload_a<services::CancelServiceRequest>();
 }
 
@@ -1145,18 +1165,17 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
     }
     for (std::uint32_t count = 0u; count < 64u; ++count)
     {
-        if (!client.reserve_replies(2u)) break;
-        threading::CErasedOwnerMsg message;
-        if (!pump.read(message))
+        const threading::CErasedOwnerMsg* const offered = pump.peek_owner();
+        if (!offered)
         {
-            client.cancel_reservation(2u);
             owners_drained = true;
             break;
         }
-        if (!message.is_message_a<modules::ModuleRequest>())
-        {
-            client.cancel_reservation(1u);
-        }
+        const std::uint32_t replies = offered->is_message_a<platform::reports::PlatformReportCaptured>() ? 0u :
+            (offered->is_message_a<modules::ModuleRequest>() ? 2u : 1u);
+        if (!client.reserve_replies(replies)) break;
+        threading::CErasedOwnerMsg message;
+        (void)pump.capture(message);
         receive_request(message, client);
         if (count == 63u) m_turn_pending = true;
     }
@@ -1342,7 +1361,7 @@ void CHost::run_turn() noexcept
             {
                 if (!owned.is_message_a<modules::ModuleRequest>())
                 {
-                    client->cancel_reservation(1u);
+                    client->cancel_reservation(owned.is_message_a<platform::reports::PlatformReportCaptured>() ? 2u : 1u);
                 }
                 receive_request(owned, *client);
             }
@@ -1406,6 +1425,7 @@ void CHost::run_turn() noexcept
     pump_clients();
     m_maintenance.poll_stop();
     apply_host_stop();
+    m_asset_service.progress_reports(m_work_admission_closed || (m_phase == EPhase::shutting_down));
     for (auto& client : m_clients)
     {
         if (client && client->terminal() && client->incoming_drained)

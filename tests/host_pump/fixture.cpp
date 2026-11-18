@@ -25,6 +25,10 @@
 #include "framework/services/service_borrow_client.hpp"
 #include "system/system_context.hpp"
 #include "framework/assets/asset_messages.hpp"
+#include "framework/platform/report_messages.hpp"
+#if MV_PLATFORM_WINDOWS && MV_PUMP_EXECUTIVE
+#include "platform/filesystem/file.hpp"
+#endif
 #include "containers/TInstance.hpp"
 #include "framework/threading/CThreadContext.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
@@ -122,7 +126,8 @@ static bool operation(threading::CThreadContext& context, const modules::EModule
     const module_ids::id_type module = module_ids::rendering)
 {
     const auto file = test_environment::module_filename((module == module_ids::platform) ?
-        "package:/bin/MorphicPlatform" : "package:/bin/MorphicPumpProvider");
+        ((scenario("platform-report-injected") || scenario("platform-report-cancel") || scenario("platform-report-shutdown") ||
+            scenario("platform-report-departure")) ? "package:/bin/MorphicInputPlatform" : "package:/bin/MorphicPlatform") : "package:/bin/MorphicPumpProvider");
     if (!context.post(module_request(module, action, file.c_str(), pump, thread)))
     {
         return false;
@@ -745,6 +750,257 @@ static bool modal_resource(threading::CThreadContext& context, const SServiceRou
     return operation(context, EModuleAction::unload, EModuleStatus::success) && self_stop(context, false);
 }
 
+static bool report_exchange(threading::CThreadContext& context, const bool update,
+    platform::reports::PlatformReportResult& result) noexcept
+{
+    using namespace platform::reports;
+    const auto request = update ? threading::make_pod_message(264, PlatformReportUpdateRequest{}) :
+        threading::make_pod_message(264, PlatformReportRequest{});
+    threading::CErasedPodMsg reply;
+    return context.post(request) && receive(context, reply) && (reply.query_async_slot() == 264) && reply.copy_payload_to(result);
+}
+
+static bool report_settled(threading::CThreadContext& context, platform::reports::PlatformReportResult& result)
+{
+    //  Polling is confined to the acceptance reader observing asynchronous initial activation.
+    platform::threading::CWaitDeadline deadline;
+    if (deadline.set_after_milliseconds(8000u).code != platform::threading::EWaitError::none)
+    {
+        return false;
+    }
+    do
+    {
+        if (!report_exchange(context, false, result))
+        {
+            return false;
+        }
+        if (!result.update_in_progress) return true;
+        if (result.acquisition)
+        {
+            threading::CErasedPodMsg reply;
+            AssetReleaseResult released;
+            if (!context.post(threading::make_pod_message(265, AssetReleaseRequest{ result.acquisition })) ||
+                !receive(context, reply) || !reply.copy_payload_to(released) || (released.status != EAssetStatus::success))
+            {
+                return false;
+            }
+        }
+        std::uint64_t remaining{};
+        if ((deadline.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none) || !remaining)
+        {
+            return false;
+        }
+    } while (true);
+}
+
+#if MV_PLATFORM_WINDOWS
+static bool report_bytes(const char* const path, const CByteConstView data)
+{
+    return platform::filesystem::saveFile(path, data);
+}
+
+#endif
+
+static bool release_report(threading::CThreadContext& context, const CAssetAcquisitionId token) noexcept
+{
+    threading::CErasedPodMsg reply;
+    AssetReleaseResult released;
+    return context.post(threading::make_pod_message(265, AssetReleaseRequest{ token })) && receive(context, reply) &&
+        reply.copy_payload_to(released) && (released.status == EAssetStatus::success) && (released.acquisition == token);
+}
+
+static bool report_departure(threading::CThreadContext& context)
+{
+    using namespace platform::reports;
+    PlatformReportResult current;
+#if MV_PUMP_REPLACEMENT
+    if (!report_settled(context, current) || (current.status != EStatus::success) ||
+        (current.last_update != ELastUpdate::succeeded) || !release_report(context, current.acquisition))
+    {
+        return false;
+    }
+    MV_LOG(info, "Replacement Executive acquired current after requester departure");
+    return operation(context, EModuleAction::unload, EModuleStatus::success, true, false, module_ids::platform) && self_stop(context, false);
+#else
+    return operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform) &&
+        report_settled(context, current) && (current.status == EStatus::success) && release_report(context, current.acquisition) &&
+        context.post(threading::make_pod_message(267, PlatformReportUpdateRequest{})) && self_stop(context, true);
+#endif
+}
+
+static bool cancel_report(threading::CThreadContext& context)
+{
+    using namespace platform::reports;
+    PlatformReportResult pending, unavailable;
+    if (!operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_exchange(context, false, pending) || (pending.status != EStatus::not_ready) || !pending.update_in_progress ||
+        pending.acquisition || (pending.last_update != ELastUpdate::none))
+    {
+        return false;
+    }
+    if (scenario("platform-report-shutdown"))
+    {
+        return self_stop(context, false);
+    }
+    return operation(context, EModuleAction::unload, EModuleStatus::success, true, false, module_ids::platform) &&
+        report_exchange(context, false, unavailable) && (unavailable.status == EStatus::unavailable) &&
+        !unavailable.update_in_progress && self_stop(context, false);
+}
+
+static bool injected_report(threading::CThreadContext& context)
+{
+    using namespace platform::reports;
+    PlatformReportResult initial, retained, update;
+    if (!operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_settled(context, initial) || (initial.status != EStatus::success) || !initial.acquisition || !initial.bytes.size())
+    {
+        return false;
+    }
+    const auto* const bytes = initial.bytes.data();
+    const auto signature = bytes[0];
+    for (const EStage expected : { EStage::capture, EStage::validation })
+    {
+        //  A foreign producer outcome can never complete an Executive request.
+        const PlatformReportCaptureFailed foreign{ { { 1u }, 2u }, { EStage::capture, EReason::clock_failed } };
+        if (!context.post(threading::make_pod_message(-1, foreign)) || !report_exchange(context, true, update) ||
+            (update.status != EStatus::failed) || (update.availability != EAvailability::available) ||
+            (update.last_update != ELastUpdate::failed) || (update.failure.stage != expected) || update.acquisition ||
+            update.bytes.size() || !report_settled(context, retained) || (retained.status != EStatus::success) ||
+            (retained.bytes.data() != bytes) || (retained.acquisition == initial.acquisition) || !release_report(context, retained.acquisition))
+        {
+            return false;
+        }
+    }
+    if (!context.post(threading::make_pod_message(267, PlatformReportUpdateRequest{})) ||
+        !context.post(threading::make_pod_message(268, PlatformReportUpdateRequest{})) ||
+        !context.post(threading::make_pod_message(269, PlatformReportRequest{})))
+    {
+        return false;
+    }
+    unsigned seen{};
+    for (unsigned i = 0u; i < 3u; ++i)
+    {
+        threading::CErasedPodMsg reply;
+        PlatformReportResult result;
+        if (!receive(context, reply) || !reply.copy_payload_to(result))
+        {
+            return false;
+        }
+        switch (reply.query_async_slot())
+        {
+            case 267:
+            {
+                if ((result.status != EStatus::success) || !result.acquisition || (result.bytes.data() == bytes))
+                {
+                    return false;
+                }
+                seen |= 1u;
+                update = result;
+                break;
+            }
+            case 268:
+            {
+                if ((result.status != EStatus::update_in_progress) || !result.update_in_progress || result.acquisition)
+                {
+                    return false;
+                }
+                seen |= 2u;
+                break;
+            }
+            case 269:
+            {
+                if ((result.status != EStatus::success) || (result.bytes.data() != bytes) || !result.update_in_progress)
+                {
+                    return false;
+                }
+                seen |= 4u;
+                retained = result;
+                break;
+            }
+            default:
+            {
+                return false;
+            }
+        }
+    }
+    if ((seen != 7u) || !release_report(context, retained.acquisition) || !operation(context, EModuleAction::unload, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_exchange(context, false, retained) || (retained.status != EStatus::unavailable) ||
+        !operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_settled(context, retained) || (retained.status != EStatus::success) || (bytes[0] != signature) ||
+        (retained.bytes.data() == bytes) || !release_report(context, initial.acquisition) ||
+        !release_report(context, update.acquisition) || !release_report(context, retained.acquisition))
+    {
+        return false;
+    }
+    return operation(context, EModuleAction::unload, EModuleStatus::success, true, false, module_ids::platform) && self_stop(context, false);
+}
+
+static bool platform_report(threading::CThreadContext& context)
+{
+    using namespace platform::reports;
+    PlatformReportResult result;
+    if (!report_exchange(context, false, result) || (result.status != EStatus::unavailable) || result.acquisition ||
+        !operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_settled(context, result))
+    {
+        return false;
+    }
+    MV_LOG(info, "Report fixture initial status {}, stage {}, reason {}, native {}",
+        static_cast<unsigned>(result.status), static_cast<unsigned>(result.failure.stage),
+        static_cast<unsigned>(result.failure.reason), result.failure.native_error);
+#if MV_PLATFORM_WINDOWS
+    if ((result.status != EStatus::success) || !result.acquisition || !report_bytes("cold.bsd", result.bytes))
+    {
+        return false;
+    }
+    const PlatformReportResult cold = result;
+    if (!report_exchange(context, true, result) || (result.status != EStatus::success) ||
+        !result.acquisition || (result.acquisition == cold.acquisition) || !report_bytes("refresh.bsd", result.bytes))
+    {
+        return false;
+    }
+    const PlatformReportResult refresh = result;
+#else
+    if ((result.status != EStatus::not_ready) || (result.last_update != ELastUpdate::failed) ||
+        (result.failure.reason != EReason::unsupported_backend) || result.acquisition ||
+        !report_exchange(context, true, result) || (result.status != EStatus::failed) || result.acquisition ||
+        (result.failure.reason != EReason::unsupported_backend))
+    {
+        return false;
+    }
+#endif
+    if (!operation(context, EModuleAction::unload, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_exchange(context, false, result) || (result.status != EStatus::unavailable) ||
+        !operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform) ||
+        !report_settled(context, result))
+    {
+        return false;
+    }
+#if MV_PLATFORM_WINDOWS
+    if ((result.status != EStatus::success) || !result.acquisition || !report_bytes("reload.bsd", result.bytes) ||
+        !report_bytes("historical.bsd", cold.bytes) || !report_bytes("historical-refresh.bsd", refresh.bytes))
+    {
+        return false;
+    }
+    for (const CAssetAcquisitionId token : { cold.acquisition, refresh.acquisition, result.acquisition })
+    {
+        threading::CErasedPodMsg reply;
+        AssetReleaseResult released;
+        if (!context.post(threading::make_pod_message(265, AssetReleaseRequest{ token })) || !receive(context, reply) ||
+            !reply.copy_payload_to(released) || (released.status != EAssetStatus::success) || (released.acquisition != token))
+        {
+            return false;
+        }
+    }
+#else
+    if ((result.status != EStatus::not_ready) || (result.failure.reason != EReason::unsupported_backend))
+    {
+        return false;
+    }
+#endif
+    return operation(context, EModuleAction::unload, EModuleStatus::success, true, false, module_ids::platform) && self_stop(context, false);
+}
+
 static bool platform_shell(threading::CThreadContext& context)
 {
     const auto operation = [&](const modules::EModuleAction action, const modules::EModuleStatus expected,
@@ -825,6 +1081,70 @@ static bool platform_shell(threading::CThreadContext& context)
 }
 
 #if MV_PLATFORM_WINDOWS
+static bool live_report(threading::CThreadContext& context, const HWND window)
+{
+    using namespace platform::reports;
+    PlatformReportResult previous;
+    if (!report_settled(context, previous) || (previous.status != EStatus::success) ||
+        !context.post(threading::make_pod_message(266, PlatformReportUpdateRequest{})))
+    {
+        return false;
+    }
+    std::uint64_t worst{};
+    unsigned samples{};
+    const ULONGLONG begin = GetTickCount64();
+    PlatformReportResult updated;
+    for (;;)
+    {
+        threading::CErasedPodMsg reply;
+        if (context.read(reply))
+        {
+            if (!reply.copy_payload_to(updated) || (reply.query_async_slot() != 266))
+            {
+                return false;
+            }
+            break;
+        }
+        //  Exercise the owned test window while the same Host owner pumps the update.
+        if (!PostMessageW(window, WM_MOUSEMOVE, 0u, MAKELPARAM((samples & 63u), 8u)))
+        {
+            return false;
+        }
+        DWORD_PTR ignored{};
+        std::uint64_t before{}, after{};
+        if ((platform::threading::query_awake_nanoseconds(before).code != platform::threading::EWaitError::none) ||
+            !SendMessageTimeoutW(window, WM_NULL, 0u, 0u, SMTO_BLOCK, 7000u, &ignored) ||
+            (platform::threading::query_awake_nanoseconds(after).code != platform::threading::EWaitError::none) ||
+            (after < before))
+        {
+            return false;
+        }
+        worst = std::max(worst, (after - before));
+        ++samples;
+        if ((GetTickCount64() - begin) > 8000u)
+        {
+            return false;
+        }
+        Sleep(1u);
+    }
+    if (!samples || (updated.status != EStatus::success) || !report_bytes("window-refresh.bsd", updated.bytes))
+    {
+        return false;
+    }
+    for (const CAssetAcquisitionId token : { previous.acquisition, updated.acquisition })
+    {
+        threading::CErasedPodMsg reply;
+        AssetReleaseResult released;
+        if (!context.post(threading::make_pod_message(265, AssetReleaseRequest{ token })) ||
+            !receive(context, reply) || !reply.copy_payload_to(released) || (released.status != EAssetStatus::success))
+        {
+            return false;
+        }
+    }
+    MV_LOG(info, "Live Platform report refresh, window replies {}, maximum window response ns {}", samples, worst);
+    return true;
+}
+
 static bool platform_native(threading::CThreadContext& context)
 {
     using namespace platform::windows;
@@ -929,6 +1249,7 @@ static bool platform_native(threading::CThreadContext& context)
     {
         return false;
     }
+    if (scenario("platform-native-report") && !live_report(context, handle)) return false;
     const bool menu = scenario("platform-native-menu"), sizing = scenario("platform-native-size");
     const WPARAM command = menu ? SC_KEYMENU : (sizing ? (SC_SIZE + WMSZ_BOTTOMRIGHT) : SC_MOVE);
     if (!PostMessageW(handle, WM_SYSCOMMAND, command, (menu ? VK_SPACE : 0)))
@@ -1096,12 +1417,20 @@ static bool probe_sequence(threading::CThreadContext& context, const SServiceRou
 
 static bool run(threading::CThreadContext& context)
 {
+    if (scenario("platform-report-departure")) return report_departure(context);
+    if (scenario("platform-report-cancel") || scenario("platform-report-shutdown"))
+    {
+        return cancel_report(context);
+    }
+    if (scenario("platform-report-injected")) return injected_report(context);
+    if (scenario("platform-report")) return platform_report(context);
     if (scenario("platform-shell"))
     {
         return platform_shell(context);
     }
 #if MV_PLATFORM_WINDOWS
-    if (scenario("platform-native-move") || scenario("platform-native-size") || scenario("platform-native-menu"))
+    if (scenario("platform-native-move") || scenario("platform-native-size") || scenario("platform-native-menu") ||
+        scenario("platform-native-report"))
     {
         return platform_native(context);
     }

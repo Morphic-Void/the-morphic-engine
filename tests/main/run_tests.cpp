@@ -165,6 +165,7 @@ void print_usage()
         "  --schema           Run schema regression tests\n"
         "  --schema-references  Run focused text/span regressions\n"
         "  --schema-traversal   Run bounded traversal/depth regressions\n"
+        "  --platform-report  Run focused portable report capture tests\n"
         "  --platform-window  Run focused portable window/Host tests\n"
         "  --platform-input   Run synthetic portable input/Host tests\n"
         "  --platform-native  Explicit Windows visible-window/modal acceptance\n"

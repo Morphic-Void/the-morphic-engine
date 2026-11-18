@@ -49,6 +49,7 @@ EBudgetStatus CHostEligibleBudget::start(const SHostRestrictionReader reader, co
     m_status = EBudgetStatus::failed;
     m_error = { EWaitError::invalid_argument, 0u };
     m_reader = reader;
+    m_anchor = {};
     if (duration_ns > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
     {
         m_error.code = EWaitError::overflow;
@@ -57,10 +58,33 @@ EBudgetStatus CHostEligibleBudget::start(const SHostRestrictionReader reader, co
     const auto status = sample(m_start, m_generation, m_last_awake, m_error);
     if ((status == EBudgetStatus::failed) || (status == EBudgetStatus::retry)) return status;
     m_last = m_start;
+    m_anchor = { m_generation, m_start, m_last_awake, duration_ns };
     m_duration = duration_ns;
     m_error = {};
     m_status = duration_ns ? status : EBudgetStatus::expired;
     return m_status;
+}
+
+EBudgetStatus CHostEligibleBudget::resume(const SHostRestrictionReader reader, const SEligibleBudgetAnchor anchor) noexcept
+{
+    m_anchor = {};
+    m_error = { platform::threading::EWaitError::invalid_argument, 0u };
+    m_status = EBudgetStatus::failed;
+    if (!reader.is_valid() || !anchor.generation || (anchor.eligible_start_ns > anchor.awake_start_ns) ||
+        (anchor.duration_ns > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())))
+    {
+        return m_status;
+    }
+    m_reader = reader;
+    m_anchor = anchor;
+    m_generation = anchor.generation;
+    m_start = anchor.eligible_start_ns;
+    m_last = m_start;
+    m_last_awake = anchor.awake_start_ns;
+    m_duration = anchor.duration_ns;
+    m_error = {};
+    m_status = EBudgetStatus::running;
+    return observe().status;
 }
 
 SEligibleBudgetObservation CHostEligibleBudget::observe() noexcept

@@ -68,7 +68,8 @@ static bool matches_load_format(const EAssetKind kind, const EAssetFileFormat fo
 bool CAssetService::initialise() noexcept
 {
     return m_bundles.initialise() && m_assets.initialise() && m_acquisitions.initialise() &&
-        m_operations.initialise() && m_schemas.initialise();
+        m_operations.initialise() && m_schemas.initialise() &&
+        m_report_backings.initialise() && m_report_deliveries.initialise();
 }
 
 EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
@@ -88,7 +89,8 @@ void CAssetService::request_reference(const BundleReferenceRequest& request, con
 
 bool CAssetService::is_idle() const noexcept
 {
-    return m_operations.is_empty() && m_acquisitions.is_empty() && m_schemas.is_empty() && work_idle();
+    return m_operations.is_empty() && m_acquisitions.is_empty() && m_schemas.is_empty() &&
+        m_report_deliveries.is_empty() && !m_capture.identity.capture_id && work_idle();
 }
 
 bool CAssetService::work_idle() const noexcept
@@ -224,6 +226,11 @@ void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
 
 bool CAssetService::client_idle(const SClientRecord& client) const noexcept
 {
+    if ((m_report_provider == &client) && m_capture.identity.capture_id) return false;
+    for (std::int32_t i = m_report_deliveries.first_live(); i >= 0; i = m_report_deliveries.next_live(i))
+    {
+        if (m_report_deliveries.get_object(i)->client == &client) return false;
+    }
     for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
     {
         if (m_schemas.get_object(slot)->client == &client) return false;
@@ -477,6 +484,8 @@ void CAssetService::deallocate() noexcept
     m_operations.deallocate();
     m_schemas.deallocate();
     m_acquisitions.deallocate();
+    m_report_deliveries.deallocate();
+    m_report_backings.deallocate();
     m_assets.deallocate();
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {

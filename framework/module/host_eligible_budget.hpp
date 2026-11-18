@@ -23,18 +23,26 @@ struct SEligibleBudgetObservation
     platform::threading::WaitError error{ platform::threading::EWaitError::invalid_argument, 0u };
 };
 
+struct SEligibleBudgetAnchor
+{
+    std::uint64_t generation{}, eligible_start_ns{}, awake_start_ns{}, duration_ns{};
+};
+
 class CHostEligibleBudget
 {
 public:
     explicit CHostEligibleBudget(const platform::threading::SAwakeClock clock = {}) noexcept : m_clock{ clock } {}
     [[nodiscard]] EBudgetStatus start(const SHostRestrictionReader reader, const std::uint64_t duration_ns) noexcept;
     [[nodiscard]] SEligibleBudgetObservation observe() noexcept;
+    [[nodiscard]] SEligibleBudgetAnchor anchor() const noexcept { return m_anchor; }
+    [[nodiscard]] EBudgetStatus resume(const SHostRestrictionReader reader, const SEligibleBudgetAnchor anchor) noexcept;
 
 private:
     [[nodiscard]] EBudgetStatus sample(std::uint64_t& eligible, std::uint64_t& generation, std::uint64_t& awake,
         platform::threading::WaitError& error) const noexcept;
     platform::threading::SAwakeClock m_clock;
     SHostRestrictionReader m_reader;
+    SEligibleBudgetAnchor m_anchor;
     std::uint64_t m_generation{ 0u }, m_start{ 0u }, m_last{ 0u }, m_duration{ 0u };
     std::uint64_t m_last_awake{ 0u };
     EBudgetStatus m_status{ EBudgetStatus::failed };

@@ -59,4 +59,12 @@
     type_macro(direct_retired) \
     type_macro(direct_result) \
     type_macro(schema_prepare_request) \
-    type_macro(schema_prepare_result)
+    type_macro(schema_prepare_result) \
+    type_macro(platform_report_request) \
+    type_macro(platform_report_update_request) \
+    type_macro(platform_report_result) \
+    type_macro(platform_report_capture_request) \
+    type_macro(platform_report_captured) \
+    type_macro(platform_report_capture_failed) \
+    type_macro(platform_report_capture_cancel) \
+    type_macro(platform_report_capture_receipt)

@@ -14,6 +14,7 @@
 #include "runtime/pumped_client.hpp"
 #include "system/system_id_registry.hpp"
 #include "framework/assets/asset_messages.hpp"
+#include "framework/platform/report_messages.hpp"
 
 namespace host
 {
@@ -59,6 +60,20 @@ const threading::CErasedPodMsg* CPumpedClient::peek_pod(const bool control) noex
         ready = (control ? m_controls : m_pods).read(pending);
     }
     return ready ? &pending : nullptr;
+}
+
+const threading::CErasedOwnerMsg* CPumpedClient::peek_owner() noexcept
+{
+    if (!m_has_pending_owner) m_has_pending_owner = m_owners.capture(m_pending_owner);
+    return m_has_pending_owner ? &m_pending_owner : nullptr;
+}
+
+bool CPumpedClient::capture(threading::CErasedOwnerMsg& message) noexcept
+{
+    if (!m_has_pending_owner) return m_owners.capture(message);
+    message = std::move(m_pending_owner);
+    m_has_pending_owner = false;
+    return true;
 }
 
 void CPumpedClient::consume_pod(const bool control) noexcept
@@ -301,10 +316,18 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* const con
     {
         return services::EServiceStatus::closing;
     }
-    auto& queue = (message->is_payload_a<AssetReleaseRequest>() ||
+    platform::reports::PlatformReportCaptureFailed outcome;
+    const bool report = message->copy_payload_to(outcome);
+    auto& queue = (report || message->is_payload_a<AssetReleaseRequest>() ||
         message->is_payload_a<services::ReleaseServiceBorrow>() || message->is_payload_a<services::ServiceBorrowQuiescent>() ||
         message->is_payload_a<services::CancelServiceRequest>()) ?
         self->m_controls : self->m_pods;
+    if ((&queue == &self->m_controls) && self->m_client.report_outcome_reserved && (queue.writable_count() <= 1u) &&
+        (!report || (outcome.capture.capture_id != self->m_client.report_outcome_reserved) ||
+            (outcome.capture.platform_instance.value != self->m_client.instance.value)))
+    {
+        return services::EServiceStatus::busy;
+    }
     return queue.post(*message) ? services::EServiceStatus::success : services::EServiceStatus::busy;
 }
 
@@ -353,6 +376,21 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* const c
     if (self->m_client.terminal())
     {
         return services::EServiceStatus::closing;
+    }
+    if (self->m_client.report_outcome_reserved && (self->m_owners.writable_count() <= 1u))
+    {
+        const auto* const report = message->owner().payload<platform::reports::PlatformReportCaptured>();
+        if (!message->is_message_a<platform::reports::PlatformReportCaptured>() || !report ||
+            (report->capture.capture_id != self->m_client.report_outcome_reserved) ||
+            (report->capture.platform_instance.value != self->m_client.instance.value))
+        {
+            return services::EServiceStatus::busy;
+        }
+    }
+    if (message->is_message_a<platform::reports::PlatformReportCaptured>() &&
+        !message->owner().can_reattribute_to(self->m_owners.memory_context()))
+    {
+        return services::EServiceStatus::invalid_request;
     }
     return self->m_owners.post(std::move(*message)) ? services::EServiceStatus::success : services::EServiceStatus::busy;
 }

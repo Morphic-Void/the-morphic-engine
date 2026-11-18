@@ -16,6 +16,7 @@
 #include "platform/runtime/input_acceptance.hpp"
 #include "containers/TInstance.hpp"
 #include "debug/macros.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
 
 namespace platform::runtime
 {
@@ -84,7 +85,9 @@ struct SState
     services::EServiceQuiescence quiescence{ services::EServiceQuiescence::none };
     std::int32_t completion{ -1 };
     bool offered{}, completed{}, retiring{}, freeze_requested{}, native{};
-    bool controllers_started{};
+    bool controllers_started{}, report_case{}, report_hold{}, report_departure{};
+    std::uint64_t delay_end{};
+    std::uint32_t report_ordinal{}, report_steps{};
     std::uint64_t next_device{ 1u }, next_origin{}, pump_start{};
     SDevice devices[4];
     float keys[256]{};
@@ -106,6 +109,100 @@ static bool option(const char* const name, const char* const expected) noexcept
     return value && (std::strcmp(value, expected) == 0);
 #endif
 }
+static native::EReportStep report_step(native::SReportSession& session) noexcept
+{
+    using namespace platform_report_v1;
+    SState& state = *state_owner();
+    runtime::SReportCandidate& candidate = session.candidate;
+    PlatformReportHeader& header = candidate.header;
+    if (state.report_hold) return native::EReportStep::more;
+    if (state.report_departure && (state.report_ordinal == 2u))
+    {
+        std::uint64_t now{};
+        if (session.clock.read(now).code != platform::threading::EWaitError::none)
+        {
+            session.failure = { reports::EStage::capture, reports::EReason::clock_failed };
+            return native::EReportStep::failed;
+        }
+        if (!state.delay_end) state.delay_end = now + UINT64_C(250000000);
+        if (now < state.delay_end)
+        {
+            return native::EReportStep::more;
+        }
+    }
+    if (!state.report_departure && (state.report_ordinal == 2u))
+    {
+        session.failure = { reports::EStage::capture, reports::EReason::native_failure, reports::EErrorDomain::win32, 31u };
+        return native::EReportStep::failed;
+    }
+    //  A check-only step lets the Executive exercise overlapping public requests.
+    const bool denied = state.report_ordinal == 4u;
+    if (++state.report_steps <= (denied ? 1u : 4u)) ++session.native_calls;
+    if (state.report_steps < 8u)
+    {
+        return native::EReportStep::more;
+    }
+    header.discovery = denied ? PlatformDiscovery::unavailable : PlatformDiscovery::captured;
+    header.coverage = denied ? PlatformCoverage::limited : PlatformCoverage::complete;
+    header.inventory_query_id = 1u;
+    header.consistency_query_id = 2u;
+    if (state.report_ordinal == 3u) --header.limits.query_passes;
+    const schema::SSpanReference absent{ -1, 0, 0u };
+    if (denied)
+    {
+        header.adapters = header.sources = header.displays = header.paths = header.mode_catalogues = absent;
+    }
+    const std::uint32_t count = denied ? 2u : 4u;
+    header.queries = { 1, 0, count };
+    for (std::uint32_t i = 0u; i < count; ++i)
+    {
+        PlatformQueryResult row{};
+        row.id = i + 1u;
+        constexpr PlatformQueryKind kinds[]{ PlatformQueryKind::inventory, PlatformQueryKind::consistency_check,
+            PlatformQueryKind::desktop_annotation, PlatformQueryKind::adapter_output_inventory };
+        constexpr PlatformQueryApi apis[]{ PlatformQueryApi::windows_ccd, PlatformQueryApi::windows_ccd,
+            PlatformQueryApi::windows_gdi_devices, PlatformQueryApi::windows_dxgi };
+        row.kind = kinds[i];
+        row.api = apis[i];
+        row.native_flags = (i < 2u) ? 0x51u : 0u;
+        row.subject_kind = PlatformSubjectKind::report;
+        row.status = PlatformQueryStatus::success;
+        row.call_count = row.attempts = 1u;
+        row.diagnostic.string_value_id = -1;
+        if (denied && !i)
+        {
+            row.status = PlatformQueryStatus::unavailable;
+            row.reason = PlatformQueryReason::access_denied;
+            row.error_domain = PlatformErrorDomain::win32;
+            row.native_error = 5u;
+        }
+        else if (denied)
+        {
+            row.status = PlatformQueryStatus::blocked;
+            row.reason = PlatformQueryReason::dependency_missing;
+            row.blocked_by_query_id = 1u;
+            row.call_count = row.attempts = 0u;
+        }
+        if (!candidate.queries.push_back(row))
+        {
+            session.failure = { reports::EStage::capture, reports::EReason::allocation_failed };
+            return native::EReportStep::failed;
+        }
+    }
+    if (session.clock.read(header.capture_end_ns).code != platform::threading::EWaitError::none)
+    {
+        session.failure = { reports::EStage::capture, reports::EReason::clock_failed };
+        return native::EReportStep::failed;
+    }
+    return native::EReportStep::finished;
+}
+
+const native::SReportAdapter& report_adapter() noexcept
+{
+    static constexpr native::SReportAdapter injected{ &report_step };
+    return state_owner()->report_case ? injected : native::report_adapter();
+}
+
 bool initialise(const modules::SHostPumpContext& context) noexcept
 {
     if (state_owner() || !state_owner().emplace(context))
@@ -114,6 +211,9 @@ bool initialise(const modules::SHostPumpContext& context) noexcept
         return false;
     }
     SState& state = *state_owner();
+    state.report_hold = option("MORPHIC_PUMP_CASE", "platform-report-cancel") || option("MORPHIC_PUMP_CASE", "platform-report-shutdown");
+    state.report_departure = option("MORPHIC_PUMP_CASE", "platform-report-departure");
+    state.report_case = state.report_hold || state.report_departure || option("MORPHIC_PUMP_CASE", "platform-report-injected");
     state.native = option("MORPHIC_INPUT_SOURCE", "native");
     state.shared.tracing = !option("MORPHIC_INPUT_TRACE", "off");
     if (!state.shared.feed.initialise(k_feed_capacity) ||
@@ -157,6 +257,56 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
 {
     if (!state_owner()) return;
     SState& state = *state_owner();
+    if (state.report_case)
+    {
+        reports::PlatformReportCaptureRequest request;
+        reports::PlatformReportCaptureReceipt receipt;
+        reports::PlatformReportResult current;
+        AssetReleaseResult released;
+        if (message.copy_payload_to(request))
+        {
+            ++state.report_ordinal;
+            state.report_steps = 0u;
+            if (state.report_ordinal > 1u)
+            {
+                const reports::PlatformReportCaptureFailed stale{
+                    { request.capture.platform_instance, (request.capture.capture_id - 1u) }, { reports::EStage::capture, reports::EReason::clock_failed } };
+                const auto previous = ::threading::make_pod_message(-1, stale);
+                (void)state.context.services->post_pod(state.context.service_context, &previous);
+            }
+        }
+        else if (message.copy_payload_to(receipt) && state.report_hold && (receipt.disposition == reports::EDisposition::interrupted))
+        {
+            MV_LOG(info, "Platform consumed the pending-capture interruption receipt");
+        }
+        else if (message.copy_payload_to(receipt) && state.report_departure && (state.report_ordinal == 2u) &&
+            (receipt.disposition == reports::EDisposition::published))
+        {
+            MV_LOG(info, "Host published maintenance capture across requester departure");
+        }
+        else if (message.copy_payload_to(receipt) && (state.report_ordinal == 1u) &&
+            (receipt.disposition == reports::EDisposition::published))
+        {
+            const auto read = ::threading::make_pod_message(710, reports::PlatformReportRequest{});
+            if (state.context.services->post_pod(state.context.service_context, &read) != EServiceStatus::success)
+            {
+                MV_LOG(error, "Platform report fixture could not submit current read");
+            }
+        }
+        else if (message.copy_payload_to(current) && (message.query_async_slot() == 710))
+        {
+            const auto release = ::threading::make_pod_message(711, AssetReleaseRequest{ current.acquisition });
+            if ((current.status != reports::EStatus::success) || !current.acquisition || !current.bytes.size() ||
+                (state.context.services->post_pod(state.context.service_context, &release) != EServiceStatus::success))
+            {
+                MV_LOG(error, "Platform report fixture failed to acquire current");
+            }
+        }
+        else if (message.copy_payload_to(released) && (message.query_async_slot() == 711) && (released.status == EAssetStatus::success))
+        {
+            MV_LOG(info, "Platform independently acquired and released the Host report");
+        }
+    }
     services::ServiceBorrowControl control;
     services::ServiceRequestCancelled cancellation;
     if (message.copy_payload_to(control) && (control.borrow.value == state.borrow.value) && state.borrow.value &&

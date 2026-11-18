@@ -11,6 +11,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (!$SkipBuild) {
+    & $MSBuild (Join-Path $repository 'visual_studio/MorphicInputPlatform.vcxproj') /m:2 `
+        "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" /v:minimal
+    if ($LASTEXITCODE -ne 0) { throw 'Report injection Platform fixture build failed.' }
     foreach ($role in @('Provider', 'Executive', 'Replacement')) {
         & $MSBuild (Join-Path $repository 'visual_studio/MorphicPumpFixture.vcxproj') /m:2 `
             "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" "/p:FixtureRole=$role" /v:minimal

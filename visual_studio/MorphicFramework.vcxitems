@@ -50,6 +50,15 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadResources.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_memory.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\platform\report_memory.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_types.inl" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_layout.inl" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_validation.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\platform\report_validation.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\controllers.hpp" />

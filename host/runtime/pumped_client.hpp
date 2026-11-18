@@ -33,8 +33,9 @@ public:
     [[nodiscard]] bool deactivate() noexcept;
     [[nodiscard]] const threading::CErasedPodMsg* peek_pod(const bool control) noexcept;
     void consume_pod(const bool control) noexcept;
-    [[nodiscard]] bool read(threading::CErasedOwnerMsg& message) noexcept { return m_owners.read(message); }
-    [[nodiscard]] bool capture(threading::CErasedOwnerMsg& message) noexcept { return m_owners.capture(message); }
+    [[nodiscard]] const threading::CErasedOwnerMsg* peek_owner() noexcept;
+    [[nodiscard]] bool capture(threading::CErasedOwnerMsg& message) noexcept;
+    [[nodiscard]] bool report_outcome_capacity() const noexcept { return m_controls.writable_count() && m_owners.writable_count(); }
     [[nodiscard]] bool ready() const noexcept { return m_client.phase == EClientPhase::ready; }
     [[nodiscard]] bool stopped() const noexcept { return m_client.phase == EClientPhase::stopped; }
     [[nodiscard]] bool deactivated() const noexcept { return m_deactivated; }
@@ -74,6 +75,8 @@ private:
     threading::transports::TRing<threading::CErasedPodMsg> m_pods;
     threading::transports::TRing<threading::CErasedPodMsg> m_controls;
     threading::CErasedPodMsg m_pending_pod, m_pending_control;
+    threading::CErasedOwnerMsg m_pending_owner;
+    bool m_has_pending_owner{};
     bool m_has_pending_pod{ false }, m_has_pending_control{ false };
     threading::transports::CErasedOwnerMsgTransport m_owners{ module_ids::executable, memory::get_ambient_memory_context() };
     modules::EStopReason m_stop_reason{ modules::EStopReason::requested };

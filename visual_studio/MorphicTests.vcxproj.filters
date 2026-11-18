@@ -123,6 +123,7 @@
     <ClCompile Include="..\host\system\system_id_definitions.cpp"><Filter>Host\src\system</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_schema.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\asset_platform_report.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\DocumentParser_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -335,12 +336,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>
+    <ClCompile Include="..\platform\native\unsupported\report_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>
     <ClInclude Include="..\platform\native\window.hpp"><Filter>Platform\include\native</Filter></ClInclude>
     <ClInclude Include="..\platform\native\windows\input_windows.hpp"><Filter>Platform\include\native\windows</Filter></ClInclude>
     <ClInclude Include="..\platform\native\desktop.hpp"><Filter>Platform\include\native</Filter></ClInclude>
     <ClCompile Include="..\platform\native\windows\window_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
+    <ClCompile Include="..\platform\native\windows\report_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
     <ClCompile Include="..\platform\native\windows\input_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\report_capture.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\platform\runtime\report_candidate.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\input_connection.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\input_mapper.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\desktop_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
@@ -354,17 +359,24 @@
     <ClInclude Include="..\platform\runtime\input_storage.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\platform\runtime\input_configuration.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\report_capture.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\platform\runtime\report_candidate.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
     <ClCompile Include="..\platform\runtime\window_record.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>
     <ClInclude Include="..\platform\runtime\window_record.hpp"><Filter>Platform\include\runtime</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\test_suites\PlatformWindow_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\PlatformReport_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\PlatformReportWindows_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\PlatformInput_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\GameInput_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\InputMapper_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClInclude Include="..\platform\native\controllers.hpp"><Filter>Platform\include\native</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\report.hpp"><Filter>Platform\include\native</Filter></ClInclude>
     <ClInclude Include="..\platform\native\controller_types.hpp"><Filter>Platform\include\native</Filter></ClInclude>
     <ClInclude Include="..\platform\native\windows\gameinput_state.hpp"><Filter>Platform\include\native\windows</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\windows\report_state.hpp"><Filter>Platform\include\native\windows</Filter></ClInclude>
+    <ClInclude Include="..\platform\native\windows\report_api.hpp"><Filter>Platform\include\native\windows</Filter></ClInclude>
     <ClCompile Include="..\platform\native\windows\controllers_windows.cpp"><Filter>Platform\src\native\windows</Filter></ClCompile>
     <ClCompile Include="..\platform\native\unsupported\controllers_unsupported.cpp"><Filter>Platform\src\native\unsupported</Filter></ClCompile>
     <ClCompile Include="..\platform\runtime\controller_input.cpp"><Filter>Platform\src\runtime</Filter></ClCompile>

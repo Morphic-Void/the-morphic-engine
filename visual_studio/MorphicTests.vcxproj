@@ -65,7 +65,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>User32.lib;Gdi32.lib;Synchronization.lib;Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>User32.lib;Gdi32.lib;Dxgi.lib;Synchronization.lib;Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -166,6 +166,7 @@
     <ClCompile Include="..\host\system\system_id_definitions.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\host\runtime\asset_schema.cpp" />
+    <ClCompile Include="..\host\runtime\asset_platform_report.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentParser_test_suite.cpp" />
@@ -321,10 +322,14 @@
   <ItemGroup><Manifest Include="..\host\entry\windows.manifest" /></ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
+    <ClCompile Include="..\platform\native\unsupported\report_unsupported.cpp" />
     <ClInclude Include="..\platform\native\window.hpp" />
     <ClInclude Include="..\platform\native\controllers.hpp" />
+    <ClInclude Include="..\platform\native\report.hpp" />
     <ClInclude Include="..\platform\native\controller_types.hpp" />
     <ClInclude Include="..\platform\native\windows\gameinput_state.hpp" />
+    <ClInclude Include="..\platform\native\windows\report_state.hpp" />
+    <ClInclude Include="..\platform\native\windows\report_api.hpp" />
     <ClCompile Include="..\tests\test_suites\GameInput_test_cases.cpp" />
     <ClCompile Include="..\platform\native\windows\controllers_windows.cpp" />
     <ClCompile Include="..\platform\native\unsupported\controllers_unsupported.cpp" />
@@ -333,8 +338,11 @@
     <ClInclude Include="..\platform\native\windows\input_windows.hpp" />
     <ClInclude Include="..\platform\native\desktop.hpp" />
     <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
+    <ClCompile Include="..\platform\native\windows\report_windows.cpp" />
     <ClCompile Include="..\platform\native\windows\input_windows.cpp" />
     <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
+    <ClCompile Include="..\platform\runtime\report_capture.cpp" />
+    <ClCompile Include="..\platform\runtime\report_candidate.cpp" />
     <ClCompile Include="..\platform\runtime\input_connection.cpp" />
     <ClCompile Include="..\platform\runtime\input_mapper.cpp" />
     <ClCompile Include="..\platform\runtime\desktop_input.cpp" />
@@ -348,9 +356,13 @@
     <ClInclude Include="..\platform\runtime\input_storage.hpp" />
     <ClInclude Include="..\platform\runtime\input_configuration.hpp" />
     <ClCompile Include="..\tests\test_suites\PlatformWindow_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\PlatformReport_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\PlatformReportWindows_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\PlatformInput_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\InputMapper_test_cases.cpp" />
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
+    <ClInclude Include="..\platform\runtime\report_capture.hpp" />
+    <ClInclude Include="..\platform\runtime\report_candidate.hpp" />
     <ClCompile Include="..\platform\runtime\window_record.cpp" />
     <ClInclude Include="..\platform\runtime\window_record.hpp" />
   </ItemGroup>

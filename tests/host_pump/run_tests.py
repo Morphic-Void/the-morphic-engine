@@ -18,14 +18,15 @@ import time
 REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
             "bad-provider-size", "bad-provider-version", "bad-provider-flags", "bad-provider-count",
             "bad-provider-null", "bad-provider-contract", "bad-provider-duplicate", "bad-provider-query")
-CASES = ("normal", "sequence", "empty-provider", "platform-shell") + REJECTED + (
+CASES = ("normal", "sequence", "empty-provider", "platform-shell", "platform-report", "platform-report-injected",
+         "platform-report-cancel", "platform-report-shutdown", "platform-report-departure") + REJECTED + (
          "activation-failed", "activation-null", "unauthorised-native-stop", "unauthorised-native-events", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
          "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed",
          "notify-normal", "notify-cancel", "notify-abandoned", "notify-replacement", "notify-shutdown",
          "modal-normal", "modal-full", "modal-shutdown", "modal-activation")
-NATIVE_CASES = ("platform-native-move", "platform-native-size", "platform-native-menu")
+NATIVE_CASES = ("platform-native-move", "platform-native-size", "platform-native-menu", "platform-native-report")
 
 
 def main():
@@ -76,13 +77,18 @@ def main():
             if case == "stop-timeout" and "Host: shutdown grace expired; continuing progress with live resources retained" in line:
                 continue
             raise RuntimeError(f"{case}: unexpected diagnostic {line}; inspect {runtime}")
-        if case not in REJECTED + ("activation-null", "platform-shell") + NATIVE_CASES:
+        if case not in REJECTED + ("activation-null", "platform-shell", "platform-report", "platform-report-injected",
+                                   "platform-report-cancel", "platform-report-shutdown", "platform-report-departure") + NATIVE_CASES:
             for marker in ("activation context and foreign-thread rejection passed", "begin stop", "stopped after continued progress"):
                 if marker not in events:
                     raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
             terminal = "quiescent state retained" if case == "deactivate-failed" else "deactivated"
             if terminal not in events:
                 raise RuntimeError(f"{case}: missing {terminal}; inspect {runtime}")
+        if case == "platform-report" and sys.platform == "win32":
+            for original, historical in (("cold", "historical"), ("refresh", "historical-refresh")):
+                if (runtime / f"{original}.bsd").read_bytes() != (runtime / f"{historical}.bsd").read_bytes():
+                    raise RuntimeError(f"Historical {original} changed across unload/reload; inspect {runtime}")
         if case == "shutdown-pending" and "cleanup reply received after Executive exit request" not in events:
             raise RuntimeError(f"Shutdown progress missing; inspect {runtime}")
         if case == "replacement" and "independent provider survived Executive replacement" not in events:
@@ -90,6 +96,11 @@ def main():
         if case in ("inbox-full", "emergency") and "full inbox and outbound backpressure established" not in events:
             raise RuntimeError(f"Backpressure not reached; inspect {runtime}")
         required = {
+            "platform-report-cancel": ("Platform consumed the pending-capture interruption receipt",),
+            "platform-report-shutdown": ("Platform consumed the pending-capture interruption receipt",),
+            "platform-report-departure": ("Host published maintenance capture across requester departure",
+                                          "Replacement Executive acquired current after requester departure"),
+            "platform-report-injected": ("Platform independently acquired and released the Host report",),
             "sequence": ("shared sequence pointer, wrap and reload passed",),
             "platform-shell": ("Platform unsupported service commands completed and route remained usable",),
             "cleanup-credits": ("512 disposal credits retained by live acquisitions",
@@ -102,6 +113,8 @@ def main():
         for marker in required.get(case, ()):
             if marker not in events:
                 raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+        if case == "platform-native-report" and "maximum window response ns" not in events:
+            raise RuntimeError(f"Missing live refresh response sample; inspect {runtime}")
         if case in NATIVE_CASES:
             for marker in ("Platform native modal scope authenticated by Host",
                            "Platform native shutdown retired borrow and destroyed window"):

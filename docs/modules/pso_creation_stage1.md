@@ -18,7 +18,8 @@ checkpoint. This expands the earlier creation-only proposal. The prerequisite de
 review is complete as recorded below; the complete Rendering implementation contract
 remains open. The user authorised schema-prerequisite implementation on 17 November
 2026; its implementation review and acceptance are now complete as recorded below.
-Platform reports and Rendering are not yet authorised.
+The user authorised Platform-report implementation on 18 November 2026 as recorded
+below. Rendering implementation remains unauthorised.
 The stage-design chat refines the design with the user and the overarching
 coordinator validates it.
 
@@ -1190,7 +1191,7 @@ visibility. Rendering still performs Vulkan-specific queries independently.
 | Virtual-mode/refresh interpretation | Request `QDC_VIRTUAL_MODE_AWARE` and `QDC_VIRTUAL_REFRESH_RATE_AWARE` where accepted. Use a finite compatibility fallback to older flag profiles when those flags are rejected; record the actual profile and reduced coverage. Keep reported virtual/physical refresh distinct without claiming VRR ranges. |
 | Names and native identity evidence | `DisplayConfigGetDeviceInfo` with source-name, target-name and adapter-name packets. Preserve GDI source names, monitor device paths and tagged adapter identity evidence; friendly names are labels and may be unavailable. Connector technology comes from valid path/device information. |
 | Session desktop/primary information | `EnumDisplayDevicesW` for adapter/source and monitor records; use `EDD_GET_DEVICE_INTERFACE_NAME` for monitor interface evidence. Read primary/desktop participation flags and correlate with CCD identities/source names where possible. Do not promote remembered or unmatched entries to confirmed connected displays. |
-| Format-qualified mode lists | A fresh `CreateDXGIFactory1`, `EnumAdapters1`/adapter descriptions, `EnumOutputs`/output descriptions and `IDXGIOutput1::GetDisplayModeList1`. Query `R8G8B8A8_UNORM` and `B8G8R8A8_UNORM`, including interlaced/scaled modes through their enumeration flags, without requesting stereo. Retain full mode combinations, format, rational refresh and scan/scaling qualifiers. |
+| Format-qualified mode lists (initial profile; revised scope below) | A fresh `CreateDXGIFactory1`, `EnumAdapters1`/adapter descriptions, `EnumOutputs`/output descriptions and `IDXGIOutput1::GetDisplayModeList1`. The initial implementation queries `R8G8B8A8_UNORM` and `B8G8R8A8_UNORM`, including interlaced/scaled modes through their enumeration flags, without requesting stereo. The [18 November scope and condensation decision](#platform-report-scope-and-condensation) supersedes collecting these as a two-format inventory; the concrete replacement query profile remains to be settled. |
 | Current desktop depth and restricted fallback | `EnumDisplaySettingsExW(ENUM_CURRENT_SETTINGS)` for valid `dmFields`, and sequential indexed enumeration only when the relevant DXGI mode query is unavailable/unsupported/failed. Use flags zero: no raw driver modes and no all-orientation expansion. Record integer refresh precision and source scope; never use registry settings as current state. |
 
 Use a new DXGI factory per capture so an earlier factory's adapter inventory is not
@@ -1310,6 +1311,11 @@ initial failure leaves no current report. A later explicit request may try again
 once accepted work and temporary resources have drained. It receives a new budget;
 there is no automatic chain of fresh-budget retries.
 
+The placement and baking assumptions below describe the initial implementation.
+The [18 November Host schema service decision](#host-schema-services-placement-decision)
+supersedes local Platform baking; native execution and the revised handoff remain
+to be settled.
+
 Start with capture owned and executed by Platform on its existing Host-pumped
 owner thread, outside native callbacks, restricted nested maintenance and the
 module-load/activation handshake. Initial capture is scheduled after activation;
@@ -1362,7 +1368,9 @@ not promises or limits supplied by Windows.
 #### Agreed Platform-to-Host capture, handoff and publication path
 
 The user accepted this producer-side capture/handoff/publication protocol on
-16 November 2026. Reuse existing authenticated
+16 November 2026. The [18 November Host schema service decision](#host-schema-services-placement-decision)
+requires revision of the already-baked candidate handoff below; its exact replacement
+is not yet settled. Reuse existing authenticated
 Host/client POD delivery to Platform's pumped inbox and Platform's `post_pod` /
 `post_owner` path back to Host. Add the specific shared Framework message types and
 Host/Platform handlers needed for this report; do not create a Rendering-owned
@@ -1598,6 +1606,11 @@ Native flags are the raw returned flags for the row's stated native provenance;
 normalised activity/availability fields remain the portable interpretation.
 
 Mode records, with fields in order:
+
+This is the initial implemented layout. The subsequent
+[scope and condensation decision](#platform-report-scope-and-condensation)
+requires a revised representation; its proposed sharing supersedes the original
+prohibition on deduplication across catalogues once the revised schema is settled.
 
 | Record | Fields |
 | --- | --- |
@@ -2619,12 +2632,478 @@ Platform report measurement. Qualify the concrete Platform phases and choose or
 explicitly accept their placement/timing at that prerequisite's gate.
 
 The user authorised the implementing chat to commit all outstanding uncommitted
-files after coordinator review. That initial commit is cleared, including the
-pre-existing shared-checkout changes within that authorisation; the user performs
-pushes. The user has unspecified follow-ups for after the initial commit. They
-are not treated as implemented or silently included in this acceptance; review
-their scope and effects when supplied. No subsequent implementation chat is
-authorised by this clearance.
+files after coordinator review. Initial delivery was committed as `3bf428d`.
+The subsequently authorised navigation/filter follow-ups and deferred Host
+responsiveness backlog entry passed coordinator review and were committed as
+`fc3c957`. Independent comparison established that all 78 affected C++ files
+changed only in include paths across 62 moves, with all 20 public schema headers
+retained at the root. This follow-up changed no algorithms, API shapes, ownership,
+stored layouts or markers. Neither commit was pushed by the agents; the user
+performs pushes. Schema acceptance remains valid, including its placement caveat.
+
+### Platform report implementation handoff
+
+On 18 November 2026 the user explicitly requested the Host-owned Platform report
+implementation chat using Astra at Extra-High. Chat
+`01a1ee5c-4046-7da3-bf87-14bc68702fdd` implements the agreed prerequisite in the
+shared checkout, starting from `fc3c957`, with this focused design chat
+(`01a1e419-b2d2-7f10-ade3-921130d6026c`) as its implementation-review coordinator.
+The schema prerequisite's acceptance gate is satisfied.
+
+The authorised scope includes the production Framework schema/messages, Platform
+native capture, Host admission/ownership/publication and lifecycle integration,
+build integration, documentation, applicable portable/Host/native validation and
+timing evidence. The agreed first-pass Windows query set, complete-report updates,
+limits, handoff/receipt protocol and independent reader lifetimes remain binding.
+The [Host responsiveness backlog](../backlog/engine_backlog.md#host-responsiveness-and-workload-placement)
+does not select instrumentation, thresholds, automatic migration or a new placement.
+Native qualification and the measured execution-placement decision remain part of
+this prerequisite's independent review/acceptance gate.
+
+This implementation authority does not authorise Rendering work, additional
+implementation chats, commits or pushes. Substantive contract/placement changes
+require discussion; the implementing chat delivers review-ready evidence before
+claiming independent acceptance. The top-level design/review record remains with
+this focused coordinator.
+
+The independent first-pass review is recorded in
+[Platform report coordinator review](platform_report_review.md). Acceptance remains
+open for the observed placement/deadline qualification and follow-up integration.
+The confirmed query-outcome/known-fact finding F1 is corrected and independently
+reviewed for the user-authorised checkpoint. The user agreed the compact inventory
+and generic Host service contract below. The known-field packing concern was
+resolved: those flags already occupy one mask. Native capture thread ownership,
+resource lifetime and whether an extra thread is appropriate remain open.
+
+### Host schema services placement decision
+
+On 18 November 2026 the user settled schema baking as a generic Host service,
+available to any module and executed through the Host conditioning thread. Platform
+transfers ownership of its authored schema input to Host for baking. This supersedes
+the initial local Platform bake and already-baked candidate handoff assumptions;
+it does not select a thread for native capture or authorise a report-specific Host
+construction service.
+
+Platform retains responsibility for the meaning of the report, including which
+observations become records, their fields, relationships and query provenance.
+Host's generic schema service understands schema structure, types, references,
+limits and runtime representation. It must perform the complete schema bake,
+including typed payload construction and reference remapping; the existing generic
+document bake alone does not provide that result.
+
+The user also identified schema merging as a reasonable generic Host service.
+Composition/merging can combine module-supplied declarations and authored data
+without Host knowing display-report construction rules. Its concrete inputs,
+conflict policy, reuse of static declarations and whether composition and baking
+form one conditioning operation remain design decisions. No change to the report's
+self-contained stored representation is implied.
+
+The concrete service and revised capture handoff still require design: accepted
+ownership transfer, result delivery/acquisition, bounded admission and diagnostics,
+and cancellation/unload/drain must retain inputs and results through worker
+retirement. The existing capture identity, deadline, independent report validation
+and owner-thread publication requirements continue to apply. Generic schema
+validation/baking and report-specific semantic admission are distinct operations;
+the former does not replace the latter. Moving bake work does not settle placement
+or cost of Platform's remaining record construction.
+
+The user requires a dedicated implementation chat for extending generic
+Host-provided services. Settle its service contract and scope before opening that
+chat; do not fold that implementation into the Platform report task. No new chat
+or implementation work is started by this design record.
+
+The user also reopened whether the Platform report captures more information than
+the first pass needs. Review full available-mode enumeration, its two native colour
+formats and interlaced/scaled inclusion, alongside output-less adapter diagnostics.
+Distinguish removing observations from sharing repeated representation. Retain the
+existing coverage until a revised scope is agreed; a smaller report is not selected
+merely by identifying these candidates. Current display state, available inactive
+targets, display-owner identities and query provenance remain relevant to the
+agreed discovery-snapshot purpose independently of the graphics proof.
+
+### Cross-platform discovery source preference
+
+On 18 November 2026 the user stated a general preference for Vulkan as a data
+source where reasonable, to reuse work across platforms. Initial targets are
+Windows and Linux, including SteamOS; secondary targets are macOS and Quest 3 or
+equivalent Android devices; Nintendo Switch 2 is a longer-term target. This guides
+source selection without expanding the current Windows prerequisite into an
+implementation of all backends.
+
+The user subsequently agreed that fixed platforms such as Quest 3 and Nintendo
+Switch may use bespoke handling or manually populated information from available
+documentation when support for each platform is added. Their requirements need
+not force a universal discovery mechanism into the current pass. Preserve the
+common platform-agnostic report model and identify documented/platform-supplied
+facts by their actual source rather than presenting them as successful API queries.
+Documented hardware properties do not establish mutable session state or the
+capabilities of a particular attached external display. Concrete fixed-platform
+providers, authored data and any required provenance representation are deferred
+until those platforms are supported.
+
+Public-source assessment on that date does not establish a representative driver
+support percentage for `VK_KHR_display`. It is an optional display/mode enumeration
+path, separate from the ordinary window-surface queries. Assess extension exposure,
+the relevant displays and facts actually returned, and whether queries work
+passively under the intended session. Enumeration and acquisition are distinct:
+the [direct-mode extension](https://docs.vulkan.org/refpages/latest/refpages/source/VK_EXT_direct_mode_display.html)
+explicitly permits enumeration of window-system-owned displays; inability to take
+exclusive control does not by itself prove they cannot be queried. Discovery must
+not acquire a display or alter desktop state merely to obtain an inventory.
+
+| Target | Evidence and qualification needed |
+| --- | --- |
+| Windows | Vulkan defines optional WinRT display mapping/acquisition, but this is not evidence of cross-vendor extension availability or complete desktop coverage. Qualify passive enumeration on target drivers. [Windows display mapping](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetWinrtDisplayNV.html). |
+| Linux / SteamOS | Vulkan has DRM display mapping that does not require DRM-master permission, distinct from acquisition that does. Access to the DRM device and driver/session behaviour still need qualification. Gamescope can expose a virtual screen to a game, so client-visible and physical-output inventories need explicit scope. [DRM mapping](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetDrmDisplayEXT.html), [Gamescope](https://github.com/ValveSoftware/gamescope). |
+| macOS | MoltenVK's current supported-extension list omits `VK_KHR_display` and uses Metal surfaces for presentation. Native display queries remain a candidate for desktop/mode facts. [MoltenVK runtime guide](https://github.com/KhronosGroup/MoltenVK/blob/main/Docs/MoltenVK_Runtime_UserGuide.md). |
+| Quest / Android | For Quest XR, the runtime exposes supported refresh rates through OpenXR; ordinary Android has `Display.getSupportedModes`. These are appropriate alternatives to investigate rather than assuming direct-display Vulkan enumeration. XR view/render extents must not be relabelled as physical panel modes. [Meta refresh-rate queries](https://developers.meta.com/vr/documentation/native/android/mobile-display-refresh-rate/), [Android display modes](https://developer.android.com/reference/android/view/Display#getSupportedModes()). |
+| Nintendo Switch 2 | Khronos publicly lists Nintendo Switch 2 as Vulkan 1.4 conformant, dated 3 May 2025. That establishes Vulkan support, not `VK_KHR_display` support or the concrete SDK integration. Check those separately when this target is pursued. [Khronos conformance registry](https://www.khronos.org/conformance/adopters/conformant-products/vulkan). |
+
+The proposed next qualification is a small passive inventory probe on relevant
+Windows drivers and Linux/SteamOS sessions, comparing native and Vulkan identities,
+display coverage and mode facts without changing display configuration. It should
+record explicit unsupported, denied, empty and failed outcomes. A positive extension
+advertisement alone is insufficient evidence that native inventory work can be
+removed. Exact source priorities, retained fields, cross-source comparison and
+report integration remain design decisions; no concrete native query is removed
+by the source preference alone. Report ownership and access remain shared through
+Host independently of which module implements a Vulkan data provider.
+
+### Platform report scope and condensation
+
+On 18 November 2026 the user chose a conservative reduction: remove Platform
+capture of texel/rasterisation-format information obtainable from Vulkan, and
+condense retained information to eliminate duplication where possible. Keep the
+display topology, current configuration and available timing-mode inventory.
+Vulkan remains responsible for its resource-format features and rendering/surface
+format support. The concrete reduced schema and native query profile were
+subsequently accepted below; production integration remains outstanding.
+
+The current Platform implementation does not query texture or render-target
+feature tables. Its relevant format data consists of native desktop observations
+and RGBA/BGRA-qualified DXGI mode catalogues. Native desktop depth/current pixel
+configuration describes actual OS state, not Vulkan resource support; retain
+that distinction rather than claiming Vulkan can replace those observations.
+
+The initial reduction proposal, refined by the agreed layout below:
+
+- Remove the second DXGI format enumeration performed solely for two-format
+  coverage. Enumerate timing modes using one fixed native format where the API
+  requires that argument, and retain it once with the query/catalogue provenance.
+  The exact format and revised coverage description remain to be settled. The
+  returned list stays explicitly scoped to that query; do not describe it as all
+  modes across every format or as proof of Vulkan usability.
+- Remove repeated per-mode RGBA/BGRA format values that can be derived from that
+  catalogue qualifier. Do not claim this removes an existing Platform GPU-format
+  capability table, since none is present.
+- Store retained mode values in a capture-local shared pool. Catalogues reference
+  their exact membership through compact indices; mode values need no catalogue
+  back-reference. Share identical membership sequences where possible. This permits
+  cross-catalogue reuse without falsely merging query scope or outcomes. Exact
+  record fields, index representation and header rooting remain to be settled.
+- Reuse identical text and identity payload storage where their type/context
+  permits, while preserving distinct evidence records when query provenance
+  differs. Inspect existing string interning before adding another deduplication
+  mechanism. Catalogue-level qualifiers are stored once rather than on every mode.
+
+Equality must include all retained values, known/unknown states, raw qualifiers and
+refresh precision; rounded Hz or matching labels are insufficient. Never replace
+exact catalogue membership with a union or a Cartesian product. Preserve distinct
+desktop/signal observations, query outcomes, absent versus present-empty results
+and identity evidence. Deduplication must fit existing capture/schema limits and
+be measured for both representation size and authoring/bake cost; a byte reduction
+alone is not proof of improved responsiveness.
+
+The existing implementation and captured evidence still describe the initial
+layout. Apply any agreed revision to producer, schema, validators, consumers,
+fixtures, generated layouts and current data under the pre-release version policy.
+Generic Host service extensions remain a separate implementation task.
+
+#### Agreed native filter and compact mode layout
+
+On 18 November 2026 the user accepted the native filter and compact layout below.
+This supersedes the initial two-format mode profile, per-mode IDs/back-references
+and prohibition on cross-catalogue range sharing. The user requested agreement on
+the generic Host schema service contract before starting its dedicated
+implementation chat; that chat has not been started by this record.
+
+For the first Windows profile, enumerate one catalogue per output through
+`GetDisplayModeList1`, using the bounded count/fetch sequence with
+`DXGI_FORMAT_R8G8B8A8_UNORM` and
+`DXGI_ENUM_MODES_INTERLACED | DXGI_ENUM_MODES_SCALING`. Do not request stereo,
+disabled stereo or an additional BGRA catalogue. Retain the required format filter
+and flags once per catalogue/query as provenance. This preserves the first of the
+existing two queries and its timing/scan/scaling coverage; it claims only the modes
+returned for that filter. A successful empty result remains known-empty, without
+trying another format or declaring that no other display modes exist.
+[DXGI filter contract](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgioutput1-getdisplaymodelist1).
+
+Retain the previously agreed restricted GDI fallback when the applicable DXGI
+inventory/query is unavailable, unsupported or failed. Use `EnumDisplaySettingsExW`
+with flags zero, preserving monitor/current-orientation filtering, valid `dmFields`,
+integer refresh precision and source scope. Retain the DXGI outcome independently;
+the fallback is not a cross-format support claim. Existing limits, finite retries,
+final topology check and deadline still apply.
+[GDI filter contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaysettingsexw).
+
+The retained Release capture supplies a useful representation comparison. Selecting
+only its RGBA catalogues leaves three lists containing 67, 75 and 648 rows. After
+removing row ID, catalogue ID and channel format, all 790 retained values remain
+distinct, including their known masks, native qualifiers and refresh components.
+There is no additional cross-list value sharing in this sample. This is evidence
+about that capture, not a claim about every future configuration.
+
+Consequently, refine the earlier index-pool suggestion for the first pass: use one
+shared mode-value collection with direct typed catalogue spans, and intern identical
+complete lists. This reuses existing span relocation and removes an unnecessary
+four-byte index per membership on this capture. Partial overlap between unequal
+lists is not factored in this initial representation; reconsider value indices
+if measured sharing justifies their storage and semantic-validation cost.
+
+Agreed `PlatformDisplayModeValue`, natural four-byte alignment:
+
+| Field | Storage | Meaning |
+| --- | --- | --- |
+| `known_fields` | u32 bit structure, 4 bytes | Bits 0..5: extent, refresh, depth, scan, scaling, rotation. |
+| `extent` | `PlatformExtent`, 8 bytes | Width/height in physical pixels. |
+| `refresh` | `PlatformRefresh`, 12 bytes | Precision and exact reported numerator/denominator. |
+| `bits_per_pixel` | u32, 4 bytes | Native reported display depth, where obtained; not a Vulkan resource format. |
+| `scan` | `PlatformScanValue`, 8 bytes | Normalised and raw native values. |
+| `scaling` | `PlatformScalingValue`, 8 bytes | Normalised and raw native values. |
+| `rotation` | `PlatformRotationValue`, 8 bytes | Normalised and raw native values. |
+
+This is 52 bytes per value, without per-value IDs, catalogue back-references or
+RGBA/BGRA fields. A value is interpreted through its catalogue and local ordinal;
+it has no independent persistent identity. `PlatformModeCatalogue.modes` becomes
+`Span<PlatformDisplayModeValue>?`; the remaining catalogue scope, identity, filter
+and query fields are retained. Header roots remain unchanged: catalogues reach the
+mode collection through typed spans. No separate membership collection is needed.
+
+Canonicalise a list by exact retained value, remove exact duplicates, and sort it
+deterministically. Share its complete range only with an equal canonical list in a
+compatible native-code context, retaining separate catalogue/query records. Text
+uses existing interning; identical typed identity-byte payload ranges may be shared
+while evidence rows keep their own provenance. Distinct CCD/GDI current observations
+remain distinct. Keep all references local to the complete self-contained report.
+
+Host admission checks the revised layout, six-bit known mask, zero unknown payloads,
+typed ranges, catalogue/query relationships and outcome/known-fact consistency.
+Validate every catalogue association even when its mode range is shared. Known-empty
+and absent remain distinct. Native returned counts and capture limits continue to
+count observations before deduplication; sharing cannot hide excess query work or
+reset memory/work allowances. Canonicalisation must remain bounded by those limits.
+
+On the retained sample, direct mode values would occupy 41,080 payload bytes versus
+107,440 initially, a 61.77% reduction for this part of the report. Values plus an
+index membership layer would occupy 44,240 bytes with no further sharing in that
+sample. These calculations exclude declarations, catalogue/query metadata, other
+tables and staging; they are not a measured bake-time or whole-report saving.
+
+### Agreed generic Host schema service contract
+
+On 18 November 2026 the user accepted the following service contract and requested
+agreement on concrete request/result schemas and ownership handoff before starting
+its dedicated implementation chat. The generic service
+is available to any authenticated module, and to Host's own consumers through the
+same operation machinery. Host schedules Foundation/Host code on its conditioning
+worker; a request never contains a module callback or report-construction function.
+
+#### Operations and results
+
+| Assembly operation | Inputs and semantics |
+| --- | --- |
+| Existing schema | One supplied schema document; preserve its contained sections. |
+| Compose roles | Select at most one source for each of `types`, `instances` and `data`, from at most three input documents. The same source may supply multiple roles. A missing optional role is empty; final runtime output still requires valid contained types and references. There is no implicit search or last-writer precedence. |
+| Merge two schemas | Two schema documents, using the existing schema merge compatibility/conflict rules. Reject incompatible definitions and conflicting values; do not invent a Host-specific overwrite policy. |
+
+Choose the output explicitly: an immutable schema document, or a complete immutable
+schema runtime data block. Composition/merging and optional runtime baking execute
+as one atomic conditioning operation. Schema-document output supports reusable
+declarations and further authoring; it is structurally admitted and does not assert
+runtime readiness. Runtime output requires full schema validation and the complete
+typed bake, including retained text, payloads and reference remapping. Generic
+document encoding alone is not runtime baking. Neither output implies Platform
+semantic validation, public report publication or file saving.
+
+#### Inputs, ownership and reuse
+
+An input is either an owning transferred `CLiveDocument`, or the identity of an
+immutable Host-retained schema document. Host pins retained sources through worker
+retirement; accepted owning transfer leaves no caller mutation/borrow. A rejected
+delivered envelope is retired through normal ownership transport, not returned as
+an implicitly usable caller document. A post that never transfers ownership leaves
+the caller's owner intact. Exact admission and terminal outcomes use existing
+authenticated async correlation and owning-message settlement.
+
+Reuse a Host-retained declaration document by asset identity across captures. This
+avoids repeatedly parsing/transporting the same declarations without making the
+output dependent on an external dictionary. Each runtime result remains complete
+and self-contained. Prepared/resolved-type caching may optimise this internally,
+but the existing prepared-schema descriptor is not a drop-in reference-aware
+baker, and the contract does not promise resolution occurs only once.
+
+Transferred nested storage must be correctly attributed and have a valid allocator
+and destruction lifetime. Host cannot unload a source module while a retained
+allocator/deleter still depends on its code. Report assembly remains the provider's
+responsibility; role composition does not interpret observations or generate report
+records. The revised Platform handoff may submit its authored input to this service
+internally in Host without returning a baked candidate to Platform first.
+
+#### Output lifetime, limits and failure
+
+Success returns a typed output-kind tag, Host asset identity, an already-granted
+acquisition and the complete immutable byte range. Inputs may retire once worker
+reads finish; output lifetime is independent of producer lifetime. Acquisition
+release ends the borrow; asset disposal is separate, using existing asset rules.
+Host's report service may retain the resulting backing for semantic admission and
+publication. A failed operation exposes no partial output and does not mutate a
+retained source or previously published result.
+
+Allow at most four in-flight operations for this new service, including queued,
+executing, pending reply and operation retirement. Published retained assets use
+the existing asset ownership/disposal limits rather than permanently occupying an
+execution slot. Reserve terminal outcome/acquisition capacity before worker
+dispatch. Defaults follow `SDataOperationLimits`: 64 MiB inspected input, 64 MiB
+simultaneous owned storage, 16 MiB result, 4,194,304 work credits, 262,144 document
+nodes, 262,144 records and depth 256. Callers may tighten them. Count all inputs,
+composition/merge intermediates, resolution, baking and retirement consistently;
+do not grant fresh allowances at each phase. Existing composition/merge entry
+points need a bounded integration path rather than an assumption that bounded
+baking alone covers their work. Limits are not a hard per-call time guarantee.
+
+Optional caller deadlines use the existing eligible-time model, covering queueing
+and processing without reset. The Platform capture retains its five-second
+deadline; that report policy is not a universal schema-service timeout. Cancellation
+or deadline expiry prevents publication and stops work at supported safe boundaries;
+already-entered synchronous schema work may finish before retirement. Host retains
+all accessed storage until worker acknowledgement or proved drain. No detached
+worker, forced termination or timeout-based freeing of live state is permitted.
+
+Return durable status/stage/reason, input/role attribution and available bounded
+path/limit details, without borrowed schema handles or diagnostic strings. Distinguish
+invalid input, conflict, limit, allocation, busy, cancellation, deadline and delivery
+failure. Follow existing ambiguous-delivery and client-quiescence rules. Expensive
+construction, validation, bake and normal reclamation belong on the conditioning
+worker; Host's owner thread performs bounded admission, source protection, final
+lifecycle/deadline checks and result publication. Qualify the existing one-worker
+I/O/conditioning configuration as well as normal worker placement.
+
+#### Proposed concrete messages and ownership handoff
+
+The following message design is proposed, not yet agreed. Use the existing
+authenticated owning-request route to Host and POD replies to the requesting async
+slot. Register shared Framework types and nested memory attribution; introduce no
+module callbacks or new general reply transport. Preserve the existing
+`SchemaPrepareRequest` service as its separately defined materialisation operation.
+
+`SchemaProcessRequest` is an owning envelope with these fields:
+
+| Field | Type and meaning |
+| --- | --- |
+| `contract_version` | u32, 1; reject unsupported values. |
+| `request_id` | Strong u64 ID, nonzero and monotonically increasing for this authenticated client installation. Never reuse it; it grants no authority across clients or reloads. |
+| `operation` | Enum: `existing`, `compose_roles`, `merge_two`. |
+| `output_kind` | Enum: `schema_document`, `runtime_data_block`. |
+| `input_count`, `inputs[3]` | Dense bounded input array; each tagged input contains either one owned `CLiveDocument` or an immutable retained schema-document `CAssetId`. Inactive alternatives/slots are empty. No external raw pointers or UTF-8 parsing requests. |
+| `types_source`, `instances_source`, `data_source` | i32 input indices for role composition; -1 means absent. Reusing one input for several roles is valid. These selectors are -1 for existing/merge operations. |
+| `limits` | Copied `SDataOperationLimits`, checked against service ceilings and shared across all phases. |
+| `deadline` | Optional copied eligible-time anchor; absent means no caller deadline. Host validates supplied anchors and retains authoritative restriction/time accounting. A report-owned operation inherits the original capture deadline. |
+
+Existing-schema operations require exactly one input; merging requires two;
+composition permits up to three and requires at least one selected role. Reject
+out-of-range selectors, unselected/extraneous inputs, noncanonical inactive fields,
+inaccessible/disposal-pending assets and invalid retained input kinds. A retained
+input is an immutable schema document, not an unvalidated runtime payload treated
+as an interchangeable document. No implicit files, external declarations or
+parser operation are added to this request.
+
+Propose three small POD messages on the same registered contract:
+
+- `SchemaProcessAccepted`: request ID and contract version, on the original async
+  slot. Host queues this after admission/source protection and before worker
+  dispatch. Admission reserves both this reply and one terminal result. A rejected
+  request receives only the terminal result.
+- `SchemaProcessCancel`: request ID and contract version, authenticated to the
+  original client. Send only after `Accepted`; a caller wishing to cancel sooner
+  remembers that intent until admission is known. This prevents a POD cancellation
+  overtaking the owning request. Cancellation has no separate result: the original
+  terminal reply settles the operation. A result already published is not revoked.
+- `SchemaProcessResult`: one terminal success/failure result on the original slot.
+  Common fields are request ID (u64), contract version (u16, 1), status (u8), output
+  kind (u8, `none` on failure) and reserved-zero u32, followed by a tagged body.
+
+The success body contains `CAssetId`, `CAssetAcquisitionId` and a pointer to immutable
+`SSchemaOutputV1`. The descriptor contains explicit size/version, output kind and
+the complete `CByteConstView`, including appended runtime payloads. Its lifetime
+and every byte it describes are covered by the returned acquisition. It is supplied
+with the reply, requiring no second acquire/fetch request. Consumers check
+size/version/kind before reading. The descriptor belongs to the retained backing,
+not a recyclable operation slot; disposal with outstanding acquisitions preserves
+both descriptor and bytes until those acquisitions retire. Destruction is Host-owned.
+
+The failure body is an allocation-free, copied 32-byte diagnostic: stage (u8),
+location kind (u8), reason (u16), input index (i8, -1 if unavailable), role (u8),
+exceeded-limit kind (u8), reserved-zero u8, requested/allowed values (u64 each)
+and two u32 location components. Location kind defines those components as source
+line/column or record/member ordinals. Final field order/alignment must keep this
+body at 32 bytes and the complete terminal reply within 48 bytes on Win32/x64.
+Detailed copied paths and underlying Foundation diagnostics are recorded in Host
+diagnostics under the authenticated request identity; no failure result borrows
+source handles, staging text or an expired diagnostic descriptor. Output storage,
+asset and acquisition are absent on failure. Status distinguishes success, invalid
+request/source/schema, conflict, limit, allocation, busy, cancelled, expired and
+delivery failure.
+
+Ownership linearisation and retirement:
+
+1. Before successful owning transport, the sender retains its envelope and may
+   retry an explicit untransferred busy outcome. After transport takes ownership,
+   the sender never reads, mutates, frees or retries that envelope, even if Host
+   later rejects admission. Transport success is not service admission.
+2. Host performs bounded envelope/identity checks, reserves operation and reply
+   capacity, and pins every retained source. Host rejection owns retirement of
+   transferred inputs and produces one failure result. Use bounded transport and
+   reclamation capacity; a busy result must not force large owner-thread teardown.
+3. Host publishes `Accepted` before dispatch, then gives the worker exclusive
+   access to address-stable input/budget storage. Cancellation state is synchronised
+   separately; owner progress never mutates a document the worker is reading.
+   Host owns source bindings and
+   allocator/deleter hazards until acknowledgement; accepting the envelope or
+   sending `Accepted` does not by itself make a source module safe to unload.
+4. The worker composes/merges, validates and encodes/bakes, then retires input/scratch
+   dependencies before reporting completion. Host rechecks cancellation, deadline
+   and exact client identity, then publishes a result for that client alone.
+   Failure/cancellation terminal results wait until worker access and input
+   retirement are settled; they are not early permission to free worker inputs.
+5. Success publication atomically establishes the asset/acquisition/descriptor.
+   Definite undelivered results retire privately. Ambiguous publication retains
+   potentially exposed backing through existing recipient-quiescence/drain proof;
+   never retry or reclaim it on an assumed delivery failure. Client loss cannot
+   retarget a replacement installation or invalidate another client's acquisition.
+6. `AssetReleaseRequest` ends the acquired borrow after all reads cease;
+   `AssetDisposeRequest` separately drops asset retention. Host may retain a result
+   for report publication or reusable declarations without retaining an execution
+   slot indefinitely. Normal heavy output retirement uses conditioning.
+
+The proposed descriptor-based reply is necessary to carry the existing full byte
+view and asset/acquisition together within the POD ceiling. It introduces no
+persisted external schema dependency and does not change byte-block format markers.
+Compile-time message/descriptor checks and injected delivery/cancel/unload cases
+must validate the final implementation on the supported architectures.
+
+#### Platform checkpoint before the separate Host service implementation
+
+The user authorised the Platform implementing chat to fix F1, obtain coordinator
+review and then commit a checkpoint of the outstanding Platform work. F1 is now
+corrected and independently reviewed; the checkpoint is cleared for commit with
+the current design/review/usage/validation records. This baseline
+may record the known placement/Win32 deadline qualification and newly agreed compact
+layout/Host service integration as outstanding; it is not full prerequisite
+acceptance and does not authorise Rendering. The implementing chat was instructed
+to make the targeted correction and return evidence for review before receiving
+the final commit go-ahead. The focused coordinator maintains the shared design and
+review documents. The Host service implementation chat starts only after its
+concrete contract/handoff is settled.
 
 ### Remaining Rendering decisions
 

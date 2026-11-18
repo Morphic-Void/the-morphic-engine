@@ -51,7 +51,7 @@ static modules::ECallStatus MV_STD_ABI_CALL activate(const modules::SHostPumpCon
 #if defined(MV_INPUT_ACCEPTANCE)
     if (!acceptance::initialise(*context)) return modules::ECallStatus::failed;
     if (!runtime_state().emplace(*context, acceptance::window_adapter(),
-        platform::threading::SAwakeClock{}, acceptance::controller_adapter()))
+        platform::threading::SAwakeClock{}, acceptance::controller_adapter(), acceptance::report_adapter()))
     {
         acceptance::destroy();
         return modules::ECallStatus::failed;

@@ -90,6 +90,8 @@ struct SClientRecord
     bool subscription_live{ false };
     bool invocation_offered{ false };
     bool prefix_failed{ false };
+    std::uint64_t report_request_consumed{}, report_receipt_consumed{};
+    std::uint64_t report_outcome_reserved{};
     std::uint32_t reserved_replies{ 0u };
     std::uint32_t message_count{ 0u };
     std::uint32_t reserved_control_replies{ 0u };

@@ -57,6 +57,7 @@ ordering are unchanged by this source-layout reconfiguration.
 - [Platform shell and first Windows window](modules/platform_first_window.md):
   on-demand module, explicit window uses, durable state, close policy and native
   acceptance evidence. Native Linux remains later work.
+- [Host-owned Platform report](modules/platform_report.md) covers current reads, whole-report updates, historical acquisition lifetime and native qualification.
 - [Portable input connections](modules/input_connections.md): typed streams,
   readiness, ordered recovery, reader helpers and synthetic validation.
 - [Input configuration installation](modules/input_configuration_installation.md):

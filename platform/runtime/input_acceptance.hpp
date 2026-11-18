@@ -14,6 +14,7 @@
 #include "framework/module/host_pump.hpp"
 #include "native/window.hpp"
 #include "native/controllers.hpp"
+#include "native/report.hpp"
 
 namespace platform::runtime
 {
@@ -26,6 +27,7 @@ namespace platform::acceptance
 inline constexpr services::SServiceContract k_contract{ 0x7ffeu, 1u };
 [[nodiscard]] bool initialise(const modules::SHostPumpContext& context) noexcept;
 void destroy() noexcept;
+[[nodiscard]] const native::SReportAdapter& report_adapter() noexcept;
 [[nodiscard]] const native::SWindowAdapter& window_adapter() noexcept;
 [[nodiscard]] const native::SControllerAdapter& controller_adapter() noexcept;
 [[nodiscard]] bool command(runtime::CPlatformRuntime& runtime, const services::SDispatchedCommand& command) noexcept;

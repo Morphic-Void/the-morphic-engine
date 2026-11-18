@@ -15,6 +15,7 @@
 #define TRANSPORTED_TYPES_HPP_INCLUDED
 
 #include "framework/assets/asset_messages.hpp"
+#include "framework/platform/report_messages.hpp"
 #include "framework/module/module_messages.hpp"
 #include "framework/filesystem/filesystem_messages.hpp"
 #include "framework/system/storage_type_bindings.hpp"

@@ -1,0 +1,2 @@
+//  Platform report transfer retains the nested block attribution.
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(platform::reports::PlatformReportCaptured, storage)

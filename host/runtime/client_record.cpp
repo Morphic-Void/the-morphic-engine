@@ -13,6 +13,7 @@
 #include <cstring>
 
 #include "runtime/client_record.hpp"
+#include "framework/platform/report_messages.hpp"
 #include "runtime/host_maintenance.hpp"
 
 namespace host
@@ -283,6 +284,22 @@ void SClientRecord::consume_messages(const std::uint32_t count, const std::uint3
 {
     const auto controls = std::min(count, offered_controls);
     MV_ASSERT(controls <= control_count);
+    for (std::uint32_t i = 0u; i < controls; ++i)
+    {
+        platform::reports::PlatformReportCaptureReceipt receipt;
+        if (control_messages[i].copy_payload_to(receipt) && (receipt.capture.platform_instance.value == instance.value))
+        {
+            report_receipt_consumed = receipt.capture.capture_id;
+        }
+    }
+    for (std::uint32_t i = 0u; i < (count - controls); ++i)
+    {
+        platform::reports::PlatformReportCaptureRequest request;
+        if (messages[i].copy_payload_to(request) && (request.capture.platform_instance.value == instance.value))
+        {
+            report_request_consumed = request.capture.capture_id;
+        }
+    }
     control_count -= controls;
     if (control_count != 0u)
     {

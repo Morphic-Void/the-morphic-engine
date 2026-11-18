@@ -15,6 +15,7 @@
 #include "runtime/input_connection.hpp"
 #include "runtime/input_configuration.hpp"
 #include "runtime/desktop_input.hpp"
+#include "runtime/report_capture.hpp"
 #include "native/controllers.hpp"
 #include "framework/assets/schema_messages.hpp"
 #include "containers/TInstance.hpp"
@@ -31,7 +32,8 @@ public:
     CPlatformRuntime(const modules::SHostPumpContext& context,
         const native::SWindowAdapter& adapter = native::window_adapter(),
         const platform::threading::SAwakeClock clock = {},
-        const native::SControllerAdapter& controllers = native::controller_adapter()) noexcept;
+        const native::SControllerAdapter& controllers = native::controller_adapter(),
+        const native::SReportAdapter& reports = native::report_adapter()) noexcept;
     [[nodiscard]] bool initialise() noexcept;
     void pump(const modules::SPumpInput& input, modules::SPumpResult& result) noexcept;
     void begin_stop(modules::SProgress& progress) noexcept;
@@ -118,6 +120,7 @@ private:
     const modules::SHostPumpContext& m_context;
     const native::SWindowAdapter& m_adapter;
     platform::threading::SAwakeClock m_clock;
+    CReportCapture m_report;
     SWindowRecord m_window;
     TUnorderedCollection<SWindowUse> m_uses;
     static constexpr std::uint32_t k_input_slots = 1u + input::k_controller_capacity;

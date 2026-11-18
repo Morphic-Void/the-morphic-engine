@@ -20,9 +20,12 @@
 #include "framework/assets/asset_messages.hpp"
 #include "runtime/host_payloads.hpp"
 #include "runtime/client_record.hpp"
+#include "framework/platform/report_validation.hpp"
 
 namespace host
 {
+
+class CPumpedClient;
 
 class CAssetService
 {
@@ -89,6 +92,13 @@ public:
     //  Requires idle operations and quiescent clients; the DLL must remain loaded.
     void dispose_dependencies(const mount_point_ids::id_type mount) noexcept;
     void complete_disposals() noexcept;
+
+    void install_report_provider(SClientRecord& client, CPumpedClient& pump) noexcept;
+    void close_report_provider(SClientRecord& client) noexcept;
+    void progress_reports(const bool admission_closed) noexcept;
+    void request_report(SClientRecord& client, const std::int32_t slot, const bool update, const bool closed) noexcept;
+    void report_candidate(SClientRecord& client, threading::CErasedOwnerMsg& message) noexcept;
+    void report_failed(SClientRecord& client, const platform::reports::PlatformReportCaptureFailed& outcome) noexcept;
 
     void request(threading::CErasedOwnerMsg& message, SClientRecord& client) noexcept;
     void request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
@@ -208,6 +218,47 @@ private:
         CAssetId source{};
         CAssetAcquisitionId identity{};
     };
+
+    struct SReportBacking
+    {
+        SAssetBackingState references;
+        schema::CBakedDataBlock block;
+    };
+    struct SReportDelivery
+    {
+        SClientRecord* client{};
+        std::int32_t slot{ -1 }, acquisition_slot{ -1 };
+        CAssetAcquisitionId token;
+        platform::reports::PlatformReportResult result;
+        bool ready{};
+    };
+    struct SReportCapture
+    {
+        platform::reports::SCaptureIdentity identity;
+        modules::CHostEligibleBudget budget{};
+        std::uint64_t copy_ns{}, adoption_ns{}, validation_ns{}, peak_bytes{};
+        std::int32_t delivery{ -1 }, backing{ -1 };
+        platform::reports::SFailure failure;
+        CErasedOwner candidate;
+        bool outcome{}, settled{}, cancel_sent{};
+    };
+    [[nodiscard]] platform::reports::PlatformReportResult report_state() const noexcept;
+    [[nodiscard]] bool report_matches(const SClientRecord& client, const platform::reports::SCaptureIdentity identity) const noexcept;
+    [[nodiscard]] platform::reports::SFailure start_report(const std::int32_t delivery) noexcept;
+    [[nodiscard]] bool grant_report(SReportDelivery& delivery, SReportBacking& backing) noexcept;
+    void settle_report() noexcept;
+    void retire_capture() noexcept;
+    void deliver_reports() noexcept;
+    SClientRecord* m_report_provider{};
+    CPumpedClient* m_report_pump{};
+    std::uint64_t m_next_capture{ 1u };
+    std::int32_t m_current_report{ -1 };
+    bool m_initial_report{}, m_report_closing{};
+    platform::reports::ELastUpdate m_report_last{};
+    platform::reports::SFailure m_report_failure;
+    SReportCapture m_capture;
+    TUnorderedCollection<SReportDelivery> m_report_deliveries;
+    TUnorderedCollection<SReportBacking> m_report_backings;
 
     [[nodiscard]] SBundleControl* find_bundle(const SAssetBackingState* const state) noexcept;
     [[nodiscard]] AssetResult retain_bundle_view(SBundleControl& bundle, const EAssetBackingRole role,
