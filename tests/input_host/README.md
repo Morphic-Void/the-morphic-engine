@@ -50,6 +50,10 @@ expected-output checks while disabling trace collection. Do not run builds or
 other acceptance processes concurrently with a timing baseline.
 
 The runner retains an isolated runtime, `console.log`, Host logs and `report.json`.
+The final freeze request completes only after synthetic feed/history, mapper work
+and input rings drain; frozen trace state is published before completion. The
+consumer continues servicing input while waiting. The pressure case also allows
+30 ms of progress after freeze to detect any untraced output crossing that boundary.
 Reports include window durations/counts, generator lateness, expected/traced
 outputs, stage percentiles in nanoseconds, Platform pump activity, queue high-water marks,
 losses, counter frequency and process/build identification. Percentiles are

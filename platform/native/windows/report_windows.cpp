@@ -209,6 +209,10 @@ private:
     {
         if (s.failure.reason == EReason::none)
         {
+            static_assert(N <= sizeof(w.rejected_field));
+            std::memcpy(w.rejected_field, field, N);
+            w.rejected_actual = actual;
+            w.rejected_expected = expected;
             MV_LOG(info, "Platform report native rejection: phase {} ({}), snapshot {}, row {}, field {}, actual {}, expected {}",
                 phase_name(w.phase), static_cast<std::uint32_t>(w.phase), w.snapshot, w.index,
                 debug_system::CInlineText16{ field }, actual, expected);
@@ -1743,6 +1747,65 @@ EReportStep CWindowsQueries::step() noexcept
     return reject("query.phase", static_cast<std::uint32_t>(w.phase), static_cast<std::uint32_t>(EQueryPhase::labels));
 }
 
+static bool retry_legacy_inventory(SReportSession& session, const SWindowsReportApi& api) noexcept
+{
+    const SWindowsReport& previous = *session.windows;
+    runtime::SReportCandidate& candidate = session.candidate;
+    constexpr std::uint32_t k_legacy_profile = 2u;
+    if ((session.failure.reason != EReason::invalid_data) || previous.snapshot ||
+        ((previous.phase != EQueryPhase::ccd_fetch) && (previous.phase != EQueryPhase::translate)) ||
+        (previous.profile >= k_legacy_profile) || (candidate.header.limits.flag_profiles <= k_legacy_profile) ||
+        !previous.query || !previous.rejected_field[0])
+    {
+        return false;
+    }
+
+    //  Retain the rejected API observation before discarding all topology derived from it.
+    const debug_system::SEventArguments arguments = debug_system::encode_event_arguments(
+        debug_system::CInlineText16{ previous.rejected_field }, previous.rejected_actual, previous.rejected_expected);
+    constexpr char format[] = "capture/invalid_data field {} actual {} expected {}; retry QDC_ALL_PATHS";
+    char diagnostic[160]{};
+    std::size_t length{};
+    if (debug_system::format_event_text(diagnostic, sizeof(diagnostic), format, (sizeof(format) - 1u), arguments, length) !=
+        debug_system::EEventFormatResult::success)
+    {
+        return false;
+    }
+    const std::size_t text_id = candidate.text.append(reinterpret_cast<const std::uint8_t*>(diagnostic), length);
+    if (!text_id || (text_id > INT32_MAX))
+    {
+        session.failure = { reports::EStage::capture, EReason::allocation_failed };
+        return false;
+    }
+    PlatformQueryResult& rejected = candidate.queries[previous.query - 1u];
+    rejected.status = PlatformQueryStatus::failed;
+    rejected.reason = PlatformQueryReason::profile_fallback;
+    rejected.diagnostic = { static_cast<std::int32_t>(text_id) };
+    MV_LOG(info, "Platform report retained invalid_data query {} flags {}; restarting CCD inventory with legacy flags {}",
+        previous.query, rejected.native_flags, k_profiles[k_legacy_profile]);
+
+    //  Only the initial CCD inventory can enter this path: all retained queries are report-scoped.
+    candidate.adapters.clear();
+    candidate.sources.clear();
+    candidate.displays.clear();
+    candidate.paths.clear();
+    candidate.bytes.clear();
+    candidate.header.inventory_query_id = candidate.header.consistency_query_id = 0u;
+    candidate.header.coverage = PlatformCoverage::limited;
+    candidate.header.discovery = {};
+    session.windows.reset();
+    if (!session.windows.emplace())
+    {
+        session.failure = { reports::EStage::capture, EReason::allocation_failed };
+        return false;
+    }
+    session.windows->api = &api;
+    session.windows->profile = k_legacy_profile;
+    session.failure = {};
+    //  The existing session retains cumulative native-call counts and its original eligible-time budget.
+    return true;
+}
+
 EReportStep windows_report_step(SReportSession& session, const SWindowsReportApi& api) noexcept
 {
     if (!session.windows)
@@ -1765,6 +1828,10 @@ EReportStep windows_report_step(SReportSession& session, const SWindowsReportApi
         MV_LOG(info, "Platform report native cursor: snapshot {}, row {}, mode row {}, query {}, flags {}, paths {}, modes {}",
             state.snapshot, state.index, state.mode_index, state.query, k_profiles[state.profile],
             state.paths[state.snapshot], state.modes[state.snapshot]);
+        if (retry_legacy_inventory(session, api))
+        {
+            return EReportStep::more;
+        }
         return EReportStep::failed;
     }
     if (result == EReportStep::finished) session.windows.reset();

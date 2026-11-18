@@ -83,7 +83,7 @@ struct SState
     services::SDispatchedCommand acquisition;
     services::SServiceBorrow borrow;
     services::EServiceQuiescence quiescence{ services::EServiceQuiescence::none };
-    std::int32_t completion{ -1 };
+    std::int32_t completion{ -1 }, freeze_completion{ -1 };
     bool offered{}, completed{}, retiring{}, freeze_requested{}, native{};
     bool controllers_started{}, report_case{}, report_hold{}, report_departure{};
     std::uint64_t delay_end{};
@@ -238,8 +238,18 @@ bool command(runtime::CPlatformRuntime& runtime, const services::SDispatchedComm
     if (state.borrow.value && (dispatched.requester.value == state.view.consumer.value) &&
         (dispatched.command.opcode == 2u) && !dispatched.command.payload_size)
     {
+        if (state.shared.frozen.load())
+        {
+            SInputAcceptanceAccess::complete(runtime, completion, EServiceStatus::success);
+            return true;
+        }
+        if (state.freeze_requested)
+        {
+            SInputAcceptanceAccess::complete(runtime, completion, EServiceStatus::busy);
+            return true;
+        }
         state.freeze_requested = true;
-        SInputAcceptanceAccess::complete(runtime, completion, EServiceStatus::success);
+        state.freeze_completion = completion;
         return true;
     }
     if (state.offered || (dispatched.command.opcode != 1u) || dispatched.command.payload_size)
@@ -327,6 +337,11 @@ void progress(runtime::CPlatformRuntime& runtime, const bool stopping) noexcept
     SState& state = *state_owner();
     const modules::SHostPumpContext& context = state.context;
     if (stopping) state.shared.closing.store(true);
+    if (state.shared.closing.load() && (state.freeze_completion >= 0))
+    {
+        SInputAcceptanceAccess::complete(runtime, state.freeze_completion, EServiceStatus::closing);
+        state.freeze_completion = -1;
+    }
     if (state.offered && !state.completed)
     {
         EServiceStatus status = EServiceStatus::closing;
@@ -410,7 +425,28 @@ void pump_end() noexcept
             else ++state.shared.pump_overflow;
         }
     }
-    if (state.freeze_requested) state.shared.frozen.store(true, std::memory_order_release);
+    if (state.freeze_requested && state.runtime && !state.shared.consumer.readable_count() &&
+        SInputAcceptanceAccess::idle(*state.runtime))
+    {
+        for (const SDevice& device : state.devices)
+        {
+            if (device.count) return;
+        }
+        for (std::uint32_t index = 0u; index < k_pipe_count; ++index)
+        {
+            const runtime::CInputConnection* const connection = SInputAcceptanceAccess::connection(*state.runtime, index);
+            if (connection && (SInputAcceptanceAccess::occupancy(*connection, 0u) || SInputAcceptanceAccess::occupancy(*connection, 1u)))
+            {
+                return;
+            }
+        }
+        state.shared.frozen.store(true, std::memory_order_release);
+        if (state.freeze_completion >= 0)
+        {
+            SInputAcceptanceAccess::complete(*state.runtime, state.freeze_completion, EServiceStatus::success);
+            state.freeze_completion = -1;
+        }
+    }
 }
 void desktop_ingress(runtime::SDesktopTransaction& transaction) noexcept
 {

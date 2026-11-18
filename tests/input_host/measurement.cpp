@@ -72,6 +72,11 @@ bool CConsumer::report()
     {
         return false;
     }
+    //  Exercise progress after freeze: no untraced controller history may escape the handshake.
+    if (option("MORPHIC_INPUT_CASE", "pressure") && !settle(30u))
+    {
+        return false;
+    }
     MV_LOG(info, "Input Host: traces {} reads {} pumps {} waits {} rounds {}", shared->trace_count, read_count, shared->pump_count, waits, rounds);
     std::fprintf(stdout, "DIAGNOSTIC,%u,%llu,%u,%u,%u\n", shared->failed.load() ? 1u : 0u,
         static_cast<unsigned long long>(shared->clock_errors.load()), shared->trace_overflow, shared->pump_overflow, trace_overflow);

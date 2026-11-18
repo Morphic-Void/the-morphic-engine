@@ -14,6 +14,8 @@ On success, the acquisition and complete immutable byte view arrive together. Fo
 
 The Windows provider observes the calling session with CCD, GDI and DXGI. Modes belong to individual query catalogues. Active paths connect a source to a display. An available inactive target can be visible without an active path. A documented denial or unsupported CCD inventory can publish its limitation and absent topology. An unsupported native backend reports capture failure. Discovery does not require a window or a rendering device.
 
+A malformed initial virtual-aware CCD inventory can restart once with plain `QDC_ALL_PATHS`. The provider discards its derived topology, retains the original query as `failed/profile_fallback` with a `capture/invalid_data` field/value diagnostic, and marks coverage limited. The fresh inventory and final consistency query both use the base profile. Native-call limits and the original eligible-time deadline continue across the retry. A base-profile failure or malformed final consistency query fails the capture.
+
 Read each known optional fact alongside its supporting query. Host checks the query kind, subject and successful outcome for present labels, GDI current fields, primary/attachment annotations and native identity evidence. A successful query may supply a subset of its fields. A failed or blocked query can explain an absent label, unknown annotation or empty known-field mask. DXGI output description and output-interface acquisition have separate outcomes so a mode-list failure can coexist with an observed output name.
 
 ## Transport and retirement

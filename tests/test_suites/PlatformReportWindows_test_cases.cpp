@@ -35,7 +35,8 @@ enum class ECase
     dxgi_denied, api_failure, mode_cap, aggregate_cap, adapter_cap, path_cap, memory_failure,
     native_call_cap, deadline, missing_names, desktop_image, unknown_codes, missing_fields,
     exact_limits, display_cap, source_cap, monitor_cap, output_cap, ccd_mode_cap, interface_failure,
-    bad_target_index, bad_desktop_index, legacy_target_index
+    bad_target_index, bad_desktop_index, legacy_target_index,
+    legacy_retry, legacy_retry_failure, legacy_retry_cap, legacy_retry_deadline
 };
 
 struct SReplay
@@ -46,6 +47,11 @@ struct SReplay
     unsigned size_calls{}, fetch_calls{}, mode_calls{}, gdi_indexed{}, references{};
     bool flags_valid{ true };
     static thread_local SReplay* active;
+    bool retries_legacy() const noexcept
+    {
+        return (scenario == ECase::legacy_retry) || (scenario == ECase::legacy_retry_failure) ||
+            (scenario == ECase::legacy_retry_cap) || (scenario == ECase::legacy_retry_deadline);
+    }
 
     static platform::threading::WaitError clock(void* const data, std::uint64_t& value) noexcept
     {
@@ -56,6 +62,10 @@ struct SReplay
     {
         SReplay& s = *active;
         ++s.size_calls;
+        if (s.retries_legacy() && (flags & QDC_VIRTUAL_REFRESH_RATE_AWARE))
+        {
+            return ERROR_INVALID_PARAMETER;
+        }
         if ((s.scenario == ECase::flag_fallback) && (flags != QDC_ALL_PATHS))
         {
             return ERROR_INVALID_PARAMETER;
@@ -79,6 +89,10 @@ struct SReplay
         *paths = 4u;
         *modes = (s.scenario == ECase::desktop_image) ? 5u : 3u;
         if (s.scenario == ECase::deadline) s.now += platform::reports::k_capture_limits.eligible_duration_ns;
+        if ((s.scenario == ECase::legacy_retry_deadline) && (flags == QDC_ALL_PATHS))
+        {
+            s.now += platform::reports::k_capture_limits.eligible_duration_ns;
+        }
         return ERROR_SUCCESS;
     }
     static LONG WINAPI fetch(const UINT32 flags, UINT32* const paths, DISPLAYCONFIG_PATH_INFO* const p,
@@ -86,6 +100,10 @@ struct SReplay
     {
         SReplay& s = *active;
         ++s.fetch_calls;
+        if ((s.scenario == ECase::legacy_retry_failure) && (flags == QDC_ALL_PATHS))
+        {
+            return ERROR_BAD_CONFIGURATION;
+        }
         if ((s.scenario == ECase::ccd_exhaustion) || ((s.scenario == ECase::buffer_retry) && (s.fetch_calls <= 2u)))
         {
             return ERROR_INSUFFICIENT_BUFFER;
@@ -161,6 +179,12 @@ struct SReplay
                 path.flags &= ~DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE;
                 path.sourceInfo.modeInfoIdx = 0u;
                 path.targetInfo.modeInfoIdx = 0x0001ffffu;
+            }
+            if (s.retries_legacy() && (flags & QDC_VIRTUAL_MODE_AWARE) && (n == 1u))
+            {
+                //  Fail after one path was translated, then require a fresh legacy inventory.
+                path.flags &= ~DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE;
+                path.sourceInfo.modeInfoIdx = 0x0001ffffu;
             }
         }
         if (s.scenario == ECase::wrong_identity) ++m[1].id;
@@ -322,6 +346,7 @@ static void run(tests::TTestContext& tests, const ECase scenario)
         if (scenario == ECase::path_cap) limits.ccd_paths = 3u;
         if (scenario == ECase::adapter_cap) limits.adapters_per_backend = 0u;
         if (scenario == ECase::native_call_cap) limits.native_calls = 1u;
+        if (scenario == ECase::legacy_retry_cap) limits.native_calls = 3u;
         if (scenario == ECase::display_cap) limits.displays = 2u;
         if (scenario == ECase::source_cap) limits.sources = 0u;
         if (scenario == ECase::monitor_cap) limits.monitor_records = 0u;
@@ -360,6 +385,7 @@ static void run(tests::TTestContext& tests, const ECase scenario)
                 break;
             }
             case ECase::unexpected:
+            case ECase::legacy_retry_failure:
             {
                 failure = EReason::native_failure;
                 break;
@@ -374,6 +400,7 @@ static void run(tests::TTestContext& tests, const ECase scenario)
             case ECase::output_cap:
             case ECase::ccd_mode_cap:
             case ECase::native_call_cap:
+            case ECase::legacy_retry_cap:
             {
                 failure = EReason::limit_exceeded;
                 break;
@@ -384,6 +411,7 @@ static void run(tests::TTestContext& tests, const ECase scenario)
                 break;
             }
             case ECase::deadline:
+            case ECase::legacy_retry_deadline:
             {
                 failure = EReason::deadline_exceeded;
                 break;
@@ -394,6 +422,30 @@ static void run(tests::TTestContext& tests, const ECase scenario)
             }
         }
         TEST_EXPECT(tests, (session.failure.reason == failure));
+        if (replay.retries_legacy())
+        {
+            TEST_EXPECT(tests, (rows.queries.size() >= 3u));
+            const PlatformQueryResult& rejected = rows.queries[1];
+            TEST_EXPECT(tests, ((rejected.status == PlatformQueryStatus::failed) &&
+                (rejected.reason == PlatformQueryReason::profile_fallback) &&
+                (rejected.native_flags == (QDC_ALL_PATHS | QDC_VIRTUAL_MODE_AWARE)) &&
+                (rejected.diagnostic.string_value_id > 0)));
+            if (rejected.diagnostic.string_value_id > 0)
+            {
+                const CStringView diagnostic = rows.text.view(rejected.diagnostic.string_value_id);
+                TEST_EXPECT(tests, (std::strstr(diagnostic.cstring(), "capture/invalid_data field mode.index actual 131071") != nullptr));
+            }
+            if (scenario == ECase::legacy_retry)
+            {
+                TEST_EXPECT(tests, ((replay.fetch_calls == 3u) && (rows.header.coverage == PlatformCoverage::limited)));
+                TEST_EXPECT(tests, (rows.queries[rows.header.inventory_query_id - 1u].native_flags == QDC_ALL_PATHS));
+                TEST_EXPECT(tests, (rows.queries[rows.header.consistency_query_id - 1u].native_flags == QDC_ALL_PATHS));
+            }
+            if (scenario == ECase::legacy_retry_cap)
+            {
+                TEST_EXPECT(tests, ((session.native_calls == 3u) && (replay.fetch_calls == 1u)));
+            }
+        }
         if (failure != EReason::none) TEST_EXPECT(tests, (step == EReportStep::failed));
         else if (scenario == ECase::topology_changed) TEST_EXPECT(tests, (step == EReportStep::topology_changed));
         else if ((scenario == ECase::unsupported) || (scenario == ECase::unavailable))
@@ -438,7 +490,8 @@ static void run(tests::TTestContext& tests, const ECase scenario)
             if (scenario == ECase::buffer_retry) TEST_EXPECT(tests, (replay.fetch_calls == 4u));
             if (scenario == ECase::flag_fallback) TEST_EXPECT(tests, (rows.header.coverage == PlatformCoverage::limited));
             if (scenario == ECase::ambiguous) TEST_EXPECT(tests, (rows.catalogues.size() && !rows.catalogues[0].source_id));
-            if ((scenario == ECase::missing_names) || (scenario == ECase::missing_fields) || (scenario == ECase::interface_failure))
+            if ((scenario == ECase::missing_names) || (scenario == ECase::missing_fields) ||
+                (scenario == ECase::interface_failure) || (scenario == ECase::legacy_retry))
             {
                 PlatformReportHeader& header = session.candidate.header;
                 constexpr SCaptureIdentity capture{ { 7u }, 1u };
@@ -489,7 +542,7 @@ void run_platform_report_windows_tests(tests::TTestContext& tests)
         TEST_EXPECT(tests, debug_system::uninstall_service(service.operator->()));
         return;
     }
-    for (unsigned n = 0u; n <= static_cast<unsigned>(ECase::legacy_target_index); ++n)
+    for (unsigned n = 0u; n <= static_cast<unsigned>(ECase::legacy_retry_deadline); ++n)
     {
         run(tests, static_cast<ECase>(n));
     }
@@ -506,6 +559,7 @@ void run_platform_report_windows_tests(tests::TTestContext& tests)
     TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "mode link: component desktop_image (2), path flags 25, virtual mode true"));
     TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "mode link: component target (1), path flags 17, virtual mode false, index 131071"));
     TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "target 131071, clone group 0, source index 0, desktop image index 65535, target index 1"));
+    TEST_EXPECT(tests, tests::file_contains(event_path.c_str(), "retained invalid_data query 2 flags 17; restarting CCD inventory with legacy flags 1"));
     TEST_EXPECT(tests, !tests::file_contains(event_path.c_str(), "Invalid transported debug event"));
 }
 #endif

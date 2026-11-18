@@ -432,3 +432,51 @@ Passing validation was reused rather than rerun. The Windows CI rejection of ind
 the new logs prepare the next CI diagnosis and do not fix or establish that root
 cause. Compact-layout, Host capture handoff, native placement/deadline and full
 prerequisite acceptance remain outside this checkpoint.
+
+## Drain/freeze and bounded legacy retry review, 18 November 2026
+
+Independently reviewed the eight-file CI correction against
+`ac0a01dbf5ef5c77163a540f6304304945d8b8e7`: input fixture handshake/measurement and
+README, Windows cursor state/retry and SDK replays, and the two affected report
+design documents. **No blocking findings; cleared for the user-authorised CI
+correction commit**, with this review record. No implementation edits, commit,
+push or delegated work were performed by this review.
+
+The freeze request retains its reserved completion while synthetic feed/history,
+mapper/desktop baseline work and both input streams drain. The consumer's existing
+transaction wait continues input progress. Frozen trace state is release-published
+before success is marked for delivery; overlap is busy and stopping settles a
+pending completion as closing. The pressure regression continues progress for
+30 ms after freeze while retaining strict publication/read correlation.
+
+The Windows retry admits only an initial virtual-aware CCD fetch/translation
+`invalid_data` rejection with a recorded field. It retains the original report-
+scoped query as failed/profile-fallback with field/value text, clears derived
+topology and replaces the entire native cursor before a fresh base-profile query.
+The session's cumulative native calls, memory accounting and original eligible-time
+budget remain in force. The base profile cannot re-enter this fallback; final
+consistency uses the accepted profile and is excluded from the retry guard.
+No public descriptor, schema, enum or version marker changed.
+
+Reused and inspected the supplied validation under
+`build/platform-ci-investigation/`, without rerunning passing matrices:
+
+- The retained old-implementation controlled-freeze report records eight unmatched
+  reads. The new four-CPU WSL one/two-requested-worker pressure reports and Windows
+  one-worker pressure report pass with missing/invalid zero, no errors and zero
+  trace/clock/source diagnostics, including the post-freeze regression.
+- The retained Linux CTest log records all nine other affected input acceptance
+  cases passing. The changed Windows test/module builds succeeded without warnings
+  or errors.
+- SDK replay code/logs cover partial virtual topology discarded before successful
+  legacy capture, the retained original query/diagnostic, terminal legacy failure,
+  cumulative native-call exhaustion and expiry of the original deadline. The
+  recovered report is baked and checked by the independent report validator. The
+  supplied focused result was 1,400 passed and zero failed.
+- The native Windows one-worker `platform-report-1-2jo8z08o` lifecycle log records
+  startup/refresh/reload/historical fixture success.
+
+This clearance covers the CI correction and its explicitly authorised bounded
+fallback policy. It does not establish the exact Windows CI driver defect or
+close compact-layout, Host capture handoff, native placement/deadline qualification
+or full prerequisite acceptance. The user performs the next push/CI run.

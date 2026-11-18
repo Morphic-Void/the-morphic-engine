@@ -89,6 +89,8 @@ struct SWindowsReport
     std::uint32_t dxgi_inventory{}, gdi_inventory{}, output_description{}, output_interface_query{};
     SHeapCursor order;
     std::uint32_t sort_group{}, compared[2]{};
+    char rejected_field[16]{};
+    std::int64_t rejected_actual{}, rejected_expected{};
     bool list_failed{};
 };
 
