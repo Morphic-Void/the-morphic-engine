@@ -2,6 +2,12 @@
 
 The version-1 Platform report checkpoint is based on `fc3c95737d30d2abebedb712d50a0056e2f37854`. The focused review identified F1 in independent Host admission. **Placement and the Win32 Debug native deadline remain open.** The single-RGBA8 profile, 52-byte shared mode values and generic Host schema composition/baking on conditioning are agreed follow-up work. Prerequisite acceptance and Rendering 1A remain gated. [Coordinator review](platform_report_review.md) · [Staged design](pso_creation_stage1.md)
 
+**Follow-up handoff paused, 19 November 2026.** Independent Host communications
+review/refactoring is being arranged in other chats. The user will return to
+re-evaluate integration afterward; the evidence below remains historical checkpoint
+evidence and does not accept the proposed revised handoff. See the
+[pause and resumption record](pso_creation_stage1.md#platform-report-handoff-paused-for-host-communications-review).
+
 ## F1 checkpoint verification
 
 Host now requires a correctly scoped successful observation for present adapter/display labels, known GDI current fields, source annotations (including known false) and native identity evidence. A query with only depth available still supports that field. Failed or blocked enrichments remain admissible with their facts absent. DXGI output description and interface acquisition now have independent query outcomes. A failed interface lookup blocks its mode lists while preserving the earlier successful description and available GDI fallback.

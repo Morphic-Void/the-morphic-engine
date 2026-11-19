@@ -23,6 +23,12 @@ below. Rendering implementation remains unauthorised.
 The stage-design chat refines the design with the user and the overarching
 coordinator validates it.
 
+On 19 November 2026 this chat's continuing scope became Platform features;
+Rendering/Vulkan work is deferred to a later coordinator-created design chat.
+The user has now [paused the revised Platform report handoff](#platform-report-handoff-paused-for-host-communications-review)
+pending independent Host communications review and refactoring in other chats.
+The user will return here to re-evaluate the handoff after that work is complete.
+
 Coordinator review, 17 November 2026: no blocking findings in the schema-extension
 or Host-owned Platform-report prerequisites. Both are design-approved for separately
 authorised implementation and review, subject to the handoff and acceptance
@@ -3152,6 +3158,56 @@ Release qualification uses the successful clean test and Host rebuilds.
 
 This acceptance does not authorise a commit or push. Compact Platform integration,
 native placement/deadline qualification and Rendering remain follow-up work.
+
+### Platform report handoff paused for Host communications review
+
+On 19 November 2026 the user explicitly paused the revised Platform report handoff.
+They will arrange an independent Host communications review and refactoring in
+other chats, then return here to re-evaluate the available interfaces and options.
+Further handoff design/integration is on hold; the pause does not select or
+authorise a Host refactoring implementation in this chat.
+
+The concern is increasing Host knowledge of module-specific tasks, workflow and
+execution-dependent communication. The proposed Host coordination of declaration
+setup, report composition and publication would add coupling before the appropriate
+Host/module boundary is established. Existing report-specific request/receipt
+tracking in the client record and report handling in pumped transport illustrate
+the issue. The pause avoids entrenching those responsibilities in the new handoff.
+
+The last flow proposal was bounded/resumable Platform discovery, compaction and
+document construction, followed by an authored-document transfer, generic Host
+composition/baking, independent semantic validation and final publication. Its
+payload/setup proposal used a reusable Host-retained Framework declaration document
+and a per-capture owned `CLiveDocument` supplying `instances` and `data`, composed
+as two explicit inputs. Host bootstrap and coordination of that workflow remain
+unsettled proposals, not an approved implementation contract.
+
+Re-evaluation should consider Platform-led orchestration using generic Host
+communication, schema and asset services, while Host retains the published snapshot
+and protects readers. This is a direction to assess after the external review,
+not a selected replacement design. Execution placement still belongs to Host's
+scheduling mechanisms; module/service communication should avoid carrying
+report-specific distinctions between pumped and service-thread clients.
+
+The agreed native query filter, compact 52-byte mode layout and list sharing,
+accepted schema/generic Host services, Host-owned immutable report requirement,
+independent reader lifetimes and existing capture limits remain recorded. Independent
+report-semantic validation must be explicitly placed in the revised design, not
+silently removed when coordination changes. Native capture placement/deadline
+qualification and full Platform-report prerequisite acceptance remain open.
+
+When the user returns, inspect the completed Host communication/service contracts
+and their review/validation records before resuming. Revisit declaration bootstrap
+and authored payload, output backing and validation lifetime, completion/cancellation/
+retirement/failure mapping, and restriction/deadline/memory-budget binding against
+those actual interfaces. Reconcile any changed earlier contract and obtain the
+appropriate coordinator review before a separately authorised implementation.
+The pause does not automatically end when another chat completes its work.
+
+The user-confirmed green CI for `0dad3b9` remains the completed CI correction
+checkpoint; it does not qualify the proposed handoff. No implementation, new chat,
+commit or push is authorised by this pause record. Rendering/Vulkan remains with
+the deferred coordinator-owned handoff recorded in the overarching stage plan.
 
 ### Remaining Rendering decisions
 

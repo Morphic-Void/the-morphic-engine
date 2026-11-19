@@ -103,7 +103,8 @@ Carry the coordinator's conditions into each prerequisite handoff:
   format checks and preserve unrelated formats/data.
 
 The [prerequisite acceptance gates](../modules/pso_creation_stage1.md#agreed-validation-and-acceptance-gates-for-prerequisites)
-remain authoritative. No prerequisite implementation or acceptance is claimed here.
+remain authoritative. Current acceptance and chat responsibilities are recorded in
+the handoff below; this plan update grants no new implementation or acceptance.
 
 ## Stage 1A audit-baseline persistence boundary
 
@@ -211,14 +212,58 @@ Rendering 1A audit with baseline persistence/comparison, 1B presented triangle a
 1C verified compute. This stage plan now records that order and the boundary to
 stage 4, completing the overarching-plan reconciliation condition for handoff.
 
-The focused stage-design chat owns [the detailed design and review record](../modules/pso_creation_stage1.md#review-status-and-remaining-decisions)
-and will coordinate prerequisite implementation/review when explicitly instructed.
+On 19 November the user reassigned chat
+`01a1e419-b2d2-7f10-ade3-921130d6026c`, previously the focused stage-1 design chat,
+to Platform features. It continues the Platform design/review work and must not
+expand back into Rendering/Vulkan implementation. The accepted
+[schema extension](../modules/pso_creation_stage1.md#schema-prerequisite-implementation-review-and-acceptance)
+and independently reviewed [generic Host schema services](../schema/host-schema-processing-review.md)
+remain available prerequisites. Platform-report prerequisite acceptance remains open.
+
+On 19 November the user [paused the revised Platform report handoff](../modules/pso_creation_stage1.md#platform-report-handoff-paused-for-host-communications-review)
+pending independent Host communications review and refactoring in other chats.
+The concern is increasing Host knowledge of module workflow and execution-dependent
+communication. The user will return to the Platform chat to re-evaluate options
+against the resulting interfaces; neither handoff integration nor a replacement
+orchestration contract is selected by this pause.
+
+Before the pause, the proposed revised capture handoff used the agreed compact
+report layout and generic Host schema services. The proposed flow was
+bounded/resumable Platform discovery, compaction and authored-document construction;
+owning transfer to Host; composition with reusable retained declarations and baking
+on conditioning; independent report-semantic validation on conditioning; then final
+lifecycle/deadline checks and publication on the Host owner thread. This flow is
+still a proposal, not a new implementation authorisation. No new native-capture
+thread, thread owner or lifetime has been selected. Four handoff points await
+re-evaluation after the Host review/refactoring:
+
+- Declaration bootstrap and the authored payload.
+- Output backing and validation lifetime.
+- Completion, cancellation, retirement and failure mapping.
+- Host-internal schema-client restriction, deadline and memory-budget binding.
+
+Rendering/Vulkan design and implementation are deferred to a new focused design
+chat to be created later by the overarching shader-system coordinator when selected
+with the user. No new chat is requested now. That future chat must inherit the
+[existing design and review record](../modules/pso_creation_stage1.md#review-status-and-remaining-decisions),
+the [remaining Rendering decisions](../modules/pso_creation_stage1.md#remaining-rendering-decisions)
+and this plan's audit-baseline persistence boundary. Complete and review its
+Rendering implementation handoff before coordinating separately authorised
+implementation. The change in chat ownership does not discard or reopen the
+agreed Rendering/Vulkan design by itself.
+
 The complete Rendering handoff remains open on its request/control/result interfaces,
 Host-report consumption and combined-audit persistence representation, Vulkan
 loader/build/deployment, selection tie-breaking, limits/waits/stall diagnostics and
 detailed submission/presentation accounting. Prerequisite design approval does not
 close those items. The user's further structure-binding ideas remain for discussion
 in the relevant stage.
+
+The reviewed controller-history/freeze-diagnostic correction was committed as
+`0dad3b9`; the user reports that they pushed it and confirmed GitHub CI green.
+That completed CI correction is separate from Platform report compact-layout,
+revised Host handoff and native placement/deadline qualification. It does not close
+Platform-report prerequisite acceptance or select Rendering work.
 
 No stage implementation is authorised by this documentation update. Detailed
 transform/interpolation profiles remain deliberately deferred. Source/fixture tests
