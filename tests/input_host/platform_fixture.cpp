@@ -45,10 +45,60 @@ struct SInputAcceptanceAccess
         }
         return true;
     }
+    static bool history_runnable(const CPlatformRuntime& runtime, const std::uint64_t instance) noexcept
+    {
+        if (!runtime.m_input_focus || runtime.m_modal_depth[0] || runtime.m_modal_depth[1] || runtime.m_stopping)
+        {
+            return false;
+        }
+        for (const CPlatformRuntime::SDevice& device : runtime.m_devices)
+        {
+            if (!device.token || (device.info.device != instance))
+            {
+                continue;
+            }
+            for (const TInstance<CInputConnection>& current : runtime.m_inputs)
+            {
+                if (current && (current->snapshot().device == device.token) &&
+                    (current->snapshot().phase != input::EPhase::closing))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     static std::uint32_t occupancy(const CInputConnection& connection, const std::uint32_t stream) noexcept
     {
         return (stream == input::k_actions) ? (input::k_action_capacity - connection.m_actions.writable_count()) :
             (connection.view.text ? (input::k_text_capacity - connection.m_text.writable_count()) : 0u);
+    }
+    static bool freeze_idle(const CPlatformRuntime& runtime, input_host::SFreezeProgress& progress) noexcept
+    {
+        const CDesktopInput& desktop = runtime.m_desktop;
+        const bool desktop_busy = desktop.m_count || desktop.m_baseline_pending || desktop.m_baseline_inflight ||
+            desktop.m_cutover || desktop.m_losing;
+        std::uint32_t mappers = 0u, baselines = 0u, boundaries = 0u, ingress = 0u, actions = 0u, text = 0u;
+        for (std::uint32_t index = 0u; index < input_host::k_pipe_count; ++index)
+        {
+            const CInputConnection* const current = connection(runtime, index);
+            if (!current) continue;
+            const std::uint32_t bit = 1u << index;
+            if (current->mapper().pending()) mappers |= bit;
+            if (current->source_baseline_pending || current->source_baseline_inflight) baselines |= bit;
+            if (current->snapshot().pending) boundaries |= bit;
+            if (current->snapshot().ingress_pending) ingress |= bit;
+            if (occupancy(*current, input::k_actions)) actions |= bit;
+            if (occupancy(*current, input::k_text)) text |= bit;
+        }
+        progress.desktop.store(desktop_busy, std::memory_order_relaxed);
+        progress.mappers.store(mappers, std::memory_order_relaxed);
+        progress.baselines.store(baselines, std::memory_order_relaxed);
+        progress.boundaries.store(boundaries, std::memory_order_relaxed);
+        progress.ingress.store(ingress, std::memory_order_relaxed);
+        progress.actions.store(actions, std::memory_order_relaxed);
+        progress.text.store(text, std::memory_order_relaxed);
+        return !desktop_busy && !(mappers | baselines | boundaries | ingress | actions | text);
     }
     static acceptance::SObservationTrace origin(const CInputConnection& connection) noexcept
     {
@@ -89,6 +139,7 @@ struct SState
     std::uint64_t delay_end{};
     std::uint32_t report_ordinal{}, report_steps{};
     std::uint64_t next_device{ 1u }, next_origin{}, pump_start{};
+    platform::system::CPerfCountConversion conversion;
     SDevice devices[4];
     float keys[256]{};
 };
@@ -216,6 +267,12 @@ bool initialise(const modules::SHostPumpContext& context) noexcept
     state.report_case = state.report_hold || state.report_departure || option("MORPHIC_PUMP_CASE", "platform-report-injected");
     state.native = option("MORPHIC_INPUT_SOURCE", "native");
     state.shared.tracing = !option("MORPHIC_INPUT_TRACE", "off");
+    if (!state.conversion.init())
+    {
+        MV_LOG(error, "Input fixture: performance-counter conversion initialisation failed");
+        state_owner().reset();
+        return false;
+    }
     if (!state.shared.feed.initialise(k_feed_capacity) ||
         (state.shared.tracing && (!state.shared.traces.resize(k_trace_capacity) || !state.shared.pumps.resize(k_trace_capacity))))
     {
@@ -250,6 +307,7 @@ bool command(runtime::CPlatformRuntime& runtime, const services::SDispatchedComm
         }
         state.freeze_requested = true;
         state.freeze_completion = completion;
+        state.shared.freeze.requested.store(true, std::memory_order_release);
         return true;
     }
     if (state.offered || (dispatched.command.opcode != 1u) || dispatched.command.payload_size)
@@ -425,20 +483,22 @@ void pump_end() noexcept
             else ++state.shared.pump_overflow;
         }
     }
-    if (state.freeze_requested && state.runtime && !state.shared.consumer.readable_count() &&
-        SInputAcceptanceAccess::idle(*state.runtime))
+    if (state.freeze_requested && state.runtime)
     {
-        for (const SDevice& device : state.devices)
+        SFreezeProgress& progress = state.shared.freeze;
+        progress.pumps.fetch_add(1u, std::memory_order_relaxed);
+        const std::uint32_t feed = state.shared.consumer.readable_count();
+        progress.feed.store(feed, std::memory_order_relaxed);
+        bool history = false;
+        for (std::uint32_t index = 0u; index < 4u; ++index)
         {
-            if (device.count) return;
+            progress.history[index].store(state.devices[index].count, std::memory_order_relaxed);
+            history = history || (state.devices[index].count != 0u);
         }
-        for (std::uint32_t index = 0u; index < k_pipe_count; ++index)
+        const bool idle = SInputAcceptanceAccess::freeze_idle(*state.runtime, progress);
+        if (feed || history || !idle)
         {
-            const runtime::CInputConnection* const connection = SInputAcceptanceAccess::connection(*state.runtime, index);
-            if (connection && (SInputAcceptanceAccess::occupancy(*connection, 0u) || SInputAcceptanceAccess::occupancy(*connection, 1u)))
-            {
-                return;
-            }
+            return;
         }
         state.shared.frozen.store(true, std::memory_order_release);
         if (state.freeze_completion >= 0)
@@ -622,6 +682,7 @@ static void drain(runtime::CPlatformRuntime& runtime, const std::uint64_t budget
             case EFeed::freeze:
             {
                 state.freeze_requested = true;
+                state.shared.freeze.requested.store(true, std::memory_order_release);
                 break;
             }
         }
@@ -676,11 +737,45 @@ static bool initialise_controllers(native::SControllers& source) noexcept
     for (std::uint32_t index = 0u; index < 4u; ++index) arrival(*source.runtime, index, true);
     return true;
 }
+static bool expire_history(SDevice& device) noexcept
+{
+    if (!device.count) return true;
+    std::uint64_t now = 0u, age = 0u;
+    const std::uint64_t offered = device.history[device.head].offered;
+    if (!sample(now) || (now < offered) || !state_owner()->conversion.to_nanoseconds_u64((now - offered), age))
+    {
+        state_owner()->shared.clock_errors.fetch_add(1u);
+        return false;
+    }
+    if (age > native::k_controller_history_age_ns)
+    {
+        device.head = device.count = 0u;
+        device.lost = true;
+        state_owner()->shared.history_loss.fetch_add(1u);
+    }
+    return true;
+}
 static void dispatch_controllers(native::SControllers& source, const std::uint64_t budget) noexcept
 {
     drain(*source.runtime, budget);
-    source.work_pending = !state_owner()->shared.closing.load() && !state_owner()->shared.frozen.load() &&
-        (state_owner()->shared.consumer.readable_count() != 0u);
+    SState& state = *state_owner();
+    source.work_pending = false;
+    if (state.shared.closing.load() || state.shared.frozen.load())
+    {
+        return;
+    }
+    source.work_pending = state.shared.consumer.readable_count() != 0u;
+    for (SDevice& device : state.devices)
+    {
+        if (!expire_history(device))
+        {
+            source.runtime->controller_backend(input::EControllerBackend::failed, UINT32_MAX);
+            source.work_pending = false;
+            return;
+        }
+        source.work_pending = source.work_pending || (device.count &&
+            SInputAcceptanceAccess::history_runnable(*source.runtime, device.instance));
+    }
 }
 static native::EControllerRead read_controller(native::SControllers&, const std::uint64_t instance,
     const bool baseline, native::SControllerReading& reading) noexcept
@@ -693,6 +788,13 @@ static native::EControllerRead read_controller(native::SControllers&, const std:
             continue;
         }
         const std::uint64_t lost = state_owner()->shared.latest[index].loss.load();
+        if (!baseline && !device.lost && device.count)
+        {
+            if (!expire_history(device))
+            {
+                return native::EControllerRead::failed;
+            }
+        }
         if (!baseline && (device.lost || (lost != device.seen_loss)))
         {
             device.lost = false;

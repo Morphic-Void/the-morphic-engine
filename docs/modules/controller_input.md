@@ -109,6 +109,22 @@ connections and work classes with retained cursors. A blocked/noisy controller
 cannot monopolise the pump. Discovery also progresses in bounded slices. No
 unbounded backlog or new Host worker jobs are introduced.
 
+Unread controller history has a 100 ms maximum age. Older history is discarded
+through the existing history-loss boundary, cancellation, acknowledgement and
+fresh-baseline path; skipped edges are never reconstructed. The current complete
+state of an idle device remains usable as a baseline even if its last update is
+older than 100 ms. This limit applies to unread history, not to the age of an
+unchanged current state or to already-published action records.
+
+GameInput compares reading time with its own current source timestamp and keeps
+clock rollback in the existing epoch-recovery path. The synthetic adapter measures
+offer age using the performance counter and checked conversion, independently of
+its artificial source ordinal. Its 1,024-reading storage cap also remains in force.
+Retained synthetic history for an eligible, claimed controller is advertised as
+pending work, including when its feed queue is empty. Suppressed/unclaimed queues
+are checked for expiry on ordinary pump opportunities without forcing a busy loop.
+The Platform pump retains its existing work and time bounds.
+
 Release closes the logical slot; disconnect alone does not. Closure invalidates
 retained input and stops publication. The consumer ends all endpoint/latch access
 before generic quiescence. Retire at an outer-pump safe point after Host borrow

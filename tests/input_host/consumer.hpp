@@ -191,6 +191,7 @@ private:
     bool load();
     bool second_consumer();
     bool transitions();
+    bool history_freshness();
     bool work_pressure();
     bool shutdown_blocked();
     bool ingress_loss();

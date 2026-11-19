@@ -28,6 +28,7 @@ Linux CMake builds these targets and registers the matrix as `MorphicInputHost-*
 | `lifecycle` | Host asset publication/acquisition, installation, five pipes, readiness/boundaries, notifications, application and retirement. |
 | `pressure` | Action/text capacity boundaries, overflow, pauses of 25/100/500 ms, recovery and independent-pipe progress. |
 | `transitions` | Focus/modal/history loss, per-control neutral rearming, reconnect identity, context barriers and reacquisition. |
+| `history-freshness` | Discard unread controller history older than 100 ms, preserve held-control inhibition and recover after neutral and fresh input. |
 | `work-pressure` | A 65-action mapping continuation, a blocked noisy pipe, quiet-pipe progress and ordinary commands. |
 | `second-consumer` | Independently scheduled owner, pipe retirement and replacement. |
 | `shutdown-blocked` | Shutdown while a full ring blocks a context marker, with cooperative quiescence. |
@@ -54,6 +55,15 @@ The final freeze request completes only after synthetic feed/history, mapper wor
 and input rings drain; frozen trace state is published before completion. The
 consumer continues servicing input while waiting. The pressure case also allows
 30 ms of progress after freeze to detect any untraced output crossing that boundary.
+Retained history for eligible, claimed controllers advertises runnable work even
+after the feed empties. Suppressed/unclaimed history expires on ordinary pumps.
+Unread history older than 100 ms follows explicit source-loss/baseline recovery;
+the separate 1,024-reading cap remains. Frozen traces are never truncated to make
+the handshake succeed. On freeze failure, logs include admission/frozen/closing
+state, observed pump count, last feed/controller queue counts, desktop activity,
+per-pipe mapper/baseline/boundary/ingress/action-ring/text-ring blocker masks and
+consumed/drained frontiers. Mask bit N denotes pipe N. These atomic diagnostics
+are best-effort last observations, not a coherent frozen measurement snapshot.
 Reports include window durations/counts, generator lateness, expected/traced
 outputs, stage percentiles in nanoseconds, Platform pump activity, queue high-water marks,
 losses, counter frequency and process/build identification. Percentiles are

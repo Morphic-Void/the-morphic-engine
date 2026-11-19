@@ -365,6 +365,136 @@ void expired_history_continuity(TTestContext& ctx)
         (idle.references == 1u) && (pressed.references == 1u) && (recovered.references == 1u)));
 }
 
+void unread_history_age(TTestContext& ctx)
+{
+    using platform::native::EControllerRead;
+    SInput input;
+    SDevice device;
+    SReading original, boundary, stale, current;
+    {
+        SGameInput state;
+        input.AddRef();
+        state.input = &input;
+        TEST_EXPECT(ctx, state.devices.initialise(platform::input::k_device_capacity));
+        SGameInput::SDevice record{ &device };
+        original.AddRef();
+        record.cursor = &original;
+        record.info.device = 1u;
+        record.ordinal = 5u;
+        const std::int32_t slot = state.devices.insert(SGameInput::SDeviceKey{ 1u }, std::move(record));
+        TEST_EXPECT(ctx, (slot >= 0));
+        if (slot < 0) return;
+        SGameInput::SDevice* const stored = state.devices.get_slot(slot);
+        platform::native::SControllers source;
+        source.state = &state;
+        const platform::native::SControllerAdapter& adapter = platform::native::controller_adapter();
+        platform::native::SControllerReading result;
+        input.now = 200000u;
+        input.next_status = S_OK;
+        input.next = &boundary;
+        boundary.timestamp = 100000u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, false, result) == EControllerRead::reading));
+        TEST_EXPECT(ctx, ((stored->cursor == &boundary) && (stored->ordinal == 6u) && (state.last_clock == 200000u)));
+
+        //  One microsecond beyond the limit must not advance the cursor or
+        //  ordinal, and the rejected COM reading must release its reference.
+        input.now = 200002u;
+        input.next = &stale;
+        stale.timestamp = 100001u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, false, result) == EControllerRead::history_lost));
+        TEST_EXPECT(ctx, ((stored->cursor == &boundary) && (stored->ordinal == 6u) &&
+            (stale.references == 1u) && (stale.releases == 1u) && (state.last_clock == 200002u)));
+
+        //  An unchanged idle device's current state remains a valid recovery
+        //  baseline even when its most recent update is older than the limit.
+        input.now = 400000u;
+        input.current = &current;
+        current.timestamp = 100002u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, true, result) == EControllerRead::reading));
+        TEST_EXPECT(ctx, ((stored->cursor == &current) && (stored->ordinal == 7u) && (boundary.references == 1u)));
+        input.next_status = GAMEINPUT_E_READING_NOT_FOUND;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, false, result) == EControllerRead::empty));
+
+        //  A source-clock rollback belongs to epoch recovery, not age loss.
+        state.last_clock = 500000u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, true, result) == EControllerRead::empty));
+        TEST_EXPECT(ctx, (state.clock_reset && (stored->cursor == &current) && (stored->ordinal == 7u)));
+    }
+    TEST_EXPECT(ctx, ((input.references == 1u) && (device.references == 1u) &&
+        (original.references == 1u) && (boundary.references == 1u) &&
+        (stale.references == 1u) && (current.references == 1u)));
+}
+
+void read_clock_rollback(TTestContext& ctx)
+{
+    using platform::native::EControllerRead;
+    SInput input;
+    SDispatcher dispatcher;
+    SDevice device;
+    SReading original, forward, rollback, current;
+    {
+        modules::SHostPumpContext context{};
+        platform::runtime::CPlatformRuntime runtime{ context };
+        SGameInput state;
+        input.AddRef();
+        dispatcher.AddRef();
+        state.input = &input;
+        state.dispatcher = &dispatcher;
+        TEST_EXPECT(ctx, state.devices.initialise(platform::input::k_device_capacity));
+        SGameInput::SDevice record{ &device };
+        original.AddRef();
+        record.cursor = &original;
+        record.info.device = 1u;
+        record.ordinal = 5u;
+        const std::int32_t slot = state.devices.insert(SGameInput::SDeviceKey{ 1u }, std::move(record));
+        TEST_EXPECT(ctx, (slot >= 0));
+        if (slot < 0) return;
+        SGameInput::SDevice* const stored = state.devices.get_slot(slot);
+        platform::native::SControllers source;
+        source.state = &state;
+        source.runtime = &runtime;
+        source.clock = { nullptr, &fixed_clock };
+        const platform::native::SControllerAdapter& adapter = platform::native::controller_adapter();
+        platform::native::SControllerReading result;
+        input.now = 100000u;
+        adapter.dispatch(source, 1000u);
+        TEST_EXPECT(ctx, ((state.last_clock == 100000u) && (state.clock_epoch == 1u)));
+
+        input.next_status = S_OK;
+        input.next = &forward;
+        input.now = forward.timestamp = 300000u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, false, result) == EControllerRead::reading));
+        TEST_EXPECT(ctx, ((state.last_clock == 300000u) && (stored->cursor == &forward) && (stored->ordinal == 6u)));
+
+        //  This rollback stays above the dispatch watermark. Only retention of
+        //  the preceding read-side sample can detect it in the same pump.
+        input.next = &rollback;
+        input.now = rollback.timestamp = 250000u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, false, result) == EControllerRead::empty));
+        TEST_EXPECT(ctx, (state.clock_reset && (state.last_clock == 300000u) &&
+            (stored->cursor == &forward) && (stored->ordinal == 6u) &&
+            (rollback.references == 1u) && (rollback.releases == 1u)));
+
+        const std::uint32_t reads = input.next_calls;
+        input.now = 400000u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, false, result) == EControllerRead::empty));
+        TEST_EXPECT(ctx, (state.clock_reset && (input.next_calls == reads) &&
+            (stored->cursor == &forward) && (stored->ordinal == 6u)));
+        //  Recovery must stay latched even after time passes the former peak.
+        adapter.dispatch(source, 1000u);
+        TEST_EXPECT(ctx, (!state.clock_reset && (state.clock_epoch == 2u) &&
+            (stored->info.clock_epoch == 2u) && !stored->cursor && !stored->ordinal &&
+            (state.last_clock == 400000u) && (forward.references == 1u)));
+        input.current = &current;
+        input.now = current.timestamp = 400001u;
+        TEST_EXPECT(ctx, (adapter.read(source, 1u, true, result) == EControllerRead::reading));
+        TEST_EXPECT(ctx, ((stored->cursor == &current) && (result.ordinal == 1u) && (state.last_clock == 400001u)));
+    }
+    TEST_EXPECT(ctx, ((input.references == 1u) && (dispatcher.references == 1u) && (device.references == 1u) &&
+        (original.references == 1u) && (forward.references == 1u) &&
+        (rollback.references == 1u) && (current.references == 1u)));
+}
+
 void focus_freshness(TTestContext& ctx)
 {
     using platform::native::EControllerRead;
@@ -490,6 +620,8 @@ void run_gameinput_ownership_tests(tests::TTestContext& ctx)
     queued_device_retirement(ctx);
     startup_allocation_failures(ctx);
     expired_history_continuity(ctx);
+    unread_history_age(ctx);
+    read_clock_rollback(ctx);
     focus_freshness(ctx);
 #else
     (void)ctx;

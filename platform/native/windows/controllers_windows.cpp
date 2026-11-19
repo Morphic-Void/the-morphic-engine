@@ -349,6 +349,22 @@ static EControllerRead read(SControllers& source, const std::uint64_t instance, 
     }
     GameInputGamepadState value{};
     const std::uint64_t microseconds = reading->GetTimestamp();
+    const std::uint64_t now = state->input->GetCurrentTimestamp();
+    if (now < state->last_clock)
+    {
+        state->clock_reset = true;
+        reading->Release();
+        return EControllerRead::empty;
+    }
+    state->last_clock = now;
+    if (!baseline && !found->freshness_pending && found->cursor && (now >= microseconds) &&
+        ((now - microseconds) > (k_controller_history_age_ns / 1000u)))
+    {
+        //  Skip stale unread history through the normal cancellation/baseline
+        //  protocol. A current baseline may be old because a device is idle.
+        reading->Release();
+        return EControllerRead::history_lost;
+    }
     if (found->freshness_pending && (microseconds <= found->fresh_after))
     {
         //  A cached focus-loss neutral is not evidence of physical release.

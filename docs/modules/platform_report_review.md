@@ -480,3 +480,86 @@ This clearance covers the CI correction and its explicitly authorised bounded
 fallback policy. It does not establish the exact Windows CI driver defect or
 close compact-layout, Host capture handoff, native placement/deadline qualification
 or full prerequisite acceptance. The user performs the next push/CI run.
+
+## Controller history and freeze diagnostics review, 19 November 2026
+
+Independently reviewed the 14-file uncommitted diff against
+`85e525d6563e3ca19f6ec6a7c005f3e3e8c7e98f`: retained synthetic pending work,
+100 ms unread-history expiry, atomic freeze diagnostics, SDK/Host acceptance
+coverage and the associated registrations/documentation.
+**Initial disposition: not cleared pending H1. Re-review below resolves H1 and
+clears the final scoped diff for commit.** This review changes only this record;
+no implementation edits, commit, push or delegation were performed.
+
+### H1 [P2]: retain read-side source-clock observations
+
+In [the GameInput read path](../../platform/native/windows/controllers_windows.cpp),
+the new `GetCurrentTimestamp()` sample is compared with `state->last_clock`, but
+that watermark is never updated after a nondecreasing read-side sample. Dispatch
+and eligibility update it; multiple reads within one pump do not. For example,
+dispatch can leave it at 100,000 microseconds, a read observes 300,000, and a later
+read observes 250,000. The rollback is missed because 250,000 still exceeds the
+dispatch watermark. A subsequent dispatch at 260,000 also misses it. The adapter
+can advance a reading/cursor/ordinal in the old clock epoch despite having observed
+the source clock go backwards, contrary to the agreed epoch-recovery rule.
+
+Record each accepted read-side clock observation in the common watermark before
+the subsequent early-return paths, while preserving rollback latching, COM release
+and cursor/ordinal protection. Extend the SDK replay with a forward read sample
+followed by a rollback that remains above the prior dispatch watermark. Check that
+the second reading is released, cursor/ordinal remain unchanged, recovery stays
+latched and the existing dispatch recovery advances the epoch. The current new
+rollback test manually assigns 500,000 to `last_clock` before reading 400,000; it
+does not cover this case. Only affected validation needs repetition after the fix.
+
+No additional blocking findings were identified in retained-history scheduling,
+age admission at exactly 100 ms versus expiry above it, idle-current baseline
+handling, rejected-reading ownership, atomic best-effort blocker masks or fixture
+version/consumer coordination. Freeze diagnostics read atomic observations while
+unfrozen, rather than racing the raw trace arrays. Eligible/claimed history requests
+pump progress; suppressed/unclaimed history expires through ordinary opportunities.
+The existing count cap, pump budgets and request timeout are retained.
+
+Reused the supplied validation rather than repeating passing matrices. Inspected
+the eight final Win32/x64 pressure/history-freshness/load-smoke/transitions reports
+(all passed), Linux Clang focused result (46,191 passed), and the 12 plus 10 Linux
+acceptance results (all passed). The retained real-ring timeout probe correctly
+reports admitted request 31, frozen false, 1,202 pumps, action mask 2 and pause
+mask 2, followed by cooperative failure/cleanup. Win32/x64 focused SDK evidence
+was supplied as 46,290 checks each. These passes do not cover H1's missed-clock-
+watermark sequence. No broad prerequisite acceptance or unrelated native-report
+placement qualification follows from this CI correction review.
+
+### H1 re-review and final commit clearance, 19 November 2026
+
+**H1 is corrected. No blocking findings remain; the final 15-file diff against
+`85e525d6563e3ca19f6ec6a7c005f3e3e8c7e98f` is cleared for the user-authorised
+controller-history/freeze-diagnostic commit**, including this review record.
+
+The GameInput read path now assigns `state->last_clock = now` immediately after
+the rollback guard, before age, freshness or quality early returns. A detected
+rollback retains the former watermark/cursor/ordinal, releases the candidate
+reading and latches recovery. The new `read_clock_rollback` SDK replay exercises
+real adapter dispatch at 100,000 microseconds, a forward read at 300,000, then
+rollback at 250,000. It checks rejected-reading release, unchanged cursor/ordinal,
+the retained 300,000 watermark, continued blocking after time advances to 400,000,
+and dispatch recovery into epoch 2 before baseline ordinal 1. The age replay also
+checks watermark retention when an over-age reading returns history loss.
+
+Compared file hashes with the original review: only the native source, SDK tests
+and input Host validation record changed among the 14 previously reviewed files.
+Those changes were reviewed together with the unchanged remainder and this review
+record. No temporary probe or unrelated scope expansion was introduced.
+
+Inspected the retained H1 Win32/x64 Debug build logs for MorphicPlatform,
+MorphicInputPlatform and MorphicTests: all succeeded without warnings/errors.
+The raw `H1-green-Win32-console.log` and `H1-green-x64-console.log` each record
+46,303 passes and zero failures. The pre-fix result of 46,294 passes/nine failures
+is explicitly retained as an observation summary in `H1-red-observation.txt`, not
+as a captured raw log. Existing Linux Clang acceptance, synthetic Windows Host
+acceptance and real-ring diagnostic evidence remain applicable to their unchanged
+paths; no broad passing matrix was repeated for this Windows-only correction.
+
+This closes H1 and the scoped commit review, not full Platform-report prerequisite
+acceptance or the separate native-report placement/handoff work. No implementation
+edits, commit or push were performed by the reviewer; the user performs pushes.

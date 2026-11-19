@@ -86,6 +86,13 @@ struct SLatest
         return false;
     }
 };
+struct SFreezeProgress
+{
+    std::atomic<bool> requested{};
+    std::atomic<std::uint64_t> pumps{};
+    std::atomic<std::uint32_t> feed{}, history[4]{}, desktop{};
+    std::atomic<std::uint32_t> mappers{}, baselines{}, boundaries{}, ingress{}, actions{}, text{};
+};
 struct SShared
 {
     ::threading::transports::TRing<SFeed> feed;
@@ -102,6 +109,8 @@ struct SShared
     std::atomic<std::uint64_t> connection[k_pipe_count]{};
     std::atomic<std::uint64_t> ready_connection[k_pipe_count]{};
     std::atomic<std::uint64_t> publications[k_pipe_count][2]{};
+    //  Best-effort atomic observations remain readable if freeze times out.
+    SFreezeProgress freeze;
     //  Host is the sole writer. Consumer reads these only after frozen/acquire.
     std::uint32_t trace_count{}, pump_count{}, trace_overflow{}, pump_overflow{};
     bool tracing{};

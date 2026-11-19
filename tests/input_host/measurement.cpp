@@ -70,6 +70,18 @@ bool CConsumer::report()
     if (!transact(control_route, 2u, nullptr, 0u) ||
         !until([&] { return !shared || shared->frozen.load(std::memory_order_acquire); }) || !shared)
     {
+        if (!shared) return false;
+        const SFreezeProgress& progress = shared->freeze;
+        MV_LOG(error, "Input Host: freeze request {} failed: requested {}, frozen {}, closing {}, source failed {}, pumps {}",
+            waiting, progress.requested.load(), shared->frozen.load(), shared->closing.load(), shared->failed.load(), progress.pumps.load());
+        MV_LOG(error, "Input Host: last freeze backlog: feed {}, history [{}, {}, {}, {}], desktop busy {}",
+            progress.feed.load(), progress.history[0].load(), progress.history[1].load(), progress.history[2].load(),
+            progress.history[3].load(), progress.desktop.load());
+        MV_LOG(error, "Input Host: last freeze pipe masks: mappers {}, baselines {}, boundaries {}, ingress {}, actions {}, text {}",
+            progress.mappers.load(), progress.baselines.load(), progress.boundaries.load(), progress.ingress.load(),
+            progress.actions.load(), progress.text.load());
+        MV_LOG(error, "Input Host: freeze frontier: consumed {}, drained {}, feed loss {}, history loss {}, pause mask {}",
+            shared->consumed.load(), shared->drained.load(), shared->feed_loss.load(), shared->history_loss.load(), pause_mask);
         return false;
     }
     //  Exercise progress after freeze: no untraced controller history may escape the handshake.

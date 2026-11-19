@@ -67,6 +67,10 @@ bool CConsumer::exercise()
     {
         return transitions();
     }
+    if (option("MORPHIC_INPUT_CASE", "history-freshness"))
+    {
+        return history_freshness();
+    }
     if (option("MORPHIC_INPUT_CASE", "work-pressure"))
     {
         return work_pressure();
@@ -133,6 +137,51 @@ bool CConsumer::source_cleanup()
         }
     }
     MV_LOG(info, "Input Host: late source transfer/acquisition ownership retired during cleanup");
+    return true;
+}
+bool CConsumer::history_freshness()
+{
+    SFeed focus;
+    focus.kind = EFeed::focus;
+    if (!feed(focus)) return false;
+    const std::uint64_t suppressed = next_observation;
+    if (!until([&] { return shared->consumed.load() >= suppressed; }))
+    {
+        return false;
+    }
+    const std::uint64_t history_loss = shared->history_loss.load();
+    SFeed frame;
+    frame.kind = EFeed::controller;
+    frame.value = 1u;
+    if (!feed(frame) || !until([&] { return shared->history_loss.load() > history_loss; }))
+    {
+        return false;
+    }
+    focus.value = 1u;
+    if (!feed(focus) || !until([&] { return active(); }) || (pipes[1].values[k_south_action][0] != 0.0f))
+    {
+        return false;
+    }
+    //  The skipped held press cannot activate through the recovery baseline.
+    //  A later neutral observation must finish before a fresh press can apply.
+    frame.value = 0u;
+    if (!feed(frame)) return false;
+    const std::uint64_t neutral = next_observation;
+    if (!until([&] { return (shared->drained.load() >= neutral) && active(); }))
+    {
+        return false;
+    }
+    frame.value = 1u;
+    if (!feed(frame) || !until([&] { return pipes[1].values[k_south_action][0] == 1.0f; }))
+    {
+        return false;
+    }
+    frame.value = 0u;
+    if (!feed(frame) || !until([&] { return pipes[1].values[k_south_action][0] == 0.0f; }))
+    {
+        return false;
+    }
+    MV_LOG(info, "Input Host: stale controller history discarded, held baseline suppressed, neutral and fresh press recovered");
     return true;
 }
 bool CConsumer::transitions()

@@ -15,7 +15,7 @@ import tempfile
 import time
 import platform
 
-CASES = ("lifecycle", "pressure", "transitions", "work-pressure", "second-consumer", "shutdown-blocked",
+CASES = ("lifecycle", "pressure", "transitions", "history-freshness", "work-pressure", "second-consumer", "shutdown-blocked",
          "ingress-loss", "acquisition-cleanup", "source-cleanup", "load-smoke", "load")
 
 

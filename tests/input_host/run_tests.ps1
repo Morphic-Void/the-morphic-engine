@@ -18,7 +18,7 @@ if (!$SkipBuild) {
         if ($LASTEXITCODE -ne 0) { throw "$project build failed." }
     }
 }
-foreach ($case in @('lifecycle', 'pressure', 'transitions', 'work-pressure', 'second-consumer',
+foreach ($case in @('lifecycle', 'pressure', 'transitions', 'history-freshness', 'work-pressure', 'second-consumer',
         'shutdown-blocked', 'ingress-loss', 'acquisition-cleanup', 'source-cleanup', 'load-smoke')) {
     & $Python (Join-Path $PSScriptRoot 'run_tests.py') --engine "$repository/build/bin/$Platform/$Configuration/MorphicEngine.exe" `
         --host-workers $WorkerCount --output-directory "$repository/build/input-host-$Platform-$Configuration" --case $case --rate 120

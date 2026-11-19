@@ -16,6 +16,8 @@
 namespace platform::native
 {
 
+inline constexpr std::uint64_t k_controller_history_age_ns = 100000000u;
+
 struct SControllerInfo
 {
     std::uint64_t device{}, clock_domain{ 1u }, clock_epoch{ 1u };

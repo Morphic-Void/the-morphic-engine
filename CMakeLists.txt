@@ -156,7 +156,7 @@ add_test(NAME MorphicReflectionArenaFatal COMMAND "${Python3_EXECUTABLE}"
     "--output-directory=${CMAKE_BINARY_DIR}/reflection-arena-fatal")
 set_tests_properties(MorphicReflectionArenaFatal PROPERTIES TIMEOUT 120)
 foreach(workers IN ITEMS 1 2)
-    foreach(input_case IN ITEMS lifecycle pressure transitions work-pressure second-consumer shutdown-blocked ingress-loss acquisition-cleanup source-cleanup load-smoke)
+    foreach(input_case IN ITEMS lifecycle pressure transitions history-freshness work-pressure second-consumer shutdown-blocked ingress-loss acquisition-cleanup source-cleanup load-smoke)
         add_test(NAME MorphicInputHost-${input_case}-${workers}Worker COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_SOURCE_DIR}/tests/input_host/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
             "--output-directory=${CMAKE_BINARY_DIR}/input-host" --host-workers ${workers} --case ${input_case} --rate 120)

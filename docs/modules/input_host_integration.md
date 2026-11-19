@@ -368,3 +368,70 @@ preserves detailed clock/overflow/source/pipe diagnostics on failure and does no
 change sampling or the measured path. After that change, two-worker load smoke
 passed on Windows x64 Debug/Release, Win32 Debug and Linux GCC Debug; the emitted
 diagnostic counters were zero.
+
+## 19 November 2026 — bounded controller history and freeze diagnostics
+
+The remaining supplied Windows Debug x86 CI failure was the one-worker pressure
+case timing out on freeze request 34. Native Platform report publication and
+Host-pump acceptance had passed. The CI log did not record the freeze blockers,
+so the exact historical pending state cannot be established from that artifact.
+A four-core local Win32 probe entered freeze with 811 retained controller readings
+and took 4,038 pumps to drain. Advertising retained history as pending work removed
+the incidental cadence waits; the comparison reached freeze with no queued history
+and completed on its first pump.
+
+The synthetic adapter now advertises queued history for eligible, claimed
+controllers even when its feed is empty. Suppressed/unclaimed history does not
+force a busy loop. The agreed maximum unread-history age is 100 ms in both the
+GameInput and synthetic adapters, in addition to the fixture's 1,024-reading cap.
+Discard uses source-history loss, cancellation and fresh-baseline recovery;
+held controls must reach neutral before rearming. An idle device's unchanged
+current state remains a usable baseline. GameInput uses its source clock; synthetic
+offer age uses checked performance-counter conversion. Clock rollback remains an
+epoch-recovery condition. Existing pump budgets and the ten-second request deadline
+remain unchanged.
+
+On a freeze failure, the consumer logs request admission, frozen/closing/failure
+state, observed pumps, last feed/controller queue counts, desktop activity,
+per-pipe mapper/baseline/boundary/ingress/action/text blocker masks, loss counters
+and consumed/drained frontiers. These are atomic last observations rather than a
+coherent frozen measurement. A temporary Win32 consumer probe left a real action
+record unread and exercised the ten-second timeout and cooperative cleanup:
+request 31 was admitted, remained unfrozen after 1,202 observed pumps, and logged
+the calculated action-ring blocker mask 2 with consumer pause mask 2. The probe
+was removed and normal binaries rebuilt.
+
+Validation evidence is retained under `build/controller-history-freshness/`.
+Initial Win32 and x64 Debug focused input suites each passed 46,290 checks, including
+GameInput age-boundary, rejected-reading ownership, idle-baseline and clock-rollback
+cases. The new `history-freshness` Host acceptance case expires unread input while
+suppressed, rejects activation from its held recovery baseline, and verifies neutral
+followed by a fresh press/release. It is registered for Windows and Linux with one
+and two requested workers. Windows synthetic acceptance uses the existing injected
+report provider to avoid the separately documented local native-report capture
+stall; it does not qualify that native timing path.
+
+Final Windows Debug pressure, history-freshness, finite-load and transition checks
+passed with one requested worker on Win32 and two on x64. Linux Clang 18.1.3 Debug
+passed 46,191 focused input checks and all 22 Host input acceptance checks under
+four-core affinity (11 cases with one and two requested workers). GCC was not used
+for this local validation. Tracked line endings, source-list checks and diff
+whitespace checks also passed.
+
+Coordinator review finding H1 identified that accepted GameInput read-side source
+clock samples were checked but not retained in the common watermark. The corrected
+read path stores each nondecreasing sample before age/freshness/quality returns.
+The SDK replay now performs dispatch at 100,000 microseconds, a forward read at
+300,000, and a rollback read at 250,000: it verifies release of the rejected reading,
+unchanged cursor/ordinal, a latched reset even after time advances to 400,000, and
+dispatch recovery into epoch 2 followed by baseline ordinal 1. The age-limit replay
+also verifies watermark retention when stale history is rejected.
+
+The pre-fix Win32 replay produced 46,294 passes and nine failures, confirming that
+the added checks expose H1. After correction, Win32 and x64 Debug focused input
+suites each passed 46,303 checks with zero failures; the affected production and
+acceptance Platform modules were rebuilt for both architectures. Evidence is in
+`H1-red-observation.txt`, `H1-green-Win32-console.log`, `H1-green-x64-console.log`
+and the `*-H1-*-build.log` files in the same evidence directory. The Linux and Host
+acceptance evidence above is reused: this correction changes only Windows-native
+clock observation and its SDK replay, so those passing matrices were not repeated.
