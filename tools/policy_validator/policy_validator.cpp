@@ -77,6 +77,14 @@ struct SLexedFile
     std::vector<SDecoration> decorations;
 };
 
+struct SSourceText
+{
+    std::string text;
+    std::vector<std::size_t> original_offsets;
+    std::vector<std::size_t> line_starts{ 0u };
+    std::vector<std::size_t> original_line_starts{ 0u };
+};
+
 struct SScanRoot
 {
     fs::path path;
@@ -90,6 +98,7 @@ struct SIncludeRule
     std::string match_kind;
     std::string path;
     std::string classification;
+    std::size_t line;
 };
 
 struct SMacroRule
@@ -98,6 +107,21 @@ struct SMacroRule
     std::string diagnostic_rule;
     std::string match_kind;
     std::string path;
+    std::size_t line;
+};
+
+struct SPolicyRecord
+{
+    std::vector<std::string> fields;
+    std::size_t line;
+};
+
+struct SPolicyUsage
+{
+    std::unordered_set<std::size_t> includes;
+    std::unordered_set<std::size_t> macros;
+    std::unordered_set<std::string> placements;
+    std::unordered_set<std::string> allocations;
 };
 
 struct SProjectRule
@@ -108,6 +132,7 @@ struct SProjectRule
 
 struct SPolicy
 {
+    std::vector<SPolicyRecord> records;
     std::vector<SScanRoot> scan_roots;
     std::vector<SIncludeRule> include_rules;
     std::vector<SMacroRule> macro_rules;
@@ -247,9 +272,23 @@ struct SCompilerGroup
                 path.string() + '(' + std::to_string(line_number) + "): invalid policy record");
         };
 
+        if (std::any_of(fields.begin(), fields.end(), [](const std::string& field) { return field.empty(); }))
+        {
+            invalid();
+        }
+        for (const SPolicyRecord& record : policy.records)
+        {
+            const std::size_t key_size = (fields[0] == "include") ? std::min(std::size_t{ 5u }, fields.size()) : fields.size();
+            if ((record.fields.size() == fields.size()) &&
+                std::equal(fields.begin(), (fields.begin() + key_size), record.fields.begin()))
+            {
+                invalid();
+            }
+        }
+
         if ((fields[0] == "version") && (fields.size() == 2u))
         {
-            if (fields[1] != "1")
+            if (version_seen || (fields[1] != "1"))
             {
                 throw std::invalid_argument("unsupported policy version: " + fields[1]);
             }
@@ -257,12 +296,20 @@ struct SCompilerGroup
         }
         else if ((fields[0] == "scan") && (fields.size() == 3u))
         {
+            if ((fields[2] != "engine") && (fields[2] != "tests"))
+            {
+                invalid();
+            }
             policy.scan_roots.push_back({ fields[1], fields[2] });
         }
         else if ((fields[0] == "include") && (fields.size() == 6u))
         {
+            if ((fields[2] != "engine") && (fields[2] != "tests") && (fields[2] != "all"))
+            {
+                invalid();
+            }
             policy.include_rules.push_back({
-                fields[1], fields[2], fields[3], fields[4], fields[5] });
+                fields[1], fields[2], fields[3], fields[4], fields[5], line_number });
         }
         else if ((fields[0] == "placement") && (fields.size() == 2u))
         {
@@ -274,17 +321,77 @@ struct SCompilerGroup
         }
         else if ((fields[0] == "macro") && (fields.size() == 5u))
         {
+            if ((fields[2] != "GID001") && (fields[2] != "GID002"))
+            {
+                invalid();
+            }
+            if (!is_identifier_start(fields[1][0]) ||
+                !std::all_of(fields[1].begin(), fields[1].end(), is_identifier_continue))
+            {
+                invalid();
+            }
+            for (const SMacroRule& rule : policy.macro_rules)
+            {
+                if ((rule.name == fields[1]) && (rule.diagnostic_rule != fields[2]))
+                {
+                    invalid();
+                }
+            }
             policy.macro_rules.push_back({
-                fields[1], fields[2], fields[3], fields[4] });
+                fields[1], fields[2], fields[3], fields[4], line_number });
         }
         else if ((fields[0] == "project") && (fields.size() == 3u))
         {
+            if ((fields[2] != "engine") && (fields[2] != "tool"))
+            {
+                invalid();
+            }
+            for (const SProjectRule& project : policy.projects)
+            {
+                if (project.path == fs::path(fields[1])) invalid();
+            }
             policy.projects.push_back({ fields[1], fields[2] });
         }
         else
         {
             invalid();
         }
+        const bool permission = (fields[0] == "include") || (fields[0] == "macro");
+        if (permission && (fields[3] != "any") && (fields[3] != "exact") && (fields[3] != "prefix"))
+        {
+            invalid();
+        }
+        if (fields[0] != "version")
+        {
+            const std::string& configured = fields[permission ? 4u : 1u];
+            if (permission && (fields[3] == "any"))
+            {
+                if (configured != "*") invalid();
+            }
+            else
+            {
+                const fs::path target(configured);
+                if (target.has_root_directory() || target.has_root_name() ||
+                    (configured.find_first_of("\\:*?") != std::string::npos) ||
+                    (normalise_relative_path(target) != configured) || (configured == "."))
+                {
+                    invalid();
+                }
+                for (const fs::path& part : target)
+                {
+                    if ((part == "..") || (part == "."))
+                    {
+                        invalid();
+                    }
+                }
+                const bool prefix = permission && (fields[3] == "prefix");
+                if (prefix != (configured.back() == '/'))
+                {
+                    invalid();
+                }
+            }
+        }
+        policy.records.push_back({ fields, line_number });
     }
     if (!version_seen || policy.scan_roots.empty() || policy.projects.empty())
     {
@@ -323,6 +430,115 @@ struct SCompilerGroup
         return 3u;
     }
     return 2u;
+}
+
+// Apply physical line splicing before recognizing comments or identifiers, while
+// retaining original diagnostic locations and the contents of raw literals.
+[[nodiscard]] static SSourceText splice_source(const std::string& source)
+{
+    SSourceText result;
+    result.text.reserve(source.size());
+    result.original_offsets.reserve(source.size() + 1u);
+    for (std::size_t index = 0u; index < source.size(); ++index)
+    {
+        if (source[index] == '\n') result.original_line_starts.push_back(index + 1u);
+    }
+    char quote = 0;
+    char previous = 0;
+    bool escaped = false;
+    bool line_comment = false;
+    bool block_comment = false;
+    const auto append = [&](const std::size_t index)
+    {
+        result.original_offsets.push_back(index);
+        result.text += source[index];
+        if (source[index] == '\n') result.line_starts.push_back(result.text.size());
+    };
+    for (std::size_t index = 0u; index < source.size(); ++index)
+    {
+        const char character = source[index];
+        if ((character == '\\') && ((index + 1u) < source.size()))
+        {
+            if (source[index + 1u] == '\n')
+            {
+                ++index;
+                continue;
+            }
+            if (((index + 2u) < source.size()) && (source[index + 1u] == '\r') && (source[index + 2u] == '\n'))
+            {
+                index += 2u;
+                continue;
+            }
+        }
+        if (line_comment)
+        {
+            if (character == '\n') line_comment = false;
+        }
+        else if (block_comment)
+        {
+            if ((previous == '*') && (character == '/'))
+            {
+                block_comment = false;
+                previous = 0;
+                append(index);
+                continue;
+            }
+        }
+        else if (quote != 0)
+        {
+            if (!escaped && (character == quote)) quote = 0;
+            escaped = !escaped && (character == '\\');
+        }
+        else if ((previous == '/') && (character == '/')) line_comment = true;
+        else if ((previous == '/') && (character == '*')) block_comment = true;
+        else if ((character == '"') || (character == '\''))
+        {
+            bool raw = false;
+            if (character == '"')
+            {
+                const std::string probe = result.text.substr((result.text.size() > 5u) ? (result.text.size() - 5u) : 0u) + character;
+                const std::size_t begin = (probe.size() > 4u) ? (probe.size() - 4u) : 0u;
+                for (std::size_t cursor = begin; (cursor + 1u) < probe.size(); ++cursor)
+                {
+                    if (begins_raw_string(probe, cursor)) raw = true;
+                }
+            }
+            if (raw)
+            {
+                const std::size_t open = source.find('(', index + 1u);
+                if ((open != std::string::npos) && ((open - index - 1u) <= 16u))
+                {
+                    const std::string delimiter = source.substr((index + 1u), (open - index - 1u));
+                    const std::string terminator = ')' + delimiter + '"';
+                    const std::size_t close = source.find(terminator, open + 1u);
+                    const std::size_t end = (close == std::string::npos) ? source.size() : (close + terminator.size());
+                    while (index < end)
+                    {
+                        append(index);
+                        ++index;
+                    }
+                    --index;
+                    previous = 0;
+                    continue;
+                }
+            }
+            quote = character;
+            escaped = false;
+        }
+        append(index);
+        previous = character;
+    }
+    result.original_offsets.push_back(source.size());
+    return result;
+}
+
+static void restore_position(const SSourceText& source, std::size_t& line, std::size_t& column)
+{
+    const std::size_t logical = source.line_starts.at(line - 1u) + column - 1u;
+    const std::size_t original = source.original_offsets.at(logical);
+    const auto next_line = std::upper_bound(source.original_line_starts.begin(), source.original_line_starts.end(), original);
+    line = static_cast<std::size_t>(next_line - source.original_line_starts.begin());
+    column = original - source.original_line_starts[line - 1u] + 1u;
 }
 
 static void update_position(
@@ -388,6 +604,49 @@ static void update_position(
     return decoration;
 }
 
+[[nodiscard]] static std::size_t directive_end(const std::string& source, const std::size_t begin)
+{
+    for (std::size_t index = begin; index < source.size(); ++index)
+    {
+        if (source[index] == '\n') return index + 1u;
+        if (source.compare(index, 2u, "//") == 0)
+        {
+            const std::size_t end = source.find('\n', index);
+            return (end == std::string::npos) ? source.size() : (end + 1u);
+        }
+        if (source.compare(index, 2u, "/*") == 0)
+        {
+            const std::size_t end = source.find("*/", index + 2u);
+            if (end == std::string::npos) return source.size();
+            index = end + 1u;
+        }
+        else if (begins_raw_string(source, index))
+        {
+            const std::size_t delimiter_begin = index + raw_prefix_length(source, index);
+            const std::size_t open = source.find('(', delimiter_begin);
+            if ((open == std::string::npos) || ((open - delimiter_begin) > 16u))
+            {
+                return source.size();
+            }
+            const std::string terminator = ')' + source.substr(delimiter_begin, open - delimiter_begin) + '"';
+            const std::size_t end = source.find(terminator, open + 1u);
+            if (end == std::string::npos) return source.size();
+            index = end + terminator.size() - 1u;
+        }
+        else if ((source[index] == '"') || (source[index] == '\''))
+        {
+            const char quote = source[index];
+            for (++index; index < source.size(); ++index)
+            {
+                if (source[index] == quote) break;
+                if (source[index] == '\n') return index + 1u;
+                if ((source[index] == '\\') && ((index + 1u) < source.size())) ++index;
+            }
+        }
+    }
+    return source.size();
+}
+
 [[nodiscard]] static SLexedFile lex_source(const std::string& source)
 {
     SLexedFile result;
@@ -418,37 +677,13 @@ static void update_position(
             const std::size_t begin = index;
             const std::size_t directive_line = line;
             const std::size_t directive_column = index - line_start + 1u;
-            for (;;)
-            {
-                const std::size_t newline = source.find('\n', index);
-                if (newline == std::string::npos)
-                {
-                    index = source.size();
-                    break;
-                }
-                std::size_t previous = newline;
-                while ((previous > begin) &&
-                    ((source[previous - 1u] == '\r') || (source[previous - 1u] == ' ') ||
-                     (source[previous - 1u] == '\t')))
-                {
-                    --previous;
-                }
-                const bool continued = (previous > begin) && (source[previous - 1u] == '\\');
-                index = newline + 1u;
-                ++line;
-                line_start = index;
-                if (!continued)
-                {
-                    break;
-                }
-            }
+            index = directive_end(source, index);
+            update_position(source, begin, index, line, line_start);
             result.directives.push_back({
                 source.substr(begin, index - begin), directive_line, directive_column });
             only_whitespace_on_line = true;
             continue;
         }
-        only_whitespace_on_line = false;
-
         if ((character == '/') && ((index + 1u) < source.size()) && source[index + 1u] == '/')
         {
             const std::size_t comment_line = line;
@@ -472,6 +707,7 @@ static void update_position(
             index = actual_end;
             continue;
         }
+        only_whitespace_on_line = false;
         if (begins_raw_string(source, index))
         {
             const std::size_t prefix_length = raw_prefix_length(source, index);
@@ -539,39 +775,15 @@ static void update_position(
     return result;
 }
 
-[[nodiscard]] static std::vector<SToken> directive_identifiers(const SDirective& directive)
+[[nodiscard]] static std::vector<SToken> directive_tokens(const SDirective& directive)
 {
-    std::vector<SToken> tokens;
-    std::size_t line = directive.line;
-    std::size_t column = directive.column;
-    for (std::size_t index = 0u; index < directive.text.size();)
+    std::string definition = directive.text;
+    definition[0] = ' ';
+    std::vector<SToken> tokens = lex_source(definition).tokens;
+    for (SToken& token : tokens)
     {
-        const char character = directive.text[index];
-        if (character == '\n')
-        {
-            ++line;
-            column = 1u;
-            ++index;
-            continue;
-        }
-        if (is_identifier_start(character))
-        {
-            const std::size_t begin = index;
-            const std::size_t token_column = column;
-            ++index;
-            ++column;
-            while ((index < directive.text.size()) && is_identifier_continue(directive.text[index]))
-            {
-                ++index;
-                ++column;
-            }
-            tokens.push_back({ directive.text.substr(begin, index - begin), line, token_column });
-        }
-        else
-        {
-            ++index;
-            ++column;
-        }
+        if (token.line == 1u) token.column += directive.column - 1u;
+        token.line += directive.line - 1u;
     }
     return tokens;
 }
@@ -588,15 +800,21 @@ static void update_position(
     const SPolicy& policy,
     const std::string& operand,
     const std::string& scope,
-    const std::string& relative_path)
+    const std::string& relative_path,
+    SPolicyUsage& usage)
 {
-    return std::any_of(policy.include_rules.begin(), policy.include_rules.end(),
-        [&](const SIncludeRule& rule)
+    bool allowed = false;
+    for (const SIncludeRule& rule : policy.include_rules)
+    {
+        if ((rule.operand == operand) &&
+            ((rule.scope == "all") || (rule.scope == scope)) &&
+            path_matches(relative_path, rule.match_kind, rule.path))
         {
-            return (rule.operand == operand) &&
-                ((rule.scope == "all") || (rule.scope == scope)) &&
-                path_matches(relative_path, rule.match_kind, rule.path);
-        });
+            usage.includes.insert(rule.line);
+            allowed = true;
+        }
+    }
+    return allowed;
 }
 
 [[nodiscard]] static bool macro_is_known(const SPolicy& policy, const std::string& name)
@@ -608,14 +826,19 @@ static void update_position(
 [[nodiscard]] static bool macro_is_allowed(
     const SPolicy& policy,
     const std::string& name,
-    const std::string& relative_path)
+    const std::string& relative_path,
+    SPolicyUsage& usage)
 {
-    return std::any_of(policy.macro_rules.begin(), policy.macro_rules.end(),
-        [&](const SMacroRule& rule)
+    bool allowed = false;
+    for (const SMacroRule& rule : policy.macro_rules)
+    {
+        if ((rule.name == name) && path_matches(relative_path, rule.match_kind, rule.path))
         {
-            return (rule.name == name) &&
-                path_matches(relative_path, rule.match_kind, rule.path);
-        });
+            usage.macros.insert(rule.line);
+            allowed = true;
+        }
+    }
+    return allowed;
 }
 
 [[nodiscard]] static std::string macro_diagnostic_rule(
@@ -637,6 +860,238 @@ static void add_diagnostic(
     std::string message)
 {
     diagnostics.push_back({ path, line, column, severity, std::move(rule), std::move(message), false });
+}
+
+[[nodiscard]] static bool permission_covers(
+    const std::string& broad_kind, const std::string& broad_path,
+    const std::string& narrow_kind, const std::string& narrow_path)
+{
+    if (broad_kind == "any") return true;
+    if (narrow_kind == "any") return false;
+    if (broad_kind == "prefix")
+    {
+        return path_matches(narrow_path, broad_kind, broad_path);
+    }
+    return (narrow_kind == "exact") && (broad_path == narrow_path);
+}
+
+[[nodiscard]] static bool is_within_repository(const fs::path& root, const fs::path& path)
+{
+    std::error_code error;
+    const fs::path canonical_root = fs::weakly_canonical(root, error);
+    if (error) return false;
+    const fs::path canonical_path = fs::weakly_canonical(path, error);
+    if (error) return false;
+    std::string prefix = canonical_root.generic_string();
+    if (prefix.back() != '/') prefix += '/';
+    std::string target = canonical_path.generic_string();
+#ifdef _WIN32
+    prefix = lower_copy(prefix);
+    target = lower_copy(target);
+#endif
+    return target.rfind(prefix, 0u) == 0u;
+}
+
+static void audit_policy_targets(
+    const fs::path& root, const SPolicy& policy, std::vector<SDiagnostic>& diagnostics)
+{
+    for (const SPolicyRecord& record : policy.records)
+    {
+        const std::vector<std::string>& fields = record.fields;
+        if (fields[0] == "version") continue;
+        const bool permission = (fields[0] == "include") || (fields[0] == "macro");
+        if (permission && (fields[3] == "any"))
+        {
+            continue;
+        }
+        const std::string& path = fields[permission ? 4u : 1u];
+        const bool directory = (fields[0] == "scan") || (permission && (fields[3] == "prefix"));
+        const fs::path target = root / path;
+        std::error_code error;
+        const bool exists = directory ? fs::is_directory(target, error) : fs::is_regular_file(target, error);
+        if (!exists || error || !is_within_repository(root, target))
+        {
+            add_diagnostic(diagnostics, "policy/morphic_policy.cfg", record.line, 1u,
+                ESeverity::error, ((fields[0] == "scan") ? "SRC001" : "CFG001"),
+                "configured target must exist inside the repository: " + path);
+            continue;
+        }
+        if ((fields[0] == "project") || (fields[0] == "scan"))
+        {
+            continue;
+        }
+        const bool scanned = std::any_of(policy.scan_roots.begin(), policy.scan_roots.end(),
+            [&](const SScanRoot& scan)
+            {
+                const std::string prefix = normalise_relative_path(scan.path) + '/';
+                const bool scope_matches = (fields[0] != "include") || (fields[2] == "all") || (fields[2] == scan.scope);
+                return scope_matches && ((path.rfind(prefix, 0u) == 0u) ||
+                    (directory && (prefix.rfind(path, 0u) == 0u)));
+            });
+        if (!scanned || (!directory && !is_source_file(target)))
+        {
+            add_diagnostic(diagnostics, "policy/morphic_policy.cfg", record.line, 1u,
+                ESeverity::error, "CFG001", "permission target is outside its configured source scope: " + path);
+        }
+    }
+    for (std::size_t index = 0u; index < policy.scan_roots.size(); ++index)
+    {
+        std::error_code error;
+        const fs::path first_path = fs::weakly_canonical(root / policy.scan_roots[index].path, error);
+        if (error) continue;
+        std::string first = normalise_relative_path(first_path) + '/';
+#ifdef _WIN32
+        first = lower_copy(first);
+#endif
+        for (std::size_t other = index + 1u; other < policy.scan_roots.size(); ++other)
+        {
+            const fs::path second_path = fs::weakly_canonical(root / policy.scan_roots[other].path, error);
+            if (error) continue;
+            std::string second = normalise_relative_path(second_path) + '/';
+#ifdef _WIN32
+            second = lower_copy(second);
+#endif
+            if ((first.rfind(second, 0u) == 0u) || (second.rfind(first, 0u) == 0u))
+            {
+                add_diagnostic(diagnostics, "policy/morphic_policy.cfg", 1u, 1u,
+                    ESeverity::error, "CFG001", "overlapping source roots: " + first + " and " + second);
+            }
+        }
+    }
+    for (std::size_t index = 0u; index < policy.projects.size(); ++index)
+    {
+        for (std::size_t other = index + 1u; other < policy.projects.size(); ++other)
+        {
+            std::error_code error;
+            if (fs::equivalent((root / policy.projects[index].path), (root / policy.projects[other].path), error) && !error)
+            {
+                add_diagnostic(diagnostics, "policy/morphic_policy.cfg", 1u, 1u,
+                    ESeverity::error, "CFG001", "multiple classifications refer to the same project: " +
+                        policy.projects[index].path.generic_string() + " and " + policy.projects[other].path.generic_string());
+            }
+        }
+    }
+}
+
+static void audit_policy_usage(
+    const SPolicy& policy, const SPolicyUsage& usage, std::vector<SDiagnostic>& diagnostics)
+{
+    for (const SPolicyRecord& record : policy.records)
+    {
+        const std::vector<std::string>& fields = record.fields;
+        bool unused = false;
+        if ((fields[0] == "include") && (fields[3] != "any"))
+        {
+            unused = usage.includes.find(record.line) == usage.includes.end();
+        }
+        else if ((fields[0] == "macro") && (fields[3] != "any"))
+        {
+            unused = usage.macros.find(record.line) == usage.macros.end();
+        }
+        else if (fields[0] == "placement")
+        {
+            unused = usage.placements.find(fields[1]) == usage.placements.end();
+        }
+        else if (fields[0] == "allocation")
+        {
+            unused = usage.allocations.find(fields[1]) == usage.allocations.end();
+        }
+        if (unused)
+        {
+            add_diagnostic(diagnostics, "policy/morphic_policy.cfg", record.line, 1u,
+                ESeverity::warning, "CFG101", "unused narrow " + fields[0] + " permission");
+        }
+    }
+    for (const SIncludeRule& rule : policy.include_rules)
+    {
+        for (const SIncludeRule& other : policy.include_rules)
+        {
+            if ((rule.line != other.line) && (rule.operand == other.operand) &&
+                ((other.scope == "all") || (other.scope == rule.scope)) &&
+                permission_covers(other.match_kind, other.path, rule.match_kind, rule.path))
+            {
+                add_diagnostic(diagnostics, "policy/morphic_policy.cfg", rule.line, 1u,
+                    ESeverity::warning, "CFG102", "include permission is covered by line " + std::to_string(other.line));
+                break;
+            }
+        }
+    }
+    for (const SMacroRule& rule : policy.macro_rules)
+    {
+        for (const SMacroRule& other : policy.macro_rules)
+        {
+            if ((rule.line != other.line) && (rule.name == other.name) &&
+                permission_covers(other.match_kind, other.path, rule.match_kind, rule.path))
+            {
+                add_diagnostic(diagnostics, "policy/morphic_policy.cfg", rule.line, 1u,
+                    ESeverity::warning, "CFG102", "macro permission is covered by line " + std::to_string(other.line));
+                break;
+            }
+        }
+    }
+}
+
+static void audit_project_coverage(
+    const fs::path& root, const SPolicy& policy, std::vector<SDiagnostic>& diagnostics)
+{
+    std::set<fs::path> discovered;
+    for (const fs::directory_entry& entry : fs::directory_iterator(root))
+    {
+        if (entry.is_regular_file() && (lower_copy(entry.path().extension().string()) == ".vcxproj"))
+        {
+            discovered.insert(entry.path());
+        }
+    }
+    if (fs::is_directory(root / "visual_studio"))
+    {
+        for (const fs::directory_entry& entry : fs::recursive_directory_iterator(root / "visual_studio"))
+        {
+            if (entry.is_regular_file() && (lower_copy(entry.path().extension().string()) == ".vcxproj"))
+            {
+                discovered.insert(entry.path());
+            }
+        }
+    }
+    std::istringstream solution(read_file(root / "MorphicEngine.sln"));
+    std::string line;
+    while (std::getline(solution, line))
+    {
+        line = trim(line);
+        if (line.rfind("Project(", 0u) != 0u) continue;
+        const std::size_t assignment = line.find('=');
+        if (assignment == std::string::npos) continue;
+        const std::size_t name_begin = line.find('"', assignment);
+        if (name_begin == std::string::npos) continue;
+        const std::size_t name_end = line.find('"', name_begin + 1u);
+        if (name_end == std::string::npos) continue;
+        const std::size_t begin = line.find('"', name_end + 1u);
+        if (begin == std::string::npos) continue;
+        const std::size_t end = line.find('"', begin + 1u);
+        if (end == std::string::npos) continue;
+        std::string path = line.substr((begin + 1u), (end - begin - 1u));
+        if (lower_copy(fs::path(path).extension().string()) != ".vcxproj")
+        {
+            continue;
+        }
+        std::replace(path.begin(), path.end(), '\\', '/');
+        path = normalise_relative_path(path);
+        if (path.rfind("external/", 0u) == 0u) continue;
+        discovered.insert((root / path).lexically_normal());
+    }
+    for (const fs::path& path : discovered)
+    {
+        const bool classified = std::any_of(policy.projects.begin(), policy.projects.end(),
+            [&](const SProjectRule& project)
+            {
+                std::error_code error;
+                return fs::equivalent((root / project.path), path, error) && !error;
+            });
+        if (!classified)
+        {
+            add_diagnostic(diagnostics, path.lexically_relative(root), 1u, 1u,
+                ESeverity::error, "PRJ004", "repository-owned project has no policy classification");
+        }
+    }
 }
 
 [[nodiscard]] static bool layer_include_target_is_allowed(
@@ -679,56 +1134,71 @@ static void check_include(
     const fs::path& relative_path,
     const std::string& scope,
     const SPolicy& policy,
+    SPolicyUsage& usage,
+    bool& includes_new,
     const SDirective& directive,
     std::vector<SDiagnostic>& diagnostics)
 {
-    std::string text = trim(directive.text);
-    if (text.empty() || text[0] != '#')
+    const std::string& text = directive.text;
+    const auto skip_space = [&text](std::size_t& cursor)
+    {
+        while (cursor < text.size())
+        {
+            if (std::isspace(static_cast<unsigned char>(text[cursor])) != 0) ++cursor;
+            else if (text.compare(cursor, 2u, "/*") == 0)
+            {
+                const std::size_t end = text.find("*/", cursor + 2u);
+                cursor = (end == std::string::npos) ? text.size() : (end + 2u);
+            }
+            else break;
+        }
+    };
+    std::size_t cursor = 1u;
+    skip_space(cursor);
+    if ((text.compare(cursor, 7u, "include") != 0) ||
+        (((cursor + 7u) < text.size()) && is_identifier_continue(text[cursor + 7u])))
     {
         return;
     }
-    text = trim(text.substr(1u));
-    if (text.rfind("include", 0u) != 0u ||
-        ((text.size() > 7u) && is_identifier_continue(text[7u])))
-    {
-        return;
-    }
-    text = trim(text.substr(7u));
-    if (text.empty())
-    {
-        return;
-    }
+    cursor += 7u;
+    skip_space(cursor);
+    if (cursor == text.size()) return;
 
+    const std::size_t include_line = directive.line + static_cast<std::size_t>(
+        std::count(text.begin(), (text.begin() + cursor), '\n'));
+    const std::size_t last_newline = text.rfind('\n', cursor);
+    const std::size_t column = (last_newline == std::string::npos)
+        ? (directive.column + cursor + 1u) : (cursor - last_newline + 1u);
     const std::string source_path = normalise_relative_path(relative_path);
     const bool in_foundation = source_path.rfind("foundation/", 0u) == 0u;
     const bool in_framework = source_path.rfind("framework/", 0u) == 0u;
     const char* const boundary_rule = in_foundation ? "INC002" : "INC006";
     const std::string layer_name = in_foundation ? "foundation" : "framework";
-    const char opening = text[0];
+    const char opening = text[cursor];
     const char closing = (opening == '<') ? '>' : ((opening == '"') ? '"' : '\0');
     if (closing == '\0')
     {
         if (in_foundation || in_framework)
         {
-            add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
+            add_diagnostic(diagnostics, relative_path, include_line, column,
                 ESeverity::error, boundary_rule, layer_name + " include must use a literal operand so its boundary can be checked");
         }
         else
         {
-            add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
+            add_diagnostic(diagnostics, relative_path, include_line, column,
                 ESeverity::warning, "INC102", "macro-expanded include operand was not evaluated");
         }
         return;
     }
-    const std::size_t close = text.find(closing, 1u);
+    const std::size_t close = text.find(closing, cursor + 1u);
     if (close == std::string::npos)
     {
-        add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
+        add_diagnostic(diagnostics, relative_path, include_line, column,
             ESeverity::error, "INC001", "unterminated include operand");
         return;
     }
-    const std::string operand = text.substr(1u, close - 1u);
-    const std::size_t column = directive.column + directive.text.find(operand);
+    const std::string operand = text.substr((cursor + 1u), (close - cursor - 1u));
+    includes_new = includes_new || ((opening == '<') && (operand == "new"));
 
     // Treat both separator spellings consistently, including when Linux CI
     // checks an include that would be accepted by the Windows compiler.
@@ -751,6 +1221,7 @@ static void check_include(
         candidates.push_back(root / component / fs::path(project_operand));
     }
     std::set<std::string> resolved;
+    bool resolved_vendor = false;
     for (const fs::path& candidate : candidates)
     {
         std::error_code error;
@@ -759,27 +1230,64 @@ static void check_include(
             if ((in_foundation || in_framework) && !layer_include_target_is_allowed(root, candidate, in_framework))
             {
                 const std::string allowed_layers = in_foundation ? "foundation and SuiteUTF" : "foundation, framework and SuiteUTF";
-                add_diagnostic(diagnostics, relative_path, directive.line, column,
+                add_diagnostic(diagnostics, relative_path, include_line, column,
                     ESeverity::error, boundary_rule, layer_name + " include " + operand +
                         " resolves outside " + allowed_layers + ": " + normalise_relative_path(candidate));
                 return;
             }
-            resolved.insert(normalise_relative_path(candidate.lexically_normal()));
+            const fs::path canonical = fs::weakly_canonical(candidate, error);
+            if (error || !is_within_repository(root, canonical))
+            {
+                add_diagnostic(diagnostics, relative_path, include_line, column,
+                    ESeverity::error, "INC001", "include destination must resolve inside the repository");
+                return;
+            }
+            const fs::path canonical_root = fs::weakly_canonical(root, error);
+            const std::string destination = normalise_relative_path(canonical.lexically_relative(canonical_root));
+            const std::string destination_key = lower_copy(destination);
+            const bool external = destination_key.rfind("external/", 0u) == 0u;
+#ifdef _WIN32
+            const bool suite_utf = destination_key.rfind("external/suiteutf/", 0u) == 0u;
+#else
+            const bool suite_utf = destination.rfind("external/SuiteUTF/", 0u) == 0u;
+#endif
+            if (external && !suite_utf)
+            {
+                resolved_vendor = true;
+                bool allowed = false;
+                for (const SIncludeRule& rule : policy.include_rules)
+                {
+                    if (((rule.scope == "all") || (rule.scope == scope)) &&
+                        path_matches(source_path, rule.match_kind, rule.path) &&
+                        fs::equivalent((root / rule.operand), canonical, error) && !error)
+                    {
+                        usage.includes.insert(rule.line);
+                        allowed = true;
+                    }
+                }
+                if (!allowed)
+                {
+                    add_diagnostic(diagnostics, relative_path, include_line, column,
+                        ESeverity::error, "INC001", "vendor include resolves outside its approved adapter: " + destination);
+                    return;
+                }
+            }
+            resolved.insert(normalise_relative_path(canonical));
         }
     }
 
     if (opening == '<')
     {
-        if (!include_is_allowed(policy, operand, scope, normalise_relative_path(relative_path)))
+        if (!resolved_vendor && !include_is_allowed(policy, operand, scope, source_path, usage))
         {
-            add_diagnostic(diagnostics, relative_path, directive.line, column,
+            add_diagnostic(diagnostics, relative_path, include_line, column,
                 ESeverity::error, "INC001", "direct non-project include <" + operand +
                     "> is not allowed in this scope/path");
         }
         if ((operand == "windows.h") &&
             (normalise_relative_path(relative_path) != "foundation/platform/windows_include.hpp"))
         {
-            add_diagnostic(diagnostics, relative_path, directive.line, column,
+            add_diagnostic(diagnostics, relative_path, include_line, column,
                 ESeverity::error, "INC003", "windows.h must be included through the project wrapper");
         }
         return;
@@ -787,12 +1295,12 @@ static void check_include(
 
     if (resolved.empty())
     {
-        add_diagnostic(diagnostics, relative_path, directive.line, column,
+        add_diagnostic(diagnostics, relative_path, include_line, column,
             ESeverity::error, "INC004", "project include \"" + operand + "\" does not resolve");
     }
     else if (resolved.size() > 1u)
     {
-        add_diagnostic(diagnostics, relative_path, directive.line, column,
+        add_diagnostic(diagnostics, relative_path, include_line, column,
             ESeverity::warning, "INC005", "project include \"" + operand + "\" resolves ambiguously");
     }
 }
@@ -800,11 +1308,12 @@ static void check_include(
 static void check_macro_token(
     const fs::path& relative_path,
     const SPolicy& policy,
+    SPolicyUsage& usage,
     const SToken& token,
     std::vector<SDiagnostic>& diagnostics)
 {
     if (macro_is_known(policy, token.text) &&
-        !macro_is_allowed(policy, token.text, normalise_relative_path(relative_path)))
+        !macro_is_allowed(policy, token.text, normalise_relative_path(relative_path), usage))
     {
         const std::string rule = macro_diagnostic_rule(policy, token.text);
         add_diagnostic(diagnostics, relative_path, token.line, token.column,
@@ -829,6 +1338,7 @@ static void check_library_token(
 static void check_memory_tokens(
     const fs::path& relative_path,
     const SPolicy& policy,
+    SPolicyUsage& usage,
     const std::vector<SToken>& tokens,
     std::vector<SDiagnostic>& diagnostics)
 {
@@ -840,6 +1350,7 @@ static void check_memory_tokens(
         {
             if ((index > 0u) && (tokens[index - 1u].text == "operator"))
             {
+                usage.allocations.insert(path);
                 if (policy.allocation_paths.find(path) == policy.allocation_paths.end())
                 {
                     add_diagnostic(diagnostics, relative_path, token.line, token.column,
@@ -878,15 +1389,20 @@ static void check_memory_tokens(
                 add_diagnostic(diagnostics, relative_path, token.line, token.column,
                     ESeverity::error, "MEM001", "ordinary naked new-expression is prohibited");
             }
-            else if (policy.placement_paths.find(path) == policy.placement_paths.end())
+            else
             {
-                add_diagnostic(diagnostics, relative_path, token.line, token.column,
-                    ESeverity::warning, "MEM002", "parenthesised new-expression requires placement classification");
+                usage.placements.insert(path);
+                if (policy.placement_paths.find(path) == policy.placement_paths.end())
+                {
+                    add_diagnostic(diagnostics, relative_path, token.line, token.column,
+                        ESeverity::warning, "MEM002", "parenthesised new-expression requires placement classification");
+                }
             }
         }
         else if ((token.text == "malloc") || (token.text == "calloc") ||
             (token.text == "realloc") || (token.text == "_aligned_malloc"))
         {
+            usage.allocations.insert(path);
             if (policy.allocation_paths.find(path) == policy.allocation_paths.end())
             {
                 add_diagnostic(diagnostics, relative_path, token.line, token.column,
@@ -913,7 +1429,7 @@ static void apply_decorations(
 {
     static const std::unordered_set<std::string> suppressible_rules = {
         "MEM001", "MEM002", "MEM003", "GID001", "GID002", "GID003",
-        "INC001", "INC002", "INC003", "INC004", "INC005", "INC101", "INC102", "LIB001"
+        "INC001", "INC002", "INC003", "INC004", "INC005", "INC006", "INC101", "INC102", "LIB001"
     };
 
     for (const SDecoration& decoration : lexed.decorations)
@@ -928,7 +1444,16 @@ static void apply_decorations(
 
         const auto target = std::find_if(lexed.tokens.begin(), lexed.tokens.end(),
             [&](const SToken& token) { return token.line > decoration.line; });
-        if (target == lexed.tokens.end())
+        std::optional<std::size_t> target_line;
+        if (target != lexed.tokens.end()) target_line = target->line;
+        for (const SDirective& directive : lexed.directives)
+        {
+            if ((directive.line > decoration.line) && (!target_line || (directive.line < *target_line)))
+            {
+                target_line = directive.line;
+            }
+        }
+        if (!target_line)
         {
             add_diagnostic(diagnostics, relative_path, decoration.line, decoration.column,
                 ESeverity::error, "SUP001", "stale policy suppression has no following source line");
@@ -939,7 +1464,7 @@ static void apply_decorations(
             [&](const SDiagnostic& item)
             {
                 return !item.suppressed && (item.rule == decoration.rule) &&
-                    (item.line == target->line);
+                    (item.line == *target_line);
             });
         if (diagnostic == diagnostics.end())
         {
@@ -959,51 +1484,79 @@ static void scan_source_file(
     const fs::path& absolute_path,
     const std::string& scope,
     const SPolicy& policy,
+    SPolicyUsage& usage,
     std::vector<SDiagnostic>& all_diagnostics)
 {
     const fs::path relative_path = absolute_path.lexically_relative(root);
-    const SLexedFile lexed = lex_source(read_file(absolute_path));
+    const SSourceText source = splice_source(read_file(absolute_path));
+    SLexedFile lexed = lex_source(source.text);
     std::vector<SDiagnostic> diagnostics;
 
     bool includes_new = false;
+    bool macro_supports_new = false;
     for (const SDirective& directive : lexed.directives)
     {
-        check_include(root, absolute_path, relative_path, scope, policy, directive, diagnostics);
-        if (directive.text.find("<new>") != std::string::npos)
+        check_include(root, absolute_path, relative_path, scope, policy, usage, includes_new, directive, diagnostics);
+        SLexedFile directive_lexed;
+        directive_lexed.tokens = directive_tokens(directive);
+        for (const SToken& token : directive_lexed.tokens)
         {
-            includes_new = true;
+            check_macro_token(relative_path, policy, usage, token, diagnostics);
         }
-        for (const SToken& token : directive_identifiers(directive))
+        if (!directive_lexed.tokens.empty() && (directive_lexed.tokens.front().text == "define"))
         {
-            check_macro_token(relative_path, policy, token, diagnostics);
-        }
-        // Reuse the lexer for macro definitions so comments and literals are ignored.
-        std::string definition = directive.text;
-        definition[0] = ' ';
-        const SLexedFile directive_lexed = lex_source(definition);
-        if (!directive_lexed.tokens.empty() && directive_lexed.tokens.front().text == "define")
-        {
-            for (SToken token : directive_lexed.tokens)
+            std::size_t replacement_begin = std::min(std::size_t{ 2u }, directive_lexed.tokens.size());
+            if ((directive_lexed.tokens.size() > 2u) && (directive_lexed.tokens[2u].text == "(") &&
+                (directive_lexed.tokens[2u].line == directive_lexed.tokens[1u].line) &&
+                (directive_lexed.tokens[2u].column == (directive_lexed.tokens[1u].column + directive_lexed.tokens[1u].text.size())))
             {
-                if (token.line == 1u)
+                std::size_t depth = 0u;
+                for (std::size_t cursor = 2u; cursor < directive_lexed.tokens.size(); ++cursor)
                 {
-                    token.column += directive.column - 1u;
+                    if (directive_lexed.tokens[cursor].text == "(") ++depth;
+                    else if ((directive_lexed.tokens[cursor].text == ")") && (--depth == 0u))
+                    {
+                        replacement_begin = cursor + 1u;
+                        break;
+                    }
                 }
-                token.line += directive.line - 1u;
+            }
+            for (const SToken& token : directive_lexed.tokens)
+            {
                 check_library_token(relative_path, token, diagnostics);
             }
+            std::vector<SToken> replacement(
+                (directive_lexed.tokens.begin() + replacement_begin), directive_lexed.tokens.end());
+            check_memory_tokens(relative_path, policy, usage, replacement, diagnostics);
+            macro_supports_new = macro_supports_new || new_include_has_supporting_symbol(replacement);
         }
     }
     for (const SToken& token : lexed.tokens)
     {
-        check_macro_token(relative_path, policy, token, diagnostics);
+        check_macro_token(relative_path, policy, usage, token, diagnostics);
         check_library_token(relative_path, token, diagnostics);
     }
-    check_memory_tokens(relative_path, policy, lexed.tokens, diagnostics);
-    if (includes_new && !new_include_has_supporting_symbol(lexed.tokens))
+    check_memory_tokens(relative_path, policy, usage, lexed.tokens, diagnostics);
+    if (includes_new && !macro_supports_new && !new_include_has_supporting_symbol(lexed.tokens))
     {
         add_diagnostic(diagnostics, relative_path, 1u, 1u, ESeverity::warning,
             "INC101", "<new> appears to have no direct supporting symbol use");
+    }
+    for (SDiagnostic& diagnostic : diagnostics)
+    {
+        restore_position(source, diagnostic.line, diagnostic.column);
+    }
+    for (SToken& token : lexed.tokens)
+    {
+        restore_position(source, token.line, token.column);
+    }
+    for (SDirective& directive : lexed.directives)
+    {
+        restore_position(source, directive.line, directive.column);
+    }
+    for (SDecoration& decoration : lexed.decorations)
+    {
+        restore_position(source, decoration.line, decoration.column);
     }
     apply_decorations(relative_path, lexed, diagnostics);
     all_diagnostics.insert(all_diagnostics.end(), diagnostics.begin(), diagnostics.end());
@@ -1245,15 +1798,26 @@ static void check_project(
             }
         }
 
-        const std::string lowered_options = lower_copy(additional_options);
-        if ((project.scope == "engine") && (lowered_options.find("/eh") != std::string::npos))
+        std::istringstream options(lower_copy(additional_options));
+        std::string option;
+        bool exception_override = false;
+        bool standard_override = false;
+        while (options >> option)
+        {
+            if ((option.size() >= 2u) && (option.front() == '"') && (option.back() == '"'))
+            {
+                option = option.substr(1u, option.size() - 2u);
+            }
+            if (!option.empty() && (option.front() == '-')) option.front() = '/';
+            exception_override = exception_override || (option.rfind("/eh", 0u) == 0u);
+            standard_override = standard_override || ((option.rfind("/std:", 0u) == 0u) && (option != "/std:c++17"));
+        }
+        if ((project.scope == "engine") && exception_override)
         {
             add_diagnostic(diagnostics, project.path, setting_line, 1u, ESeverity::error,
                 "PRJ003", label + " AdditionalOptions contains an exception-handling override");
         }
-        const std::size_t standard_option = lowered_options.find("/std:");
-        if ((standard_option != std::string::npos) &&
-            (lowered_options.find("/std:c++17", standard_option) == std::string::npos))
+        if (standard_override)
         {
             add_diagnostic(diagnostics, project.path, setting_line, 1u, ESeverity::error,
                 "PRJ003", label + " AdditionalOptions contradicts the C++17 setting");
@@ -1379,26 +1943,28 @@ int run(const SOptions& requested_options)
 
     const SPolicy policy = load_policy(root / "policy" / "morphic_policy.cfg");
     std::vector<SDiagnostic> diagnostics;
-    for (const SScanRoot& scan_root : policy.scan_roots)
+    SPolicyUsage usage;
+    audit_policy_targets(root, policy, diagnostics);
+    audit_project_coverage(root, policy, diagnostics);
+    const bool valid_targets = diagnostics.empty();
+    if (valid_targets)
     {
-        const fs::path absolute_scan_root = root / scan_root.path;
-        if (!fs::is_directory(absolute_scan_root))
+        for (const SScanRoot& scan_root : policy.scan_roots)
         {
-            add_diagnostic(diagnostics, scan_root.path, 1u, 1u, ESeverity::error,
-                "SRC001", "configured source root does not exist");
-            continue;
-        }
-        for (const fs::directory_entry& entry : fs::recursive_directory_iterator(absolute_scan_root))
-        {
-            if (entry.is_regular_file() && is_source_file(entry.path()))
+            const fs::path absolute_scan_root = root / scan_root.path;
+            for (const fs::directory_entry& entry : fs::recursive_directory_iterator(absolute_scan_root))
             {
-                scan_source_file(root, entry.path(), scan_root.scope, policy, diagnostics);
+                if (entry.is_regular_file() && is_source_file(entry.path()))
+                {
+                    scan_source_file(root, entry.path(), scan_root.scope, policy, usage, diagnostics);
+                }
             }
         }
-    }
-    for (const SProjectRule& project : policy.projects)
-    {
-        check_project(root, project, diagnostics);
+        for (const SProjectRule& project : policy.projects)
+        {
+            check_project(root, project, diagnostics);
+        }
+        audit_policy_usage(policy, usage, diagnostics);
     }
 
     std::sort(diagnostics.begin(), diagnostics.end(), [](const SDiagnostic& lhs, const SDiagnostic& rhs)

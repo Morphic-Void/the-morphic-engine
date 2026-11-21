@@ -20,8 +20,10 @@ deliberately outside the validator's first-version scope.
 
 ## Build integration and reports
 
-The Host, Executive, Rendering, and MorphicTests projects reference the validator
-project and run it before compilation. A failed error-level rule fails that build.
+The engine and fixture projects reference the validator project and run it before
+compilation. A failed error-level rule fails that build. Every invocation checks
+all configured sources and projects; the project/configuration/platform arguments
+label reports rather than restrict validation.
 
 The executable can also be run directly:
 
@@ -50,6 +52,30 @@ It contains:
 Routine permissions belong in this file. Existing usage is reviewed input to
 the allowlist, not automatic grandfathering.
 
+Configuration records require non-empty fields, recognized scopes and match kinds,
+and one supported version record. Paths must be normalized repository-relative
+paths with `/` separators: `prefix` paths end in `/`, other paths do not, and
+`any` uses `*`. Duplicate records (including include permissions differing only
+in their reason), conflicting project classifications and conflicting diagnostic
+rules for one macro are policy-loading errors. The format remains version 1.
+Different paths classifying the same physical project are rejected with `CFG001`,
+including case aliases and links; they cannot supply conflicting engine/tool scopes.
+
+Configured targets must exist inside the repository. Source roots cannot overlap,
+and narrow source permissions must address scanned source files/directories in
+the correct scope. Invalid targets fail with `CFG001` (`SRC001` for source roots).
+Unused exact/prefix include and macro permissions, and unused placement/allocation
+permissions, produce `CFG101`. A permission fully covered by another permission
+produces `CFG102`. Usage includes inactive preprocessor branches. `any` permissions
+are standing policy and do not need a current use; classification labels explain
+permissions but do not change their enforcement.
+
+Project coverage is checked against `.vcxproj` files in the repository root and
+under `visual_studio/`, plus project references in `MorphicEngine.sln`. Unclassified
+projects fail with `PRJ004`. Solution projects under `external/` remain outside
+this inventory. Invalid targets or incomplete project coverage stop the source
+scan, avoiding misleading unused-permission reports from an incomplete audit.
+
 Foundation uses the `foundation/` directory and `MorphicFoundation` shared items.
 Its project includes are restricted to Foundation and SuiteUTF. Framework's contracts
 and common implementation may include Foundation, Framework and SuiteUTF, with explicit
@@ -64,6 +90,13 @@ and Executive. The two Basis Universal headers are permitted only in
 `rendering/runtime/basis_codec.cpp`; upstream Basis sources remain outside the
 scanner's source roots. Rendering's function registration is permitted only in
 its binding header.
+
+Resolved vendor headers and implementation files under `external/` require an
+adapter permission for their repository-relative destination, with quoted and
+angle-bracket includes treated identically. Relative paths, backslashes, absolute
+paths and symbolic links cannot bypass this check. SuiteUTF retains its explicit
+exception. Resolved includes must remain inside the repository, and Foundation/
+Framework layer restrictions still take precedence over vendor permissions.
 
 ### Standard library permissions
 
@@ -124,6 +157,8 @@ The principal conclusive rules are:
 - `PRJ002`: engine exception handling is not explicitly disabled, or tooling
   exception policy is not explicit;
 - `PRJ003`: contradictory `/EH` or `/std` option;
+- `PRJ004`: repository-owned project missing a policy classification;
+- `CFG001`: invalid permission/project target or overlapping source roots;
 - `SRC001`: configured source root is missing; and
 - `SUP001`: invalid or stale source suppression.
 
@@ -133,8 +168,10 @@ Context-dependent findings are warnings initially:
 - `MEM003`: raw allocation primitive outside approved infrastructure;
 - `INC005`: ambiguously resolved quoted include;
 - `INC101`: apparently unused `<new>` include;
-- `INC102`: macro-expanded include operand outside Foundation/Framework not evaluated; and
-- `PRJ101`: project condition beyond the limited evaluator.
+- `INC102`: macro-expanded include operand outside Foundation/Framework not evaluated;
+- `PRJ101`: project condition beyond the limited evaluator;
+- `CFG101`: unused narrow permission; and
+- `CFG102`: redundant include or macro permission.
 
 Quoted project includes are checked relative to the including file's directory,
 the repository root, and Foundation. Files under Host, Executive, and Rendering also
@@ -163,7 +200,25 @@ status from policy violations.
 
 The scanner loads each complete file and tokenises enough C++ lexical structure
 to distinguish comments, literals, directives, identifiers, and common
-new-expression forms. It does not preprocess or build an abstract syntax tree.
+new-expression forms. It performs physical line splicing (LF and CRLF), preserving
+raw literal contents and original diagnostic locations, but does not expand macros
+or build an abstract syntax tree. Comments may separate directive tokens or precede
+the directive marker. Multiline comments and raw literals remain intact when
+collecting a directive. Comments and string literals do not count as uses of
+configured identity macro permissions.
+
+Memory checks also examine macro replacement bodies, including inactive and
+continued definitions. The macro name and parameters are excluded, so allocator
+redirections such as `#define malloc engine_allocate` do not count as raw
+allocation. Comments and literals are ignored. Macro expansion, token pasting,
+and allocations introduced only through those mechanisms remain outside the
+scanner's guarantees. `MEM002` and `MEM003` retain their warning severity.
+Project override checks examine each compiler option, including mixed `/std`
+selections and MSVC's `-` option spelling; a permitted C++17 option cannot conceal
+another conflicting standard selection.
+Suppressions can target the following directive as well as ordinary source;
+the diagnostic must be on that target line. Configuration audit findings cannot
+be suppressed in source files.
 
 Global-ID enforcement is intentionally macro-oriented. It does not attempt to
 discover manual reimplementations of functions or structures hidden behind the
@@ -182,6 +237,13 @@ token-pasting are not evaluated. A header permission is not an exemption from
 this symbol check; tooling outside the configured scan roots remains exempt.
 
 ## Focused regression tests
+
+Run `python tools/tests/test_policy_auditing.py --binary <validator-path>` for
+configuration validation and usage auditing, project coverage, vendor confinement,
+and macro allocation/suppression regression fixtures. Linux CI runs these through
+`MorphicPolicyAuditing` in CTest. Fixtures use isolated temporary checkouts and
+`--no-report`; symbolic-link cases are skipped on Windows without the necessary
+privilege and run normally on Linux.
 
 Run `python tools/tests/test_policy_includes.py --binary <validator-path>` to
 check include resolution and the Foundation boundary in an isolated fixture checkout.

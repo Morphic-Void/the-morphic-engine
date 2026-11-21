@@ -148,6 +148,9 @@ enable_testing()
 add_test(NAME MorphicPolicyIncludes COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_SOURCE_DIR}/tools/tests/test_policy_includes.py" --binary "$<TARGET_FILE:MorphicPolicyValidator>")
 set_tests_properties(MorphicPolicyIncludes PROPERTIES TIMEOUT 60)
+add_test(NAME MorphicPolicyAuditing COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/tools/tests/test_policy_auditing.py" --binary "$<TARGET_FILE:MorphicPolicyValidator>")
+set_tests_properties(MorphicPolicyAuditing PROPERTIES TIMEOUT 60)
 add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)
