@@ -135,6 +135,8 @@ struct SState
     services::SServiceBorrow borrow;
     services::EServiceQuiescence quiescence{ services::EServiceQuiescence::none };
     std::int32_t completion{ -1 }, freeze_completion{ -1 };
+    std::int32_t secondary_cleanup_completion{ -1 };
+    services::ServiceRequest secondary_cleanup_request;
     bool offered{}, completed{}, retiring{}, freeze_requested{}, native{};
     bool controllers_started{}, report_case{}, report_hold{}, report_departure{};
     std::uint64_t delay_end{};
@@ -293,6 +295,36 @@ bool command(runtime::CPlatformRuntime& runtime, const services::SDispatchedComm
     SState& state = *state_owner();
     const std::int32_t completion = SInputAcceptanceAccess::reserve(runtime, dispatched.command);
     if (completion < 0) return false;
+    if ((dispatched.command.opcode == k_secondary_cleanup_barrier) && !dispatched.command.payload_size)
+    {
+        const bool valid = state.borrow.value && !state.shared.closing.load() &&
+            (dispatched.requester.value != state.view.consumer.value) &&
+            !SInputAcceptanceAccess::connection(runtime, 1u) &&
+            !state.shared.secondary_cleanup_waiting.load() && (state.secondary_cleanup_completion < 0);
+        if (!valid)
+        {
+            SInputAcceptanceAccess::complete(runtime, completion, EServiceStatus::invalid_request);
+            return true;
+        }
+        state.secondary_cleanup_request = dispatched.command;
+        state.secondary_cleanup_completion = completion;
+        state.shared.secondary_cleanup_waiting.store(true);
+        return true;
+    }
+    if ((dispatched.command.opcode == k_release_secondary_cleanup) && !dispatched.command.payload_size)
+    {
+        const bool valid = state.borrow.value && !state.shared.closing.load() &&
+            (dispatched.requester.value == state.view.consumer.value) && (state.secondary_cleanup_completion >= 0);
+        if (valid)
+        {
+            SInputAcceptanceAccess::complete(runtime, state.secondary_cleanup_completion, EServiceStatus::success);
+            state.secondary_cleanup_completion = -1;
+            state.shared.secondary_cleanup_waiting.store(false);
+        }
+        SInputAcceptanceAccess::complete(runtime, completion,
+            valid ? EServiceStatus::success : EServiceStatus::invalid_request);
+        return true;
+    }
     if ((dispatched.command.opcode == k_secondary_cleanup_complete) && !dispatched.command.payload_size)
     {
         const bool valid = state.borrow.value &&
@@ -387,6 +419,14 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
     }
     services::ServiceBorrowControl control;
     services::ServiceRequestCancelled cancellation;
+    if (message.copy_payload_to(cancellation) && (state.secondary_cleanup_completion >= 0) &&
+        (cancellation.route.value == state.secondary_cleanup_request.route.value) &&
+        (cancellation.request.value == state.secondary_cleanup_request.request.value))
+    {
+        SInputAcceptanceAccess::complete(*state.runtime, state.secondary_cleanup_completion, EServiceStatus::cancelled);
+        state.secondary_cleanup_completion = -1;
+        state.shared.secondary_cleanup_waiting.store(false);
+    }
     if (message.copy_payload_to(control) && (control.borrow.value == state.borrow.value) && state.borrow.value &&
         (control.route.value == state.acquisition.command.route.value) && (control.request.value == state.acquisition.command.request.value))
     {
@@ -405,6 +445,12 @@ void progress(runtime::CPlatformRuntime& runtime, const bool stopping) noexcept
     SState& state = *state_owner();
     const modules::SHostPumpContext& context = state.context;
     if (stopping) state.shared.closing.store(true);
+    if (state.shared.closing.load() && (state.secondary_cleanup_completion >= 0))
+    {
+        SInputAcceptanceAccess::complete(runtime, state.secondary_cleanup_completion, EServiceStatus::closing);
+        state.secondary_cleanup_completion = -1;
+        state.shared.secondary_cleanup_waiting.store(false);
+    }
     if (state.shared.closing.load() && (state.freeze_completion >= 0))
     {
         SInputAcceptanceAccess::complete(runtime, state.freeze_completion, EServiceStatus::closing);

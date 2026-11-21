@@ -805,8 +805,22 @@ bool CConsumer::teardown()
     }
     if (!release_source()) safe = false;
     failed = false;
-    //  Keep the pipe-free interval visible: pipe retirement is not full cleanup.
-    if (secondary && !settle(50u)) safe = false;
+    //  The primary must observe the retired pipe before allowing cleanup to resume.
+    if (secondary && safe && control_route.value)
+    {
+        ServiceRequest request;
+        request.route = control_route;
+        request.request.value = ++next_request;
+        request.opcode = k_secondary_cleanup_barrier;
+        waiting = request.request.value;
+        response_ready = false;
+        if (!post(request) || !until([&] { return response_ready || thread.exit_requested(); }) ||
+            thread.exit_requested() || (response.status != EServiceStatus::success))
+        {
+            MV_LOG(error, "Input Host: secondary cleanup barrier interrupted before release");
+            safe = false;
+        }
+    }
     for (const SInstallationToken installation : installations)
     {
         if (!shutdown_requested && installation.value && !command(ECommand::retire_configuration, SRetireConfiguration{ installation })) safe = false;
@@ -868,7 +882,8 @@ bool CConsumer::run()
 bool CConsumer::run_secondary()
 {
     secondary = true;
-    bool success = open(k_input_contract, input_route) && install(tests::controller_schema(), installations[1]) &&
+    bool success = open(k_contract, control_route) && open(k_input_contract, input_route) &&
+        install(tests::controller_schema(), installations[1]) &&
         acquire_pipe(1u) && until([&] { return active(); });
     if (success) success = until([&] { return (pipes[1].applied >= 2u) && (pipes[1].values[k_south_action][0] == 0.0f); });
     if (success) MV_LOG(info, "Input Host: second consumer independently applied press and release");

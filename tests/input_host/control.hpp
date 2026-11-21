@@ -20,6 +20,8 @@ namespace input_host
 {
 inline constexpr services::SServiceContract k_contract{ 0x7ffeu, 1u };
 inline constexpr std::uint16_t k_secondary_cleanup_complete = 3u;
+inline constexpr std::uint16_t k_secondary_cleanup_barrier = 4u;
+inline constexpr std::uint16_t k_release_secondary_cleanup = 5u;
 inline constexpr std::uint32_t k_feed_capacity = 1u << 12u;
 inline constexpr std::uint32_t k_history_capacity = 1u << 10u;
 inline constexpr std::uint32_t k_history_mask = k_history_capacity - 1u;
@@ -105,6 +107,7 @@ struct SShared
     std::atomic<std::uint64_t> device_instance[4]{};
     std::atomic<bool> closing{}, frozen{}, failed{};
     std::atomic<bool> secondary_cleanup_complete{};
+    std::atomic<bool> secondary_cleanup_waiting{};
     std::atomic<std::uint64_t> consumed{}, drained{}, feed_loss{}, history_loss{}, clock_errors{};
     std::atomic<std::uint32_t> occupancy[k_pipe_count][2]{};
     std::atomic<std::uint32_t> high_water[k_pipe_count][2]{};

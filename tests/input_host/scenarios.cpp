@@ -915,6 +915,15 @@ bool CConsumer::second_consumer()
     frame.value = 0u;
     if (!feed(frame) || !until([&]
         {
+            return (shared->connection[1].load() == 0u) && shared->secondary_cleanup_waiting.load();
+        }))
+    {
+        return false;
+    }
+    if (shared->secondary_cleanup_complete.load()) return false;
+    MV_LOG(info, "Input Host: retired pipe observed while secondary cleanup is blocked");
+    if (!transact(control_route, k_release_secondary_cleanup, nullptr, 0u) || !until([&]
+        {
             return (shared->connection[1].load() == 0u) && shared->secondary_cleanup_complete.load();
         }))
     {

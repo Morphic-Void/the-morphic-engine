@@ -38,11 +38,20 @@ Linux CMake builds these targets and registers the matrix as `MorphicInputHost-*
 | `load-smoke` | Short finite-load count/correlation checks; CI uses 120 reports/s. |
 | `load` | Two-second warm-up and three ten-second measured windows. |
 
-The second consumer pauses for 50 ms after releasing its input pipe, before
-retiring its configuration. After successful cleanup it posts a completion signal
-through the fixture control service and waits for unload. The primary waits for
-that signal as well as pipe retirement before requesting unload; a missing pipe
-alone does not prove that the consumer's remaining service requests have settled.
+After releasing its input pipe, the second consumer waits at an explicit barrier
+in the fixture control service before retiring its configuration. The primary
+must observe both the retired pipe and the blocked cleanup, verify that cleanup
+is not complete, and release the barrier. After successful cleanup the secondary
+posts a completion signal and waits for unload. The primary waits for that signal
+as well as pipe retirement before requesting unload. This forces observation of
+the cleanup gap without a scheduling delay; timeouts only detect a stalled test.
+Cancellation or shutdown settles a held barrier request as a failure, so early
+unload cannot silently bypass the remaining cleanup.
+
+Regression validation temporarily restored the original pipe-only unload
+condition under Linux Clang Release. All six runs (three per worker count) failed
+with the explicit barrier-interrupted diagnostic, without fixture timeouts. The
+fixed condition was then restored and all affected consumers rebuilt.
 
 For one Release baseline run:
 
