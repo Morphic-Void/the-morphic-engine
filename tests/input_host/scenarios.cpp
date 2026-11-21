@@ -913,7 +913,10 @@ bool CConsumer::second_consumer()
         return false;
     }
     frame.value = 0u;
-    if (!feed(frame) || !until([&] { return shared->connection[1].load() == 0u; }))
+    if (!feed(frame) || !until([&]
+        {
+            return (shared->connection[1].load() == 0u) && shared->secondary_cleanup_complete.load();
+        }))
     {
         return false;
     }

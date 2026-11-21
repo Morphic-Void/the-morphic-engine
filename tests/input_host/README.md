@@ -30,13 +30,19 @@ Linux CMake builds these targets and registers the matrix as `MorphicInputHost-*
 | `transitions` | Focus/modal/history loss, per-control neutral rearming, reconnect identity, context barriers and reacquisition. |
 | `history-freshness` | Discard unread controller history older than 100 ms, preserve held-control inhibition and recover after neutral and fresh input. |
 | `work-pressure` | A 65-action mapping continuation, a blocked noisy pipe, quiet-pipe progress and ordinary commands. |
-| `second-consumer` | Independently scheduled owner, pipe retirement and replacement. |
+| `second-consumer` | Independently scheduled owner, complete cleanup before unload, pipe retirement and replacement. |
 | `shutdown-blocked` | Shutdown while a full ring blocks a context marker, with cooperative quiescence. |
 | `ingress-loss` | Desktop source burst, ingress overflow and recovery. |
 | `acquisition-cleanup` | Rejected acquisition and retirement after preparation but before reader readiness. |
 | `source-cleanup` | Successful transfer/acquisition replies arriving after cleanup begins, retaining and retiring their ownership. |
 | `load-smoke` | Short finite-load count/correlation checks; CI uses 120 reports/s. |
 | `load` | Two-second warm-up and three ten-second measured windows. |
+
+The second consumer pauses for 50 ms after releasing its input pipe, before
+retiring its configuration. After successful cleanup it posts a completion signal
+through the fixture control service and waits for unload. The primary waits for
+that signal as well as pipe retirement before requesting unload; a missing pipe
+alone does not prove that the consumer's remaining service requests have settled.
 
 For one Release baseline run:
 

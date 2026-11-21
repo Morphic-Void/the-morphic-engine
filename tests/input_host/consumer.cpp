@@ -805,6 +805,8 @@ bool CConsumer::teardown()
     }
     if (!release_source()) safe = false;
     failed = false;
+    //  Keep the pipe-free interval visible: pipe retirement is not full cleanup.
+    if (secondary && !settle(50u)) safe = false;
     for (const SInstallationToken installation : installations)
     {
         if (!shutdown_requested && installation.value && !command(ECommand::retire_configuration, SRetireConfiguration{ installation })) safe = false;
@@ -872,7 +874,19 @@ bool CConsumer::run_secondary()
     if (success) MV_LOG(info, "Input Host: second consumer independently applied press and release");
     failed = false;
     const bool retired = teardown();
-    return success && retired;
+    if (!success || !retired)
+    {
+        return false;
+    }
+    if (!open(k_contract, control_route)) return false;
+    ServiceRequest request;
+    request.route = control_route;
+    request.request.value = ++next_request;
+    request.opcode = k_secondary_cleanup_complete;
+    waiting = request.request.value;
+    //  Cleanup is finished. Stay alive until the primary requests unload;
+    //  that request may cancel this notification's reply, which owns no resource.
+    return post(request) && until([&] { return thread.exit_requested(); });
 }
 static std::uint32_t MV_STD_ABI_CALL executive_entry(::threading::CThreadContext& context, void* const) noexcept
 {

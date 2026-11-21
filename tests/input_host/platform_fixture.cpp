@@ -293,6 +293,15 @@ bool command(runtime::CPlatformRuntime& runtime, const services::SDispatchedComm
     SState& state = *state_owner();
     const std::int32_t completion = SInputAcceptanceAccess::reserve(runtime, dispatched.command);
     if (completion < 0) return false;
+    if ((dispatched.command.opcode == k_secondary_cleanup_complete) && !dispatched.command.payload_size)
+    {
+        const bool valid = state.borrow.value &&
+            (dispatched.requester.value != state.view.consumer.value) && !state.shared.connection[1].load();
+        if (valid) state.shared.secondary_cleanup_complete.store(true);
+        SInputAcceptanceAccess::complete(runtime, completion,
+            valid ? EServiceStatus::success : EServiceStatus::invalid_request);
+        return true;
+    }
     if (state.borrow.value && (dispatched.requester.value == state.view.consumer.value) &&
         (dispatched.command.opcode == 2u) && !dispatched.command.payload_size)
     {
