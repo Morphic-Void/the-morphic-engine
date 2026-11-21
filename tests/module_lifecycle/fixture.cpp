@@ -981,6 +981,7 @@ static bool run_case(threading::CThreadContext& context,
     }
     if (std::strcmp(selected, "shutdown") == 0)
     {
+        MV_LOG(info, "Lifecycle fixture: requesting shutdown");
         return self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "replace-dependency") == 0)

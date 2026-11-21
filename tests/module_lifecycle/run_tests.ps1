@@ -274,10 +274,15 @@ foreach ($case in $Cases) {
             !$events.Contains('Lifecycle rendering: acquired bytes survive exit request'))) {
             throw 'Acquisition storage did not survive the Rendering exit request.'
         }
-        if (($case -eq 'acquire-render-replace') -and
-            (($events.IndexOf('Lifecycle fixture: shutdown passed') -lt 0) -or
-                ($events.IndexOf('Lifecycle rendering: acquired bytes survive exit request') -lt $events.IndexOf('Lifecycle fixture: shutdown passed')))) {
-            throw 'Rendering acquisition did not survive Executive replacement.'
+        if ($case -eq 'acquire-render-replace') {
+            # The replacement must request shutdown before Rendering observes exit.
+            # Their completion messages can arrive in either order.
+            $shutdownRequested = $events.IndexOf('Lifecycle fixture: requesting shutdown')
+            if (($shutdownRequested -lt 0) -or
+                !$events.Contains('Lifecycle fixture: shutdown passed') -or
+                ($events.IndexOf('Lifecycle rendering: acquired bytes survive exit request') -lt $shutdownRequested)) {
+                throw 'Rendering acquisition did not survive Executive replacement.'
+            }
         }
         if (($case -eq 'normal-startup') -and ($starts -ne 1)) { throw 'Normal Executive did not start exactly one renderer.' }
         if (($case -eq 'normal-bad-start') -and ($starts -ne 1)) { throw 'Failed renderer did not enter exactly one native execution.' }
