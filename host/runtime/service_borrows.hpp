@@ -69,7 +69,7 @@ private:
         bool finished{ false };
         services::SNotificationRegistration registration;
         threading::CNotification notification;
-        threading::CThreadPackage* pinned_thread{ nullptr };
+        threading::CEndpointResources* pinned_endpoint{ nullptr };
     };
 
     [[nodiscard]] SRecord* find(const services::SServiceBorrow borrow) noexcept;

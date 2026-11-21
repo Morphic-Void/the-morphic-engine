@@ -48,12 +48,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
-    <FixtureRole Condition="'$(FixtureRole)'==''">MissingThread</FixtureRole>
+    <FixtureRole Condition="'$(FixtureRole)'==''">MissingPump</FixtureRole>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(FixtureRole)\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>MorphicLifecycle$(FixtureRole)</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
+      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='MissingPump'">MV_LIFECYCLE_MISSING_PUMP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='Executive'">MV_LIFECYCLE_EXECUTIVE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingFailure'">MV_LIFECYCLE_RENDERING_FAILURE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingDisposal'">MV_LIFECYCLE_RENDERING_DISPOSAL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -94,10 +95,10 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v4=_morphic_module_bootstrap_v4@4 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And ('$(FixtureRole)'=='RenderingFailure' Or '$(FixtureRole)'=='RenderingDisposal' Or '$(FixtureRole)'=='Service')">
-    <Link><AdditionalOptions>/EXPORT:morphic_module_service_thread_v1=_morphic_module_service_thread_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And '$(FixtureRole)'!='MissingPump'">
+    <Link><AdditionalOptions>/EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\module_lifecycle\fixture.cpp" />

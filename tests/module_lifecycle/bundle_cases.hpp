@@ -15,6 +15,6 @@
 
 namespace module_lifecycle_tests
 {
-bool bundle_case(threading::CThreadContext& context, threading::CThreadResources& resources, const char* selected) noexcept;
-bool rendering_bundle_case(threading::CThreadContext& context, threading::CThreadResources& resources) noexcept;
+bool bundle_case(threading::CThreadContext& context, const char* selected) noexcept;
+bool rendering_bundle_case(threading::CThreadContext& context) noexcept;
 }

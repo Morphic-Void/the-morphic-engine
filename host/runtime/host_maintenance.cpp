@@ -17,17 +17,6 @@
 namespace host
 {
 
-static std::uint32_t reply_count(const threading::CErasedPodMsg& message) noexcept
-{
-    if (message.is_payload_a<SchemaProcessCancel>() || message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
-        connections::zero_reply_control(message) || message.is_payload_a<services::ReleaseServiceBorrow>() ||
-        message.is_payload_a<services::ServiceBorrowQuiescent>() || message.is_payload_a<services::CancelServiceRequest>())
-    {
-        return 0u;
-    }
-    return message.is_payload_a<services::ServiceRequest>() ? 2u : 1u;
-}
-
 bool CHostMaintenance::references(const threading::CThreadPackage& package) const noexcept
 {
     for (const auto& entry : m_pods)
@@ -38,13 +27,6 @@ bool CHostMaintenance::references(const threading::CThreadPackage& package) cons
         }
     }
     for (const auto& entry : m_owners)
-    {
-        if (entry.source.sequence && (entry.source.package == &package))
-        {
-            return true;
-        }
-    }
-    for (const auto& entry : m_deliveries)
     {
         if (entry.source.sequence && (entry.source.package == &package))
         {
@@ -73,10 +55,57 @@ bool CHostMaintenance::captured(const SClientRecord* const client, const threadi
     return false;
 }
 
+bool CHostMaintenance::captured_pod(const SClientRecord& client) const noexcept
+{
+    for (const SPod& entry : m_pods)
+    {
+        if (entry.source.sequence && (entry.source.client == &client))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CHostMaintenance::captured_owner(const SClientRecord& client) const noexcept
+{
+    for (const SOwner& entry : m_owners)
+    {
+        if (entry.source.sequence && (entry.source.client == &client))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CHostMaintenance::defer_owner(SClientRecord& client, threading::CErasedOwnerMsg& message) noexcept
+{
+    if (!m_next_sequence) return false;
+    for (std::uint32_t index = 0u; index < 32u; ++index)
+    {
+        SOwner& entry = m_owners[index];
+        if (entry.source.sequence) continue;
+        entry.message = std::move(message);
+        entry.source = { &client, client.thread, 0u, 2u };
+        accepted(entry.source);
+        return true;
+    }
+    return false;
+}
+
 void CHostMaintenance::poll_stop() noexcept
 {
-    auto* const executive = m_host.module_client(module_ids::executive);
-    if ((executive && executive->host_stop_requested.load(std::memory_order_acquire)) ||
+    bool executive_stop = false;
+    for (SClientRecord* client = m_host.first_client(); client; client = m_host.next_client(*client))
+    {
+        if ((client->module == module_ids::executive) && client->host_stop_requested.load(std::memory_order_acquire))
+        {
+            executive_stop = true;
+            break;
+        }
+    }
+    if (executive_stop ||
         (m_host.m_debug_service && (m_host.m_debug_service->read_shutdown_request() != debug_system::EShutdownReason::none)) ||
         m_restrictions.failed() || m_host.m_emergency_shutdown || m_host.m_native_stop_requested ||
         (m_host.m_phase == CHost::EPhase::shutting_down))
@@ -129,9 +158,9 @@ void CHost::apply_host_stop() noexcept
     m_host_stop_applied = true;
     m_direct_connections.close_all();
     m_executive_request.destroy();
-    if (auto* const executive = module_thread_package(module_ids::executive))
+    if (SModuleEndpoints* const executive = module_endpoints(module_ids::executive))
     {
-        executive->request_exit();
+        stop_module(*executive, modules::EStopReason::shutdown);
         if (m_phase != EPhase::shutting_down)
         {
             m_phase = EPhase::stopping_executive;
@@ -162,44 +191,6 @@ void CHostMaintenance::released(SSource& source) noexcept
     --m_count;
 }
 
-bool CHostMaintenance::stage_delivery(SClientRecord& client, const threading::CErasedPodMsg& message,
-    const bool control, const bool reserved) noexcept
-{
-    if (!client.delivery_protected() || !m_next_sequence)
-    {
-        return false;
-    }
-    SDelivery* vacant = nullptr;
-    for (auto& entry : m_deliveries)
-    {
-        if (!entry.source.sequence)
-        {
-            vacant = &entry;
-            break;
-        }
-    }
-    if (!vacant)
-    {
-        m_pressure = true;
-        return false;
-    }
-    auto& staged = control ? client.staged_controls : client.staged_replies;
-    const auto credits = control ? client.reserved_control_replies : client.reserved_replies;
-    if ((!reserved || (credits <= staged)) && !(control ? client.reserve_control_replies(1u) : client.reserve_replies(1u)))
-    {
-        m_pressure = true;
-        return false;
-    }
-    vacant->message = message;
-    vacant->source.client = &client;
-    vacant->source.package = client.thread;
-    vacant->source.control = control;
-    vacant->source.credits = 1u;
-    ++staged;
-    accepted(vacant->source);
-    return true;
-}
-
 bool CHostMaintenance::next_source(const bool worker, const std::uint32_t lane, SSource& source, std::uint32_t& index) noexcept
 {
     if (!m_next_sequence)
@@ -214,24 +205,30 @@ bool CHostMaintenance::next_source(const bool worker, const std::uint32_t lane, 
         source.package = m_host.worker_package(index);
         return source.package != nullptr;
     }
-    index = m_cursors[lane]++ % module_ids::k_count;
-    if (!m_host.m_clients[index]) return false;
-    source.client = &*m_host.m_clients[index];
+    index = m_cursors[lane]++;
+    source.client = m_host.first_client();
+    for (std::uint32_t skip = 0u; source.client && (skip < index); ++skip)
+    {
+        source.client = m_host.next_client(*source.client);
+    }
+    if (!source.client)
+    {
+        m_cursors[lane] = 0u;
+        return false;
+    }
     source.package = source.client->thread;
-    return source.package || m_host.m_pumps[index];
+    return true;
 }
 
-bool CHostMaintenance::capture_pod(const bool worker, const bool control) noexcept
+bool CHostMaintenance::capture_pod(const bool worker) noexcept
 {
-    const auto lane = control ? 4u : (worker ? 1u : 0u);
-    const auto begin = control ? 256u : (worker ? 128u : 0u);
-    const auto end = control ? 288u : begin + 128u;
+    const std::uint32_t begin = worker ? 128u : 0u;
     SPod* vacant = nullptr;
-    for (auto index = begin; index < end; ++index)
+    for (std::uint32_t i = begin; i < (begin + 128u); ++i)
     {
-        if (!m_pods[index].source.sequence)
+        if (!m_pods[i].source.sequence)
         {
-            vacant = &m_pods[index];
+            vacant = &m_pods[i];
             break;
         }
     }
@@ -242,36 +239,20 @@ bool CHostMaintenance::capture_pod(const bool worker, const bool control) noexce
     }
     SSource source;
     std::uint32_t index = 0u;
-    if (!next_source(worker, lane, source, index) || (control && source.package))
+    if (!next_source(worker, (worker ? 1u : 0u), source, index))
     {
         return false;
     }
-    const auto* offered = source.package ? nullptr : m_host.m_pumps[index]->peek_pod(control);
-    if (!source.package && !offered)
+    source.credits = source.client ? 2u : 0u;
+    if (source.client && !source.client->reserve_replies(source.credits))
     {
         return false;
     }
-    source.control = control;
-    source.credits = source.client ? (control ? reply_count(*offered) : 2u) : 0u;
-    if (source.client && !(control ? source.client->reserve_control_replies(source.credits) :
-        source.client->reserve_replies(source.credits)))
-    {
-        m_pressure = true;
-        return false;
-    }
-    const bool copied = source.package ? source.package->read(vacant->message) : true;
+    const bool copied = source.client ? source.client->read(vacant->message) : source.package->read(vacant->message);
     if (!copied)
     {
-        if (source.client)
-        {
-            source.client->cancel_reservation(source.credits);
-        }
+        if (source.client) source.client->cancel_reservation(source.credits);
         return false;
-    }
-    if (offered)
-    {
-        vacant->message = *offered;
-        m_host.m_pumps[index]->consume_pod(control);
     }
     vacant->source = source;
     accepted(vacant->source);
@@ -302,18 +283,12 @@ bool CHostMaintenance::capture_owner(const bool worker) noexcept
         return false;
     }
     source.credits = source.client ? 2u : 0u;
-    if (source.client && !source.package)
-    {
-        const auto* const next = m_host.m_pumps[index]->peek_owner();
-        if (!next) return false;
-        if (next->is_message_a<platform::reports::PlatformReportCaptured>()) source.credits = 0u;
-    }
     if (source.credits && !source.client->reserve_replies(source.credits))
     {
         m_pressure = true;
         return false;
     }
-    const bool captured = source.package ? source.package->capture(vacant->message) : m_host.m_pumps[index]->capture(vacant->message);
+    const bool captured = source.client ? source.client->capture(vacant->message) : source.package->capture(vacant->message);
     if (!captured)
     {
         if (source.client)
@@ -327,31 +302,15 @@ bool CHostMaintenance::capture_owner(const bool worker) noexcept
     return true;
 }
 
-bool CHostMaintenance::publish_reply() noexcept
-{
-    const auto index = m_cursors[5]++ % module_ids::k_count;
-    if (!m_host.m_clients[index]) return false;
-    auto& client = *m_host.m_clients[index];
-    if (!client.thread || client.invocation_offered || client.terminal() || !client.message_count)
-    {
-        return false;
-    }
-    if (!client.thread->post_without_growth(client.messages[0]))
-    {
-        m_pressure = true;
-        return false;
-    }
-    client.consume(1u);
-    return true;
-}
-
 bool CHostMaintenance::signal_one() noexcept
 {
-    const auto index = m_cursors[6]++ % module_ids::k_count;
-    if (!m_host.m_clients[index]) return false;
-    auto& client = *m_host.m_clients[index];
-    if (!client.subscription_live) return false;
-    if (!client.signal_restriction(m_restrictions.revision()))
+    SSource source;
+    std::uint32_t index = 0u;
+    if (!next_source(false, 4u, source, index) || !source.client->subscription_live)
+    {
+        return false;
+    }
+    if (!source.client->signal_restriction(m_restrictions.revision()))
     {
         m_restrictions.fail({ platform::threading::EWaitError::native_failure, 0u });
         return false;
@@ -399,16 +358,16 @@ modules::SHostMaintenanceResult CHostMaintenance::run() noexcept
         }
         previous = now;
         if ((now - start) >= 1000000u) break;
-        switch (m_lane++ % 7u)
+        switch (m_lane++ % 5u)
         {
         case 0u:
         {
-            (void)capture_pod(false, false);
+            (void)capture_pod(false);
             break;
         }
         case 1u:
         {
-            (void)capture_pod(true, false);
+            (void)capture_pod(true);
             break;
         }
         case 2u:
@@ -422,16 +381,6 @@ modules::SHostMaintenanceResult CHostMaintenance::run() noexcept
             break;
         }
         case 4u:
-        {
-            (void)capture_pod(false, true);
-            break;
-        }
-        case 5u:
-        {
-            (void)publish_reply();
-            break;
-        }
-        case 6u:
         {
             (void)signal_one();
             break;
@@ -465,7 +414,6 @@ void CHostMaintenance::replay() noexcept
     {
         SPod* pod = nullptr;
         SOwner* owner = nullptr;
-        SDelivery* delivery = nullptr;
         std::uint64_t sequence = UINT64_MAX;
         for (auto& entry : m_pods)
         {
@@ -485,17 +433,7 @@ void CHostMaintenance::replay() noexcept
                 pod = nullptr;
             }
         }
-        for (auto& entry : m_deliveries)
-        {
-            if ((entry.source.sequence > attempted) && (entry.source.sequence <= sequence))
-            {
-                sequence = entry.source.sequence;
-                delivery = &entry;
-                owner = nullptr;
-                pod = nullptr;
-            }
-        }
-        if (!pod && !owner && !delivery)
+        if (!pod && !owner)
         {
             break;
         }
@@ -505,16 +443,10 @@ void CHostMaintenance::replay() noexcept
             auto& source = pod->source;
             if (source.client)
             {
-                const auto surplus = source.credits - reply_count(pod->message);
-                if (source.control)
-                {
-                    source.client->cancel_control_reservation(surplus);
-                }
-                else
-                {
-                    source.client->cancel_reservation(surplus);
-                }
+                const std::uint32_t surplus = source.credits - client_reply_count(pod->message);
+                source.client->cancel_reservation(surplus);
                 m_host.receive_message(pod->message, *source.client);
+                source.client->accounted_pod();
             }
             else if ((source.package == m_host.worker_package(0u)) && pod->message.is_payload_a<ModuleWorkResult>())
             {
@@ -530,8 +462,22 @@ void CHostMaintenance::replay() noexcept
         else if (owner)
         {
             auto& source = owner->source;
+            bool preceding = false;
+            for (const SOwner& entry : m_owners)
+            {
+                if (entry.source.sequence && (entry.source.sequence < sequence) &&
+                    (entry.source.client == source.client) && (entry.source.package == source.package))
+                {
+                    preceding = true;
+                }
+            }
+            if (preceding) continue;
             if (source.client)
             {
+                if (m_host.defer_startup_module_request(owner->message, *source.client))
+                {
+                    continue;
+                }
                 if (owner->message.is_message_a<SchemaProcessRequest>() && !m_host.m_asset_service.schema_ingress_available())
                 {
                     continue;
@@ -542,6 +488,7 @@ void CHostMaintenance::replay() noexcept
                     source.client->cancel_reservation(source.credits - required);
                 }
                 m_host.receive_request(owner->message, *source.client);
+                source.client->accounted_owner();
             }
             else if ((source.package == m_host.worker_package(0u)) && owner->message.is_message_a<FilesystemScanResult>())
             {
@@ -551,45 +498,10 @@ void CHostMaintenance::replay() noexcept
             {
                 m_host.m_asset_service.complete(owner->message, *source.package);
             }
-            owner->message = {}; //  Destruction is allowed only after outer-prefix validation.
+            owner->message = {}; //  Destruction is allowed only after the native invocation returns.
             released(source);
         }
-        else if (delivery)
-        {
-            auto& source = delivery->source;
-            auto& client = *source.client;
-            if (client.delivery_protected()) continue;
-            bool earlier = false;
-            for (const auto& entry : m_deliveries)
-            {
-                if (entry.source.sequence && (entry.source.sequence < sequence) && (entry.source.client == &client) &&
-                    (entry.source.control == source.control))
-                {
-                    earlier = true;
-                }
-            }
-            if (earlier) continue;
-            if (source.control)
-            {
-                client.cancel_control_reservation(1u);
-                if (!client.terminal() && !client.post(delivery->message))
-                {
-                    ++client.reserved_control_replies;
-                    continue;
-                }
-                --client.staged_controls;
-            }
-            else
-            {
-                if (!client.retry_reply(delivery->message))
-                {
-                    continue;
-                }
-                --client.staged_replies;
-            }
-            delivery->message = {};
-            released(source);
-        }
+
     }
 }
 

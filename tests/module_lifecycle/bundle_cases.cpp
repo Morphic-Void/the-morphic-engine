@@ -185,7 +185,7 @@ static void MV_STD_ABI_CALL read_bundle_bytes(void* object) noexcept
     for (std::size_t index = 0; index < item.bytes.size(); ++index) item.valid &= item.bytes.data()[index] == 0x5au;
 }
 
-static bool workflow(CBundleClient& client, threading::CThreadResources& resources, bool require_inline) noexcept
+static bool workflow(CBundleClient& client, threading::CThreadContext& context, bool require_inline) noexcept
 {
     AssetResult original, raw, cached, baked, image, shader, scratch;
     if (!make_document(client) || !client.bake(original)) return false;
@@ -231,7 +231,7 @@ static bool workflow(CBundleClient& client, threading::CThreadResources& resourc
         !parsed[0].document_view().is_ready() || !parsed[1].document_view().is_ready() ||
         !client.save(original.asset) || !client.dispose(baked.asset) || !same_bytes(bytes, snapshot.const_view())) return false;
 
-    auto* batch = resources.batch_client;
+    auto* batch = context.batch_client();
     if (!batch || (require_inline && batch->has_runners())) return false;
     SBatchRead item;
     item.bytes = raw.byte_view();
@@ -280,7 +280,7 @@ static bool save_handoff(CBundleClient& client, const SHandoff& value,
     return client.post<RawAssetTransfer>(std::move(owner)) && client.result(result);
 }
 
-bool rendering_bundle_case(threading::CThreadContext& context, threading::CThreadResources& resources) noexcept
+bool rendering_bundle_case(threading::CThreadContext& context) noexcept
 {
     CBundleClient client{ context };
     AssetResult original, loaded, file;
@@ -291,7 +291,7 @@ bool rendering_bundle_case(threading::CThreadContext& context, threading::CThrea
     MV_LOG(info, "Bundle fixture: Rendering owns loaded bundle");
     while (!context.exit_requested())
     {
-        const auto epoch = resources.wait_predicate.get_word();
+        const auto epoch = context.observe_epoch();
         if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
     }
     //  Post closure at exit; the Executive keeps the sub-file until after join.
@@ -350,13 +350,13 @@ static bool rendering_owner(CBundleClient& client) noexcept
     return true;
 }
 
-bool bundle_case(threading::CThreadContext& context, threading::CThreadResources& resources, const char* selected) noexcept
+bool bundle_case(threading::CThreadContext& context, const char* selected) noexcept
 {
     CBundleClient client{ context };
     AssetResult original, file, result;
     if (std::strcmp(selected, "bundle-rendering") == 0) return rendering_owner(client);
     if (std::strcmp(selected, "bundle") == 0 || std::strcmp(selected, "bundle-inline") == 0)
-        return workflow(client, resources, std::strcmp(selected, "bundle-inline") == 0);
+        return workflow(client, context, std::strcmp(selected, "bundle-inline") == 0);
     if (std::strcmp(selected, "bundle-resume") == 0)
     {
         SHandoff handoff;

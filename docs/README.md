@@ -102,6 +102,17 @@ ordering are unchanged by this source-layout reconfiguration.
 
 ## Direction and future design
 
+- [Common endpoint first pass](modules/common_endpoint_first_pass.md): scoped
+  refactor for one pump per module, requested service threads, common Host
+  endpoints and safe shutdown/retirement. Selects the existing service-thread
+  traffic path for all endpoints, asynchronous provider operations, closure and
+  failure handling; retains current asset policy and records completion criteria.
+- [Common endpoints and module lifecycle](modules/common_endpoint_lifecycle_design.md):
+  broader agreed direction, with the first pass separated from follow-on direct
+  connections, revision-qualified availability and atomic topology observation,
+  receipt-free cleanup of undelivered asset results, bounded-capacity progress
+  and generic service registration. These design records do not authorise
+  implementation.
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)

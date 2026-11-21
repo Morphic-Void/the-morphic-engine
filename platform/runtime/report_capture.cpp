@@ -9,6 +9,7 @@
 //  Runs bounded native steps between ordinary pumps, freezes one outcome and waits for Host retirement.
 
 #include "runtime/report_capture.hpp"
+#include "framework/services/provider_client.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 
 #include <algorithm>
@@ -253,11 +254,11 @@ void CReportCapture::progress(const bool stopping, const std::uint64_t share_ns)
     if (m_failure.reason != EReason::none)
     {
         const auto message = ::threading::make_pod_message(-1, PlatformReportCaptureFailed{ m_identity, m_failure });
-        status = m_context.services->post_pod(m_context.service_context, &message);
+        status = services::submission_status(m_context.endpoint->post(message));
     }
     else
     {
-        status = m_context.services->post_owner(m_context.service_context, &m_envelope);
+        status = services::submission_status(m_context.endpoint->post(std::move(m_envelope)));
         if ((status == services::EServiceStatus::invalid_request) && m_envelope.has_owner())
         {
             fail({ EStage::transfer, EReason::transport_failed });

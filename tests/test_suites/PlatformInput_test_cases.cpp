@@ -10,6 +10,7 @@
 //  Synthetic input records through real routing, notifications and borrow cleanup.
 
 #include "framework/system/system_ids.hpp"
+#include "tests/support/provider_endpoint_fixture.hpp"
 #include <cstring>
 #include <cstdio>
 #include <cwchar>
@@ -308,11 +309,12 @@ struct SFixture
     SControllers controllers;
     platform::threading::COwnerWait wake;
     host::CHostRestrictions restrictions{ clock.source() };
-    host::SClientRecord client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
-    host::SClientRecord provider{ module_ids::platform, 103u };
+    tests::SEndpointFixture client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
+    tests::SEndpointFixture provider{ module_ids::platform, 103u };
     host::CServiceRouter router;
     modules::SHostExecutionContext execution;
-    modules::SHostPumpServices services;
+    threading::CEndpointContext endpoint{ *provider.endpoint };
+    tests::CProviderEndpointFixture exchanges;
     modules::SHostPumpContext context;
     TInstance<platform::runtime::CPlatformRuntime> runtime;
     SServiceRoute route, other_route, window_route;
@@ -360,7 +362,7 @@ struct SFixture
             if (schema_status != EAssetStatus::success)
             {
                 reply.status = schema_status;
-                TEST_EXPECT(tests, provider.post_reply(threading::make_pod_message(message.query_async_slot(), reply)));
+                TEST_EXPECT(tests, provider.post(threading::make_pod_message(message.query_async_slot(), reply)));
                 --host_request_count;
                 return;
             }
@@ -376,14 +378,14 @@ struct SFixture
             reply.status = EAssetStatus::success;
             reply.acquisition = CAssetAcquisitionId{ ++schema_requests };
             reply.descriptor = conditioned.descriptor();
-            TEST_EXPECT(tests, provider.post_reply(threading::make_pod_message(message.query_async_slot(), reply)));
+            TEST_EXPECT(tests, provider.post(threading::make_pod_message(message.query_async_slot(), reply)));
         }
         else if (message.copy_payload_to(release))
         {
             if (hold_release) return;
             ++schema_releases;
             conditioned.clear();
-            TEST_EXPECT(tests, provider.post_reply(threading::make_pod_message(message.query_async_slot(),
+            TEST_EXPECT(tests, provider.post(threading::make_pod_message(message.query_async_slot(),
                 AssetReleaseResult{ release.acquisition, EAssetStatus::success })));
         }
         else TEST_EXPECT(tests, false);
@@ -440,22 +442,14 @@ struct SFixture
         SControllers::current = &controllers;
         TEST_EXPECT(tests, (wake.initialise().code == platform::threading::EWaitError::none));
         client.phase = other.phase = provider.phase = host::EClientPhase::ready;
-        client.execution = other.execution = provider.execution = host::EClientExecution::pumped;
         client.owner_wake = other.owner_wake = provider.owner_wake = wake.endpoint();
-        services.complete = &complete;
-        services.post_pod = &post;
-        services.commit_resource = &commit;
-        services.prepare_borrow = &prepare;
-        services.begin_borrow_retirement = &begin;
-        services.finish_borrow_retirement = &finish;
-        services.bind_borrow_notification = &bind;
-        services.enter_restriction = &enter;
-        services.leave_restriction = &leave;
-        services.maintain_host = &maintain;
         execution.restriction = restrictions.reader();
         context.instance = provider.instance;
-        context.services = &services;
-        context.service_context = this;
+        context.endpoint = &endpoint;
+        execution.native_context = this;
+        execution.enter_restriction = &enter;
+        execution.leave_restriction = &leave;
+        execution.maintain_host = &maintain;
         context.execution = &execution;
         context.owner_wake = wake.endpoint();
         TEST_EXPECT(tests, (runtime.emplace(context, adapter, clock.source(), controller_adapter) && runtime->initialise()));
@@ -468,40 +462,38 @@ struct SFixture
         other_route = open(other, k_input_contract);
         window_route = open(client, platform::windows::k_window_contract);
     }
-    SServiceRoute open(host::SClientRecord& recipient, const SServiceContract contract) noexcept
+    SServiceRoute open(tests::SEndpointFixture& recipient, const SServiceContract contract) noexcept
     {
         const SServiceContract contracts[]{ platform::windows::k_window_contract, k_input_contract };
         host::SServiceProvider advertisement{ &provider, contracts, 2u };
         TEST_EXPECT(tests, recipient.reserve_replies(1u));
         router.open({ module_ids::platform, contract.number, contract.version, { sequence++ } }, 1, recipient, &advertisement);
         OpenServiceResult result;
-        TEST_EXPECT(tests, (recipient.messages[0].copy_payload_to(result) && (result.status == EServiceStatus::success)));
-        recipient.consume(1u);
+        TEST_EXPECT(tests, (recipient.received(0).copy_payload_to(result) && (result.status == EServiceStatus::success)));
+        recipient.discard(1u);
         return result.route;
     }
     void collect() noexcept
     {
-        for (host::SClientRecord* const recipient : { &client, &other })
+        for (tests::SEndpointFixture* const recipient : { &client, &other })
         {
-            threading::CErasedPodMsg messages[64];
-            std::uint32_t controls = 0u;
-            const std::uint32_t count = recipient->copy_messages(messages, 64u, controls);
+            const std::uint32_t count = recipient->pending();
             for (std::uint32_t index = 0u; index < count; ++index)
             {
                 ServiceReply reply;
-                if (messages[index].copy_payload_to(reply))
+                if (recipient->received(index).copy_payload_to(reply))
                 {
                     TEST_EXPECT(tests, (history_count < 512u));
                     if (history_count < 512u) history[history_count++] = { reply, recipient == &other };
                 }
             }
-            recipient->consume_messages(count, controls);
+            recipient->discard(count);
         }
     }
     std::uint64_t submit(const std::uint16_t opcode, const void* const payload, const std::uint16_t size,
         const bool second = false, const bool window = false) noexcept
     {
-        host::SClientRecord& recipient = second ? other : client;
+        tests::SEndpointFixture& recipient = second ? other : client;
         ServiceRequest request;
         request.route = window ? window_route : (second ? other_route : route);
         request.request.value = sequence++;
@@ -520,25 +512,26 @@ struct SFixture
     void step() noexcept
     {
         host_step();
-        router.progress();
-        SDispatchedCommand commands[64];
-        threading::CErasedPodMsg messages[64];
-        std::uint32_t controls = 0u;
-        modules::SPumpInput input;
-        input.commands = commands;
-        input.command_count = router.prepare_batch(provider, commands, 64u);
-        input.messages = messages;
-        input.message_count = provider.copy_messages(messages, 64u, controls);
-        modules::SPumpResult result;
-        TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
-        runtime->pump(input, result);
-        progress = result.progress;
-        TEST_EXPECT(tests, restrictions.end_invocation());
-        TEST_EXPECT(tests, router.finish_batch(provider, commands, input.command_count, result.consumed_commands));
-        provider.consume_messages(result.consumed_messages, controls);
-        router.progress();
-        collect();
+        for (unsigned turn = 0u; turn < 16u; ++turn)
+        {
+            router.progress();
+            (void)exchanges.progress(*this);
+            modules::SPumpInput input;
+            modules::SPumpResult result;
+            TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
+            runtime->pump(input, result);
+            progress = result.progress;
+            TEST_EXPECT(tests, restrictions.end_invocation());
+            const bool work = exchanges.progress(*this);
+            router.progress();
+            collect();
+            if (!work && !provider.endpoint->host_to_worker_msgs.refresh_readable_count())
+            {
+                break;
+            }
+        }
     }
+
     SPreparedServiceBorrow prepared(const std::uint64_t request) const noexcept
     {
         for (std::uint32_t index = 0u; index < history_count; ++index)
@@ -568,11 +561,11 @@ struct SFixture
     ServiceNotificationRegistered registration(const SPreparedServiceBorrow& borrow, const bool second = false,
         const bool window = false) noexcept
     {
-        host::SClientRecord& recipient = second ? other : client;
+        tests::SEndpointFixture& recipient = second ? other : client;
         TEST_EXPECT(tests, recipient.reserve_replies(1u));
         router.register_notification(recipient, { (window ? window_route : (second ? other_route : route)), borrow.borrow }, 400);
         ServiceNotificationRegistered result;
-        TEST_EXPECT(tests, recipient.messages[recipient.message_count - 1u].copy_payload_to(result));
+        TEST_EXPECT(tests, recipient.received(recipient.pending() - 1u).copy_payload_to(result));
         collect();
         return result;
     }
@@ -592,7 +585,7 @@ struct SFixture
     }
     void release(const SPreparedServiceBorrow& borrow, const bool second = false, const bool window = false) noexcept
     {
-        host::SClientRecord& recipient = second ? other : client;
+        tests::SEndpointFixture& recipient = second ? other : client;
         const SServiceRoute source = window ? window_route : (second ? other_route : route);
         router.release_borrow(recipient, { source, borrow.borrow });
         router.quiesce_borrow(recipient, { source, borrow.borrow });
@@ -1088,7 +1081,7 @@ void eligible_pause_cancel_and_replacement(TTestContext& ctx)
         (void)fixture.submit(ECommand::acquire_controller, SAcquireController{ { 2u }, 0u, 1u, 1u });
         //  Consume the acknowledgement, then cancel before exposing prepared data.
         ServiceReply acknowledged;
-        TEST_EXPECT(ctx, fixture.client.messages[0].copy_payload_to(acknowledged));
+        TEST_EXPECT(ctx, fixture.client.received(0).copy_payload_to(acknowledged));
         TEST_EXPECT(ctx, consumer.observe(acknowledged));
         CancelServiceRequest cancel;
         TEST_EXPECT(ctx, consumer.cancel(fixture.route, request, cancel));
@@ -1480,6 +1473,7 @@ void installation_lifecycle(TTestContext& ctx)
     fixture.step();
     const std::uint64_t acquire = fixture.submit(ECommand::acquire_controller, SAcquireController{ token, 0u, 8u, 4u }, true);
     fixture.step();
+    for (unsigned turn = 0u; (turn < 10000u) && !fixture.prepared(acquire).borrow.value; ++turn) fixture.step();
     const SPreparedServiceBorrow borrowed = fixture.prepared(acquire);
     TEST_EXPECT(ctx, borrowed.view.descriptor);
     const std::uint64_t busy = fixture.submit(ECommand::retire_configuration, SRetireConfiguration{ token });
@@ -1576,7 +1570,12 @@ void installation_cancellation(TTestContext& ctx)
     fixture.clock.time += 5000000000u;
     fixture.step();
     fixture.step();
-    TEST_EXPECT(ctx, ((fixture.terminal(request) == EServiceStatus::timed_out) && !fixture.schema_requests));
+    // Submission has queued even while the simulated Host defers admission.
+    fixture.post_busy = false;
+    for (unsigned turn = 0u; (turn < 1000u) && (fixture.terminal(request) == EServiceStatus::unavailable); ++turn) fixture.step();
+    for (unsigned turn = 0u; (turn < 1000u) && !fixture.schema_releases; ++turn) fixture.step();
+    TEST_EXPECT(ctx, ((fixture.terminal(request) == EServiceStatus::timed_out) &&
+        (fixture.schema_requests == 1u) && (fixture.schema_releases == 1u)));
 }
 
 void capture_authority(TTestContext& ctx)

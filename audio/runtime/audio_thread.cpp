@@ -38,9 +38,8 @@ static modules::RunTestsResult report(const modules::ETestRunStatus status) noex
     return result;
 }
 
-std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& output) noexcept
+std::uint32_t serve_audio(threading::CThreadContext& context, IAudioOutput& output) noexcept
 {
-    threading::CThreadContext context{ resources };
     context.startup();
     connections::CClient connection{ context, module_ids::audio,
         modules::test_connections::policies, modules::test_connections::policy_count };
@@ -58,6 +57,7 @@ std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& 
         return 1u;
     }
     context.mark_running();
+    if (!context.publish_ready()) return 1u;
     MV_LOG(info, "Audio: Running (device closed)");
     for (;;)
     {
@@ -213,20 +213,19 @@ std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& 
     return 0u;
 }
 
-static std::uint32_t MV_STD_ABI_CALL entry(void* const user_data) noexcept
+static std::uint32_t MV_STD_ABI_CALL entry(threading::CThreadContext& context, void* const module_context) noexcept
 {
-    if (user_data == nullptr) return ~0u;
-    auto& resources = *static_cast<threading::CThreadResources*>(user_data);
+    (void)module_context;
     auto* memory = memory::get_ambient_memory_context();
-    if (!modules::is_thread_context_ready(user_data) || (memory == nullptr))
+    if (!modules::is_thread_context_ready(&context) || (memory == nullptr))
     {
-        resources.control_state.mark_failed(~0u);
+        context.mark_failed(~0u);
         return ~0u;
     }
     CMiniaudioOutput output{ *memory };
-    return serve_audio(resources, output);
+    return serve_audio(context, output);
 }
 
-platform::threading::FThreadEntry audio_thread_entry_point() noexcept { return &entry; }
+threading::FEndpointThreadEntry audio_thread_entry_point() noexcept { return &entry; }
 
 }   //  namespace audio

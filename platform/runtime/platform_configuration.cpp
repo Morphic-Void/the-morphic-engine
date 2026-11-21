@@ -33,7 +33,7 @@ bool CPlatformRuntime::configuration_used(const input::SInstallationToken token)
 bool CPlatformRuntime::configuration_command(const services::SDispatchedCommand& command,
     const std::int32_t completion) noexcept
 {
-    if (!m_context.services->post_pod || !m_context.services->commit_resource)
+    if (!m_context.endpoint)
     {
         complete(completion, EServiceStatus::unavailable);
         return true;
@@ -120,6 +120,12 @@ void CPlatformRuntime::cancel_configuration(const EServiceStatus status) noexcep
     {
         return;
     }
+    //  The Host owns the commit decision once submitted. Preserve the proposed
+    //  resource until its result, even if cancellation or stopping overtakes it.
+    if ((m_preparation.completion >= 0) && m_services.committing(m_completions[m_preparation.completion].reply))
+    {
+        return;
+    }
     m_preparation.cancelled = true;
     m_configurations[m_preparation.configuration].data->detach();
     if (m_preparation.completion >= 0)
@@ -154,6 +160,7 @@ void CPlatformRuntime::configuration_message(const ::threading::CErasedPodMsg& m
             const services::ServiceReply& reply = m_completions[configuration.retirement].reply;
             if ((reply.route.value == cancelled.route.value) && (reply.request.value == cancelled.request.value))
             {
+                if (m_services.committing(reply)) continue;
                 complete(configuration.retirement, EServiceStatus::cancelled);
                 configuration.retirement = -1;
             }
@@ -251,7 +258,7 @@ void CPlatformRuntime::progress_configurations(const std::uint64_t budget_ns) no
         if (!preparation.cancelled && !preparation.requested && (budget == modules::EBudgetStatus::running))
         {
             const ::threading::CErasedPodMsg request = ::threading::make_pod_message(preparation.correlation, preparation.request);
-            const EServiceStatus status = m_context.services->post_pod(m_context.service_context, &request);
+            const EServiceStatus status = m_services.post_pod(&request);
             if (status == EServiceStatus::success) preparation.requested = preparation.waiting = true;
             else if (status != EServiceStatus::busy) cancel_configuration(status);
         }
@@ -298,7 +305,7 @@ void CPlatformRuntime::progress_configurations(const std::uint64_t budget_ns) no
         {
             const ::threading::CErasedPodMsg request = ::threading::make_pod_message(preparation.correlation,
                 AssetReleaseRequest{ preparation.acquisition });
-            const EServiceStatus status = m_context.services->post_pod(m_context.service_context, &request);
+            const EServiceStatus status = m_services.post_pod(&request);
             if (status == EServiceStatus::success) preparation.release_waiting = true;
             else if (status != EServiceStatus::busy) native_failure(UINT32_MAX);
         }
@@ -315,7 +322,7 @@ void CPlatformRuntime::progress_configurations(const std::uint64_t budget_ns) no
             }
         }
         else if (configuration.data->ready() && !preparation.acquisition && !preparation.release_waiting &&
-            (budget == modules::EBudgetStatus::running))
+            ((budget == modules::EBudgetStatus::running) || m_services.committing(m_completions[preparation.completion].reply)))
         {
             if (!preparation.token.value)
             {
@@ -328,7 +335,7 @@ void CPlatformRuntime::progress_configurations(const std::uint64_t budget_ns) no
             reply.status = EServiceStatus::success;
             reply.payload_size = sizeof(result);
             std::memcpy(reply.payload, &result, sizeof(result));
-            const EServiceStatus status = m_context.services->commit_resource(m_context.service_context, &reply);
+            const EServiceStatus status = m_services.commit_resource(&reply);
             if (status == EServiceStatus::success)
             {
                 configuration.token = preparation.token;
@@ -342,7 +349,8 @@ void CPlatformRuntime::progress_configurations(const std::uint64_t budget_ns) no
     for (SConfiguration& configuration : m_configurations)
     {
         if (!configuration.data) continue;
-        if (m_stopping && configuration.token.value && !configuration_used(configuration.token))
+        if (m_stopping && configuration.token.value && !configuration_used(configuration.token) &&
+            ((configuration.retirement < 0) || !m_services.committing(m_completions[configuration.retirement].reply)))
         {
             configuration.token = {};
             configuration.retiring = true;
@@ -361,7 +369,7 @@ void CPlatformRuntime::progress_configurations(const std::uint64_t budget_ns) no
             {
                 services::ServiceReply& reply = m_completions[completion].reply;
                 reply.status = EServiceStatus::success;
-                const EServiceStatus status = m_context.services->commit_resource(m_context.service_context, &reply);
+                const EServiceStatus status = m_services.commit_resource(&reply);
                 if (status == EServiceStatus::success)
                 {
                     configuration.token = {};

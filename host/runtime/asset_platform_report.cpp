@@ -57,10 +57,9 @@ PlatformReportResult CAssetService::report_state() const noexcept
     return result;
 }
 
-void CAssetService::install_report_provider(SClientRecord& client, CPumpedClient& pump) noexcept
+void CAssetService::install_report_provider(SClientRecord& client) noexcept
 {
     m_report_provider = &client;
-    m_report_pump = &pump;
     m_report_last = ELastUpdate::none;
     m_report_failure = {};
     m_initial_report = true;
@@ -76,17 +75,12 @@ void CAssetService::close_report_provider(SClientRecord& client) noexcept
     if (!m_capture.identity.capture_id)
     {
         m_report_provider = nullptr;
-        m_report_pump = nullptr;
     }
 }
 
 SFailure CAssetService::start_report(const std::int32_t delivery) noexcept
 {
     SClientRecord& producer = *m_report_provider;
-    if (!m_report_pump->report_outcome_capacity())
-    {
-        return { EStage::transfer, EReason::limit_exceeded };
-    }
     if (!m_next_capture)
     {
         return { EStage::capture, EReason::limit_exceeded };
@@ -102,25 +96,30 @@ SFailure CAssetService::start_report(const std::int32_t delivery) noexcept
     {
         return { EStage::publication, EReason::allocation_failed };
     }
-    if (!producer.reserve_control_replies(2u))
+    if (!producer.reserve_replies(2u))
     {
         (void)m_report_backings.erase(backing);
         return { EStage::transfer, EReason::limit_exceeded };
     }
     if (!producer.reserve_replies(1u))
     {
-        producer.cancel_control_reservation(2u);
+        producer.cancel_reservation(2u);
         (void)m_report_backings.erase(backing);
         return { EStage::transfer, EReason::limit_exceeded };
     }
     m_capture.identity = { producer.instance, m_next_capture++ };
     m_capture.delivery = delivery;
     m_capture.backing = backing;
-    producer.report_outcome_reserved = m_capture.identity.capture_id;
     const PlatformReportCaptureRequest request{ m_capture.identity, m_capture.budget.anchor() };
     if (!producer.reply(threading::make_pod_message(-1, request)))
     {
-        retire_capture();
+        if (producer.endpoint->host_to_worker_msgs.posting_poisoned())
+        {
+            m_capture.delivery = -1;
+            m_capture.failure = { EStage::transfer, EReason::transport_failed };
+            m_failed = true;
+        }
+        else retire_capture();
         return { EStage::transfer, EReason::transport_failed };
     }
     return {};
@@ -388,15 +387,13 @@ void CAssetService::settle_report() noexcept
     m_capture.settled = true;
     const EDisposition disposition = (failure.reason == EReason::none) ? EDisposition::published :
         ((failure.reason == EReason::closing) ? EDisposition::interrupted : EDisposition::rejected);
-    const PlatformReportCaptureReceipt receipt{ m_capture.identity, disposition, failure };
-    if (!producer.reply_control(threading::make_pod_message(-1, receipt))) m_failed = true;
+    m_capture.receipt = { m_capture.identity, disposition, failure };
 }
 
 void CAssetService::retire_capture() noexcept
 {
-    if (!m_capture.cancel_sent) m_report_provider->cancel_control_reservation(1u);
-    if (!m_capture.settled) m_report_provider->cancel_control_reservation(1u);
-    m_report_provider->report_outcome_reserved = 0u;
+    if (!m_capture.cancel_sent) m_report_provider->cancel_reservation(1u);
+    if (!m_capture.receipt_settled) m_report_provider->cancel_reservation(1u);
     if (m_capture.backing >= 0) (void)m_report_backings.erase(m_capture.backing);
     m_capture = SReportCapture{};
     if (m_report_closing) close_report_provider(*m_report_provider);
@@ -423,7 +420,7 @@ void CAssetService::deliver_reports() noexcept
         else
         {
             const EReplyPublication result = client.publish_reply(threading::make_pod_message(d.slot, d.result));
-            const bool poisoned = client.thread && client.thread->pod_delivery_poisoned();
+            const bool poisoned = client.endpoint->host_to_worker_msgs.posting_poisoned();
             if (poisoned)
             {
                 if (result == EReplyPublication::busy) client.cancel_reservation(1u);
@@ -483,7 +480,13 @@ void CAssetService::progress_reports(const bool admission_closed) noexcept
     const bool drained = producer.execution_quiescent();
     if (m_capture.settled)
     {
-        if ((producer.report_receipt_consumed == id) || drained) retire_capture();
+        if (!m_capture.receipt_settled)
+        {
+            const EReplyPublication publication = producer.publish_reply(threading::make_pod_message(-1, m_capture.receipt));
+            m_capture.receipt_settled = publication != EReplyPublication::busy;
+            m_capture.receipt_published = publication == EReplyPublication::queued;
+        }
+        if (m_capture.receipt_published || (m_capture.receipt_settled && drained)) retire_capture();
         return;
     }
     const modules::EBudgetStatus time = m_capture.budget.observe().status;
@@ -512,22 +515,23 @@ void CAssetService::progress_reports(const bool admission_closed) noexcept
     }
     if (m_capture.outcome)
     {
-        if (!drained && (producer.report_request_consumed != id))
-        {
-            return;
-        }
         if ((time == modules::EBudgetStatus::retry) || (time == modules::EBudgetStatus::restricted))
         {
             return;
         }
         settle_report();
-        if (drained) retire_capture();
+        if (drained)
+        {
+            producer.cancel_reservation(1u);
+            m_capture.receipt_settled = true;
+            retire_capture();
+        }
     }
-    else if (!m_capture.cancel_sent && (m_capture.failure.reason != EReason::none) && (producer.report_request_consumed == id))
+    else if (!m_capture.cancel_sent && (m_capture.failure.reason != EReason::none))
     {
         const PlatformReportCaptureCancel cancel{ m_capture.identity, m_capture.failure.reason };
         m_capture.cancel_sent = true;
-        if (!producer.reply_control(threading::make_pod_message(-1, cancel))) m_failed = true;
+        if (!producer.reply(threading::make_pod_message(-1, cancel))) m_failed = true;
     }
 }
 

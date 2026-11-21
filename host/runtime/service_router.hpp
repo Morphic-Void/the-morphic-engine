@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "framework/services/service_protocol.hpp"
+#include "framework/services/provider_messages.hpp"
 #include "runtime/service_provider.hpp"
 #include "runtime/service_borrows.hpp"
 
@@ -38,10 +38,7 @@ public:
     void quiesce_borrow(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept;
     void cancel_request(SClientRecord& client, const services::CancelServiceRequest& request) noexcept;
     [[nodiscard]] bool provider_borrows_retired(const SClientRecord& provider) const noexcept;
-    [[nodiscard]] std::uint32_t prepare_batch(const SClientRecord& provider,
-        services::SDispatchedCommand* const commands, const std::uint32_t capacity) noexcept;
-    [[nodiscard]] bool finish_batch(const SClientRecord& provider, const services::SDispatchedCommand* const commands,
-        const std::uint32_t offered, const std::uint32_t consumed) noexcept;
+    void close_provider_admission(SClientRecord& provider) noexcept;
     void progress() noexcept;
     void stop_provider(SClientRecord& provider, const bool quiescent) noexcept;
     void retire_client(SClientRecord& client) noexcept;
@@ -66,7 +63,7 @@ private:
         services::ServiceReply reply;
         std::uint64_t order{ 0u };
         std::int32_t slot{ -1 };
-        bool offered{ false };
+        services::SDispatchedCommand descriptor;
         bool delivered{ false };
         bool completed{ false };
         bool cancelled{ false };

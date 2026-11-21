@@ -65,8 +65,8 @@ struct SFixture
 
     ~SFixture()
     {
-        (void)io.shutdown();
-        (void)conditioning.shutdown();
+        (void)tests::stop_and_join(io, conversion);
+        (void)tests::stop_and_join(conditioning, conversion);
         (void)client.shutdown();
         service.detach_client(client);
         service.deallocate();
@@ -905,7 +905,7 @@ void test_preparation_handoff(TTestContext& ctx)
             TEST_EXPECT(ctx, !fixture.image.resolve("pack:/raw", false, source));
             if (scenario == 2u)
             {
-                TEST_EXPECT(ctx, fixture.io.shutdown());
+                TEST_EXPECT(ctx, tests::stop_and_join(fixture.io, fixture.conversion));
                 fixture.service.fail_pending();
                 fixture.result(ctx, 1, EAssetStatus::delivery_failed);
             }
@@ -975,7 +975,7 @@ void test_controlled_failures(TTestContext& ctx)
 
     fixture.bake(ctx, 4);
     TEST_EXPECT(ctx, fixture.take_work(work));
-    TEST_EXPECT(ctx, fixture.io.shutdown() && fixture.conditioning.shutdown());
+    TEST_EXPECT(ctx, tests::stop_and_join(fixture.io, fixture.conversion) && tests::stop_and_join(fixture.conditioning, fixture.conversion));
     fixture.service.fail_pending();
     fixture.result(ctx, 4, EAssetStatus::delivery_failed);
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::missing && fixture.service.is_idle());
@@ -990,7 +990,7 @@ void test_controlled_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, teardown.initialise(false));
     teardown.bake(ctx, 6);
     TEST_EXPECT(ctx, teardown.take_work(work));
-    TEST_EXPECT(ctx, teardown.io.shutdown() && teardown.client.shutdown());
+    TEST_EXPECT(ctx, tests::stop_and_join(teardown.io, teardown.conversion) && teardown.client.shutdown());
     teardown.service.detach_client(teardown.client);
     teardown.service.deallocate();
     TEST_EXPECT(ctx, teardown.image.root_state("pack:") == ERootState::missing);
@@ -1130,19 +1130,21 @@ void test_prepared_schema_service(TTestContext& ctx, const bool dedicated, const
     }
     if (stopped)
     {
-        TEST_EXPECT(ctx, fixture.io.shutdown());
-        if (dedicated) TEST_EXPECT(ctx, fixture.conditioning.shutdown());
+        TEST_EXPECT(ctx, tests::stop_and_join(fixture.io, fixture.conversion));
+        if (dedicated) TEST_EXPECT(ctx, tests::stop_and_join(fixture.conditioning, fixture.conversion));
         fixture.pump(fixture.io);
         if (dedicated) fixture.pump(fixture.conditioning);
         fixture.service.fail_pending();
         //  Failure must preserve acquired views through a later release.
         TEST_EXPECT(ctx, schema::CPreparedSchemaView{ prepared[2].descriptor }.is_ready());
     }
-    host::SClientRecord wrong{ module_ids::audio, 909u };
+    host::SClientRecord wrong{ module_ids::audio, 909u, nullptr, modules::SModuleInstance{ 1909u } };
+    TEST_EXPECT(ctx, wrong.initialise());
     wrong.phase = host::EClientPhase::ready;
     fixture.service.request_release({ prepared[0].acquisition }, 620, wrong);
     AssetReleaseResult rejected;
-    TEST_EXPECT(ctx, (wrong.messages[0].copy_payload_to(rejected) && (rejected.status != EAssetStatus::success)));
+    threading::CErasedPodMsg rejected_message;
+    TEST_EXPECT(ctx, (wrong.endpoint->host_to_worker_msgs.read(rejected_message) && rejected_message.copy_payload_to(rejected) && (rejected.status != EAssetStatus::success)));
     for (const SchemaPrepareResult& result : prepared)
     {
         fixture.service.request_release({ result.acquisition }, 621, fixture.client);

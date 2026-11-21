@@ -28,7 +28,7 @@ struct SServiceProvider
 
 inline bool SServiceProvider::available() const noexcept
 {
-    return (client != nullptr) && (client->phase == EClientPhase::ready) && !client->stop_requested;
+    return (client != nullptr) && (client->phase == EClientPhase::ready) && !client->stop_requested && !client->provider_closed;
 }
 
 }   //  namespace host

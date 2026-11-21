@@ -71,4 +71,22 @@
     type_macro(schema_process_request) \
     type_macro(schema_process_accepted) \
     type_macro(schema_process_cancel) \
-    type_macro(schema_process_result)
+    type_macro(schema_process_result) \
+    type_macro(create_thread_request) \
+    type_macro(create_thread_result) \
+    type_macro(endpoint_lifecycle) \
+    type_macro(stop_thread_request) \
+    type_macro(stop_thread_result) \
+    type_macro(close_provider_admission) \
+    type_macro(provider_admission_closed) \
+    type_macro(seal_endpoint) \
+    type_macro(endpoint_sealed) \
+    type_macro(service_command) \
+    type_macro(complete_service_request) \
+    type_macro(commit_service_resource) \
+    type_macro(prepare_service_borrow) \
+    type_macro(begin_service_borrow_retirement) \
+    type_macro(finish_service_borrow_retirement) \
+    type_macro(bind_service_notification) \
+    type_macro(provider_operation_result) \
+    type_macro(endpoint_ready)

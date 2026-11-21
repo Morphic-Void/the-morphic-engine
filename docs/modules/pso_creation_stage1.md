@@ -1373,6 +1373,14 @@ not promises or limits supplied by Windows.
 
 #### Agreed Platform-to-Host capture, handoff and publication path
 
+Transport update, 21 November 2026: the
+[common endpoint contract](host_pump_foundation.md) supersedes the pump inbox,
+callback and consumed-prefix mechanics in this earlier handoff. Capture requests,
+cancellation and receipts use the endpoint's ordinary POD FIFO; owning outcomes
+use its queue towards Host. The current [Platform report protocol](platform_report.md)
+retains the domain receipt and quiescent retirement rules. This transport update
+does not change the deferred schema-placement decision or resume its handoff.
+
 The user accepted this producer-side capture/handoff/publication protocol on
 16 November 2026. The [18 November Host schema service decision](#host-schema-services-placement-decision)
 requires revision of the already-baked candidate handoff below; its exact replacement

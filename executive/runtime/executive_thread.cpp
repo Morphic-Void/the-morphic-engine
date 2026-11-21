@@ -229,7 +229,7 @@ static bool expect(const SScenario& scenario, const bool satisfied, const char* 
 class CExecutiveThread
 {
 public:
-    static std::uint32_t MV_STD_ABI_CALL entry_point(void* const user_data) noexcept;
+    static std::uint32_t MV_STD_ABI_CALL entry_point(threading::CThreadContext& context, void* const module_context) noexcept;
 
 private:
     //  Failure codes start at one because zero is the successful thread exit code.
@@ -242,7 +242,7 @@ private:
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread(CExecutiveThread&&) noexcept = delete;
     CExecutiveThread& operator=(CExecutiveThread&&) noexcept = delete;
-    explicit CExecutiveThread(threading::CThreadResources& resources) noexcept : m_context{ resources },
+    explicit CExecutiveThread(threading::CThreadContext& context) noexcept : m_context{ context },
         m_connections{ m_context, module_ids::executive, modules::test_connections::policies, modules::test_connections::policy_count } {}
     ~CExecutiveThread() noexcept = default;
 
@@ -309,23 +309,15 @@ private:
     std::uint32_t m_failure_code{ 0u };
 };
 
-std::uint32_t MV_STD_ABI_CALL CExecutiveThread::entry_point(void* const user_data) noexcept
+std::uint32_t MV_STD_ABI_CALL CExecutiveThread::entry_point(threading::CThreadContext& context, void* const module_context) noexcept
 {
-    if (user_data == nullptr)
+    (void)module_context;
+    if (!modules::is_thread_context_ready(&context))
     {
-        MV_ASSERT_REPORT("CExecutiveThread entry received a null user_data pointer");
+        context.mark_failed(~0u);
         return ~0u;
     }
-
-    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(user_data);
-    if (!modules::is_thread_context_ready(user_data))
-    {
-        resources.control_state.mark_failed(~0u);
-        MV_ASSERT_REPORT("CExecutiveThread entry detected incomplete module context installation");
-        return ~0u;
-    }
-
-    CExecutiveThread thread(resources);
+    CExecutiveThread thread(context);
     return thread.main();
 }
 
@@ -352,6 +344,11 @@ bool CExecutiveThread::startup() noexcept
 
     if (!initialise())
     {
+        return false;
+    }
+    if (!m_context.publish_ready())
+    {
+        fail(EFailure::submission, "module readiness");
         return false;
     }
     m_context.mark_running();
@@ -388,7 +385,7 @@ bool CExecutiveThread::load_test_module() noexcept
     const bool audio = m_test_module == module_ids::audio;
     if (!platform::module::make_module_filename((audio ? "package:/bin/MorphicAudio" : "package:/bin/MorphicRendering"), file) ||
         !request_preparation::prepare_module_request(pending, m_pending_slot,
-            m_test_module, modules::EModuleAction::load, file.cstring(), true) || !m_context.post(std::move(pending)))
+            m_test_module, modules::EModuleAction::load, file.cstring()) || !m_context.post(std::move(pending)))
     {
         fail(EFailure::submission, "module load submission");
         return false;

@@ -15,12 +15,12 @@ import tempfile
 import time
 
 
-REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
+REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback",
             "bad-provider-size", "bad-provider-version", "bad-provider-flags", "bad-provider-count",
             "bad-provider-null", "bad-provider-contract", "bad-provider-duplicate", "bad-provider-query")
 CASES = ("normal", "sequence", "empty-provider", "schema-process", "platform-shell", "platform-report", "platform-report-injected",
          "platform-report-cancel", "platform-report-shutdown", "platform-report-departure") + REJECTED + (
-         "activation-failed", "activation-null", "unauthorised-native-stop", "unauthorised-native-events", "invalid-prefix", "pump-failed",
+         "mixed", "activation-failed", "activation-null", "unauthorised-native-stop", "unauthorised-native-events", "invalid-seal", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
          "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed",
@@ -66,11 +66,15 @@ def main():
         elapsed = time.monotonic() - started
         logs = list((development / "logical-roots/test-logs").glob("morphic_debug*.log"))
         events = "\n".join(log.read_text(encoding="utf-8") for log in logs)
-        expected_exit = 1 if case in ("deactivate-failed", "emergency", "stop-timeout") else 0
+        fatal_cases = ("activation-failed", "activation-null", "activation-timeout", "unauthorised-native-stop",
+                       "unauthorised-native-events", "invalid-seal", "pump-failed", "borrow-provider-failed")
+        expected_exit = 1 if case in fatal_cases + ("deactivate-failed", "emergency", "stop-timeout") else 0
         if result.returncode != expected_exit or f"Pump fixture: {case} passed" not in events or "Pump fixture failed" in events:
             raise RuntimeError(f"{case}: exit {result.returncode}, expected {expected_exit}; inspect {runtime}")
         for line in events.splitlines():
             if not re.search(r"\[(assert|error|critical|fatal):", line):
+                continue
+            if case in fatal_cases + ("deactivate-failed",) and re.search(r"\[endpoint_runtime\.cpp:\d+\] Host: module coordinator failed, module \d+, instance \d+, endpoint \d+$", line):
                 continue
             if case == "deactivate-failed" and re.search(r"\[host\.cpp:\d+\] Module shutdown failed, status 9$", line):
                 continue
@@ -108,7 +112,7 @@ def main():
             raise RuntimeError(f"Shutdown progress missing; inspect {runtime}")
         if case == "replacement" and "independent provider survived Executive replacement" not in events:
             raise RuntimeError(f"Replacement did not preserve provider; inspect {runtime}")
-        if case in ("inbox-full", "emergency") and "full inbox and outbound backpressure established" not in events:
+        if case in ("inbox-full", "emergency") and "growable inbox and outbound traffic exercised" not in events:
             raise RuntimeError(f"Backpressure not reached; inspect {runtime}")
         required = {
             "schema-process": ("Replacement composed retained declarations and read remapped text and span",),
@@ -121,7 +125,7 @@ def main():
             "platform-shell": ("Platform unsupported service commands completed and route remained usable",),
             "cleanup-credits": ("512 disposal credits retained by live acquisitions",
                                 "zero-reply cancellation admitted with 512 reserved replies",
-                                "512 retained disposals completed through independent cleanup credits"),
+                                "512 retained disposals completed through common FIFO settlement"),
             "threaded-credits": ("threaded 600 retained disposals, releases and self-exit passed",),
             "activation-timeout": ("activation deadline initiated cooperative stop",),
             "stop-timeout": ("Host: shutdown grace expired", "live state survived shutdown grace expiry"),
@@ -141,9 +145,9 @@ def main():
                 if marker not in events:
                     raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
         if case.startswith("modal-"):
-            for marker in ("nested modal maintenance preserved offered prefixes",
+            for marker in ("nested modal maintenance preserved accepted command state",
                            "modal budgets, deferred replies and borrowed retirement passed",
-                           "modal borrow retired after outer prefix and quiescence"):
+                           "modal borrow retired after invocation and quiescence"):
                 if marker not in events:
                     raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
             if case == "modal-activation" and "activation excluded simulated restriction beyond five seconds" not in events:

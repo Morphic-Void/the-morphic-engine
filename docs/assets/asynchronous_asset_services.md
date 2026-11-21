@@ -94,7 +94,7 @@ does not encode TGA images or serialise live documents. TGA remains shared core
 functionality and retains its existing load, save and disposal contracts.
 
 Each successful acquisition independently protects its source storage. Tokens
-are monotonically issued, bound to the requesting thread-package instance and
+are monotonically issued, bound to the requesting endpoint instance and
 not reused when an acquisition slot is recycled. Copied views and tokens do not
 create additional protection. The client must keep the source immutable while
 it is acquired; acquisition guarantees lifetime, not exclusion of mutation.
@@ -106,8 +106,11 @@ not dispose of the underlying asset. Invalid, duplicate and wrong-client tokens
 return `invalid_request` without changing another acquisition. Invalid source
 IDs, pending disposal and closed bundle backing reject acquisition with
 `invalid_asset`; unsupported view selections return `invalid_request`. Failed
-acquisition returns no token or view. If a successful acquisition reply cannot
-be delivered, Host removes that acquisition before entering its failure path.
+acquisition returns no token or view. A definitely unexposed failed reply permits
+Host to remove its acquisition before entering the failure path. If publication
+is uncertain, Host retains every kind of acquired backing until explicit release
+or final endpoint execution, ingress and batch quiescence establishes safe
+abandonment cleanup. A poisoned reply is not proof that its view stayed private.
 
 Ordinary disposal closes admission immediately and waits for every acquisition
 and accepted operation. Bundle closure still removes the original identity and

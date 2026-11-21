@@ -15,6 +15,6 @@
 
 namespace audio
 {
-platform::threading::FThreadEntry audio_thread_entry_point() noexcept;
-std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& output) noexcept;
+threading::FEndpointThreadEntry audio_thread_entry_point() noexcept;
+std::uint32_t serve_audio(threading::CThreadContext& resources, IAudioOutput& output) noexcept;
 }   //  namespace audio

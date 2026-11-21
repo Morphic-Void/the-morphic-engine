@@ -165,7 +165,7 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
     record->identity = CAssetAcquisitionId{ m_next_acquisition++ };
     record->client = &client;
     record->source = request.source;
-    record->schema_output = source->payload<SchemaOutputAsset>() != nullptr;
+    record->requires_quiescence = source->payload<SchemaOutputAsset>() != nullptr;
     result.acquisition = record->identity;
     result.view = request.view;
     result.views = bytes ? AssetAcquiredViews{ described.byte_view() } : AssetAcquiredViews{ described.bundle_view() };
@@ -177,9 +177,11 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
     }
     else if (!client.reply(threading::make_pod_message(slot, result)))
     {
-        // A poisoned threaded publication can expose the token before failing.
-        if (record->schema_output && client.thread && client.thread->pod_delivery_poisoned())
+        //  Any poisoned publication can expose the token and backing before
+        //  reporting failure, for pumped and native-thread recipients alike.
+        if (client.endpoint->host_to_worker_msgs.posting_poisoned())
         {
+            record->requires_quiescence = true;
             client.request_exit();
         }
         else (void)m_acquisitions.erase(record_slot);
@@ -205,7 +207,7 @@ void CAssetService::request_release(const AssetReleaseRequest& request, const st
             }
         }
     }
-    if (!client.reply_control(threading::make_pod_message(slot, result)))
+    if (!client.reply(threading::make_pod_message(slot, result)))
     {
         m_failed = true;
         MV_CRITICAL_EVENT("Host: Asset release reply delivery failed");
@@ -226,7 +228,7 @@ void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
     {
         const std::int32_t next = m_acquisitions.next_live(slot);
         const SAcquisition& acquisition = *m_acquisitions.get_object(slot);
-        if ((acquisition.client == &client) && (!acquisition.schema_output || client.execution_quiescent()))
+        if ((acquisition.client == &client) && (!acquisition.requires_quiescence || client.execution_quiescent()))
         {
             (void)m_acquisitions.erase(slot);
         }

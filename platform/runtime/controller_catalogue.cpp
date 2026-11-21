@@ -116,8 +116,7 @@ bool CPlatformRuntime::catalogue_command(const services::SDispatchedCommand& dis
             }
             else
             {
-                status = m_context.services->bind_borrow_notification(m_context.service_context,
-                    use->borrow, request.registration, &use->notification);
+                status = m_services.bind_borrow_notification(use->borrow, request.registration, &use->notification);
                 if (status == EServiceStatus::success)
                 {
                     use->registration = request.registration;
@@ -190,6 +189,11 @@ bool CPlatformRuntime::catalogue_command(const services::SDispatchedCommand& dis
             }
         }
     }
+    if ((opcode == ECommand::catalogue_ready) && (status == EServiceStatus::busy))
+    {
+        m_completions[completion] = {};
+        return false;
+    }
     complete(completion, status);
     return true;
 }
@@ -213,7 +217,7 @@ void CPlatformRuntime::progress_catalogues() noexcept
             {
                 const services::SServiceBorrowOffer offer{ use.acquisition.command.route, use.acquisition.command.request,
                     { &use.view, sizeof(use.view), 1u } };
-                const EServiceStatus status = m_context.services->prepare_borrow(m_context.service_context, &offer, &use.borrow);
+                const EServiceStatus status = m_services.prepare_borrow(&offer, &use.borrow);
                 if ((status != EServiceStatus::success) && (status != EServiceStatus::busy))
                 {
                     use.closing = true;
@@ -221,20 +225,30 @@ void CPlatformRuntime::progress_catalogues() noexcept
                 }
             }
         }
+        const services::SServiceBorrowOffer pending_offer{ use.acquisition.command.route, use.acquisition.command.request,
+            { &use.view, sizeof(use.view), 1u } };
+        if (!use.borrow.value && m_services.preparing(pending_offer))
+        {
+            const EServiceStatus status = m_services.prepare_borrow(&pending_offer, &use.borrow);
+            if (status == EServiceStatus::busy)
+            {
+                continue;
+            }
+        }
         if (!use.closing) continue;
         complete(use.completion, EServiceStatus::closing);
         use.notification = {};
         if (!use.retirement_started && use.borrow.value)
         {
-            const EServiceStatus status = m_context.services->begin_borrow_retirement(m_context.service_context, use.borrow);
+            const EServiceStatus status = m_services.begin_borrow_retirement(use.borrow);
             if (status == EServiceStatus::success) use.retirement_started = true;
             else if (status != EServiceStatus::busy) native_failure(static_cast<std::uint32_t>(status));
         }
         const bool quiescent = !use.borrow.value || (use.quiescence == services::EServiceQuiescence::never_published) ||
             (use.quiescence == services::EServiceQuiescence::relinquished) || (use.quiescence == services::EServiceQuiescence::execution_ended);
-        if (quiescent && (use.completion < 0) && !m_native_depth && !m_callback_depth && !m_modal_depth[0] && !m_modal_depth[1])
+        if (quiescent && m_services.retire_bindings(use.borrow) && (use.completion < 0) && !m_native_depth && !m_callback_depth && !m_modal_depth[0] && !m_modal_depth[1])
         {
-            if (!use.borrow.value || (m_context.services->finish_borrow_retirement(m_context.service_context, use.borrow) == EServiceStatus::success))
+            if (!use.borrow.value || (m_services.finish_borrow_retirement(use.borrow) == EServiceStatus::success))
             {
                 owned.reset();
             }

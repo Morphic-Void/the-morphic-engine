@@ -6,207 +6,164 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    03 Nov 26
 //
-//  Exact-instance execution state, reply admission and bounded inbox delivery.
-
-#include "framework/system/system_ids.hpp"
-#include <algorithm>
-#include <cstring>
+//  Common Host-side transport access and service obligation accounting.
 
 #include "runtime/client_record.hpp"
-#include "framework/platform/report_messages.hpp"
-#include "runtime/host_maintenance.hpp"
 
 namespace host
 {
 
 SClientRecord::SClientRecord(const module_ids::id_type module, const std::uint64_t token,
-    threading::CThreadPackage* const package) noexcept
-    : instance{ token }, identity{ token }, module{ module }, thread{ package }
-    , execution{ (package != nullptr) ? EClientExecution::threaded : EClientExecution::passive }
+    threading::CThreadPackage* const package, const modules::SModuleInstance instance) noexcept
+    : instance{ instance }, identity{ token }, module{ module }, thread{ package }
+    , pump_resources{ module_ids::executable, module, thread_ids::host }
+    , endpoint{ package ? &package->resources() : &pump_resources }
+    , notifications_pending{ endpoint->work_pending }
 {}
 
-module_ids::id_type SClientRecord::module_id() const noexcept
+bool SClientRecord::initialise() noexcept
 {
-    return module;
+    endpoint->instance = instance;
+    endpoint->identity = identity;
+    endpoint->owner_wake = owner_wake;
+    endpoint->control_state.install_owner_wake(owner_wake);
+    return thread || endpoint->initialise();
 }
 
 void SClientRecord::request_exit() noexcept
 {
     stop_requested = true;
-    if (thread != nullptr)
-    {
-        thread->request_exit();
-    }
-}
-
-threading::CBatchClient* SClientRecord::batch_client() const noexcept
-{
-    return (thread != nullptr) ? thread->batch_client() : nullptr;
+    endpoint->request_exit();
 }
 
 threading::EThreadRunState SClientRecord::query_state() const noexcept
 {
-    if (thread != nullptr)
-    {
-        return thread->query_state();
-    }
-    if ((phase == EClientPhase::stopped) || (phase == EClientPhase::retired))
-    {
-        return threading::EThreadRunState::Exited;
-    }
-    return threading::EThreadRunState::Running;
+    if (thread) return thread->query_state();
+    return ((phase == EClientPhase::stopped) || (phase == EClientPhase::retired)) ?
+        threading::EThreadRunState::Exited : threading::EThreadRunState::Running;
 }
 
 bool SClientRecord::terminal() const noexcept
 {
-    const auto state = query_state();
-    return (state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed) ||
-        ((thread != nullptr) && (state == threading::EThreadRunState::Empty));
+    if (thread)
+    {
+        return thread->execution_ended() || (phase == EClientPhase::stopped) || (phase == EClientPhase::retired);
+    }
+    return (phase == EClientPhase::stopped) || (phase == EClientPhase::retired);
 }
 
 bool SClientRecord::reserve_replies(const std::uint32_t count) noexcept
 {
-    if (thread != nullptr)
+    if (count > (UINT32_MAX - reserved_replies))
     {
-        if (count > UINT32_MAX - reserved_replies)
-        {
-            return false;
-        }
-    }
-    else if (count > k_reply_capacity - std::min(k_reply_capacity, message_count + reserved_replies))
-    {
+        endpoint->fail(threading::EEndpointFailure::accounting_failure);
         return false;
     }
     reserved_replies += count;
     return true;
 }
 
-bool SClientRecord::reserve_control_replies(const std::uint32_t count) noexcept
-{
-    if (count > k_control_capacity - std::min(k_control_capacity, control_count + reserved_control_replies))
-    {
-        return false;
-    }
-    reserved_control_replies += count;
-    return true;
-}
-
-bool SClientRecord::replies_idle() const noexcept
-{
-    return (reserved_replies == 0u) && (reserved_control_replies == 0u) && !deferred_records;
-}
-
 void SClientRecord::cancel_reservation(const std::uint32_t count) noexcept
 {
-    MV_ASSERT(count <= reserved_replies);
+    if (count > reserved_replies)
+    {
+        endpoint->fail(threading::EEndpointFailure::accounting_failure);
+        return;
+    }
     reserved_replies -= count;
-}
-
-void SClientRecord::cancel_control_reservation(const std::uint32_t count) noexcept
-{
-    MV_ASSERT(count <= reserved_control_replies);
-    reserved_control_replies -= count;
 }
 
 bool SClientRecord::post(const threading::CErasedPodMsg& message) noexcept
 {
-    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, true, false);
-    if (terminal() || (phase == EClientPhase::retired))
+    if (terminal()) return false;
+    if (endpoint->host_to_worker_msgs.posting_poisoned())
     {
+        endpoint->fail(threading::EEndpointFailure::transport_poisoned);
         return false;
     }
-    if (thread != nullptr)
-    {
-        return thread->post(message);
-    }
-    if (control_count + reserved_control_replies >= k_control_capacity)
-    {
-        return false;
-    }
-    control_messages[control_count++] = message;
-    (void)owner_wake.signal();
-    return true;
-}
-
-bool SClientRecord::post_reply(const threading::CErasedPodMsg& message) noexcept
-{
-    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, false, false);
-    if (terminal() || (phase == EClientPhase::retired))
-    {
-        return false;
-    }
-    if (thread != nullptr)
-    {
-        return thread->post(message);
-    }
-    if (message_count + reserved_replies >= k_reply_capacity)
-    {
-        return false;
-    }
-    messages[message_count++] = message;
-    (void)owner_wake.signal();
-    return true;
+    const bool posted = endpoint->host_to_worker_msgs.post(message);
+    if (endpoint->host_to_worker_msgs.posting_poisoned()) endpoint->fail(threading::EEndpointFailure::transport_poisoned);
+    if (posted) endpoint->signal_consumer();
+    return posted;
 }
 
 bool SClientRecord::reply(const threading::CErasedPodMsg& message) noexcept
 {
-    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, false, true);
-    if (reserved_replies != 0u)
+    if (reserved_replies != 0u) cancel_reservation(1u);
+    if (terminal() || post(message))
     {
-        --reserved_replies;
+        return true;
     }
-    return terminal() || post_reply(message);
-}
-
-bool SClientRecord::reply_control(const threading::CErasedPodMsg& message) noexcept
-{
-    if (delivery_protected() && reserved_control_replies)
-        return delivery_owner && delivery_owner->stage_delivery(*this, message, true, true);
-    if (reserved_control_replies == 0u)
-    {   //  Existing threaded/test callers.
-        return reply(message);
-    }
-    --reserved_control_replies;
-    return terminal() || post(message);
+    endpoint->fail(threading::EEndpointFailure::accounting_failure);
+    return false;
 }
 
 bool SClientRecord::retry_reply(const threading::CErasedPodMsg& message) noexcept
 {
-    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, false, true);
-    const bool reserved = reserved_replies != 0u;
-    if (reply(message))
+    if (!terminal() && !post(message))
     {
-        return true;
+        return false;
     }
-    if (reserved)
-    {
-        ++reserved_replies;
-    }
-    return false;
+    cancel_reservation(1u);
+    return true;
 }
 
 EReplyPublication SClientRecord::publish_reply(const threading::CErasedPodMsg& message) noexcept
 {
-    MV_ASSERT(reserved_replies != 0u);
-    if (delivery_protected())
-        return delivery_owner && delivery_owner->stage_delivery(*this, message, false, true) ? EReplyPublication::queued : EReplyPublication::busy;
     if (terminal())
     {
         cancel_reservation(1u);
         return EReplyPublication::cancelled;
     }
+    if (!post(message)) return EReplyPublication::busy;
     cancel_reservation(1u);
-    if (post_reply(message)) return EReplyPublication::queued;
-    if (terminal()) return EReplyPublication::cancelled;
-    ++reserved_replies;
-    return EReplyPublication::busy;
+    return EReplyPublication::queued;
+}
+
+bool SClientRecord::read(threading::CErasedPodMsg& message) noexcept
+{
+    if (!endpoint->worker_to_host_msgs.read(message))
+    {
+        return false;
+    }
+    if (consumed_pods == UINT64_MAX) endpoint->fail(threading::EEndpointFailure::publication_overflow);
+    else ++consumed_pods;
+    endpoint->signal_consumer();
+    return true;
+}
+
+bool SClientRecord::capture(threading::CErasedOwnerMsg& message) noexcept
+{
+    if (!endpoint->worker_to_host_owned_msgs.capture(message))
+    {
+        return false;
+    }
+    if (consumed_owners == UINT64_MAX) endpoint->fail(threading::EEndpointFailure::publication_overflow);
+    else ++consumed_owners;
+    endpoint->signal_consumer();
+    return true;
+}
+
+void SClientRecord::accounted_pod() noexcept
+{
+    if (accounted_pods >= consumed_pods) endpoint->fail(threading::EEndpointFailure::accounting_failure);
+    else ++accounted_pods;
+}
+
+void SClientRecord::accounted_owner() noexcept
+{
+    if (accounted_owners >= consumed_owners) endpoint->fail(threading::EEndpointFailure::accounting_failure);
+    else ++accounted_owners;
 }
 
 bool SClientRecord::execution_quiescent() const noexcept
 {
-    if (!terminal_before_drain || !terminal() || !incoming_drained || deferred_records || invocation_offered) return false;
-    const auto* const batch = batch_client();
-    return (batch == nullptr) || ((batch->outstanding() == 0u) && (batch->return_publishers() == 0u));
+    if (!terminal_before_drain || !terminal() || !incoming_drained || deferred_records || invocation_active)
+    {
+        return false;
+    }
+    const threading::CBatchClient* const batch = batch_client();
+    return !batch || ((batch->outstanding() == 0u) && (batch->return_publishers() == 0u));
 }
 
 bool SClientRecord::install_host_execution(const modules::SHostRestrictionReader reader) noexcept
@@ -223,12 +180,13 @@ bool SClientRecord::install_host_execution(const modules::SHostRestrictionReader
     }
     else
     {
-        if (!restriction_notification.initialise(notifications_pending, owner_wake))
+        if (!endpoint->pin_notification(restriction_notification))
         {
             return false;
         }
         host_execution.notification = restriction_notification.reader();
         if (!restriction_notification.endpoint().signal()) return false;
+        endpoint->host_execution = &host_execution;
     }
     subscription_live = true;
     return true;
@@ -247,76 +205,18 @@ bool SClientRecord::retire_host_execution(const bool deactivated) noexcept
     if (!subscription_live) return true;
     if (!execution_quiescent() || !replies_idle() || (!thread && !deactivated)) return false;
     if (thread && !thread->retire_host_execution()) return false;
+    if (!thread) endpoint->unpin_notification();
     subscription_live = false;
+    endpoint->host_execution = nullptr;
     host_execution = {};
     return true;
 }
 
 void SClientRecord::flush() noexcept
 {
-    if (terminal())
-    {
-        message_count = control_count = 0u;
-        return;
-    }
-    if (thread == nullptr)
-    {
-        return;
-    }
-    std::uint32_t consumed = 0u;
-    while ((consumed < message_count) && thread->post(messages[consumed]))
-    {
-        ++consumed;
-    }
-    consume(consumed);
-}
-
-std::uint32_t SClientRecord::copy_messages(threading::CErasedPodMsg* const output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept
-{
-    controls = std::min(control_count, capacity);
-    const auto ordinary = std::min(message_count, capacity - controls);
-    std::memcpy(output, control_messages, controls * sizeof(*output));
-    std::memcpy(output + controls, messages, ordinary * sizeof(*output));
-    return controls + ordinary;
-}
-
-void SClientRecord::consume_messages(const std::uint32_t count, const std::uint32_t offered_controls) noexcept
-{
-    const auto controls = std::min(count, offered_controls);
-    MV_ASSERT(controls <= control_count);
-    for (std::uint32_t i = 0u; i < controls; ++i)
-    {
-        platform::reports::PlatformReportCaptureReceipt receipt;
-        if (control_messages[i].copy_payload_to(receipt) && (receipt.capture.platform_instance.value == instance.value))
-        {
-            report_receipt_consumed = receipt.capture.capture_id;
-        }
-    }
-    for (std::uint32_t i = 0u; i < (count - controls); ++i)
-    {
-        platform::reports::PlatformReportCaptureRequest request;
-        if (messages[i].copy_payload_to(request) && (request.capture.platform_instance.value == instance.value))
-        {
-            report_request_consumed = request.capture.capture_id;
-        }
-    }
-    control_count -= controls;
-    if (control_count != 0u)
-    {
-        std::memmove(control_messages, control_messages + controls, control_count * sizeof(control_messages[0]));
-    }
-    consume(count - controls);
-    if (count) (void)owner_wake.signal();
-}
-
-void SClientRecord::consume(const std::uint32_t count) noexcept
-{
-    MV_ASSERT(count <= message_count);
-    message_count -= count;
-    if (message_count != 0u)
-    {
-        std::memmove(messages, messages + count, message_count * sizeof(messages[0]));
-    }
+    if (!execution_quiescent()) return;
+    threading::CErasedPodMsg message;
+    while (endpoint->host_to_worker_msgs.read(message)) {}
 }
 
 }   //  namespace host

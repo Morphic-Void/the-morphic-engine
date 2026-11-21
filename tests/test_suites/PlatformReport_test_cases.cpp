@@ -13,6 +13,7 @@
 #include "framework/platform/report_validation.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/endpoint_fixture.hpp"
 #include "tests/support/direct_connection_fixture.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -71,7 +72,9 @@ struct SProbe
     modules::CHostRestrictionPublication restrictions;
     modules::SHostExecutionContext execution;
     modules::SHostPumpContext context;
-    modules::SHostPumpServices services;
+    threading::CEndpointResources resources{ module_ids::executable, module_ids::platform, thread_ids::host };
+    threading::CEndpointContext endpoint{ resources };
+    bool filled{ false };
     const platform::threading::SAwakeClock clock{ this, &read };
     const platform::native::SReportAdapter adapter{ &step };
     platform::runtime::CReportCapture capture{ context, clock, adapter };
@@ -82,12 +85,10 @@ struct SProbe
         state.generation = 1u;
         TEST_EXPECT(tests, restrictions.publish(state));
         execution.restriction = restrictions.reader();
-        services.post_pod = &pod;
-        services.post_owner = &owner;
+        TEST_EXPECT(tests, resources.initialise());
         context.instance = { 7u };
         context.execution = &execution;
-        context.service_context = this;
-        context.services = &services;
+        context.endpoint = &endpoint;
     }
     static platform::threading::WaitError read(void* const data, std::uint64_t& time) noexcept
     {
@@ -111,40 +112,44 @@ struct SProbe
         }
         return EReportStep::finished;
     }
-    static EServiceStatus MV_STD_ABI_CALL pod(void* const data, const threading::CErasedPodMsg* const message) noexcept
-    {
-        SProbe& probe = *static_cast<SProbe*>(data);
-        ++probe.posts;
-        PlatformReportCaptureFailed outcome;
-        if (!message->copy_payload_to(outcome))
-        {
-            return EServiceStatus::invalid_request;
-        }
-        probe.failure = outcome.failure;
-        return probe.busy ? EServiceStatus::busy : EServiceStatus::success;
-    }
-    static EServiceStatus MV_STD_ABI_CALL owner(void* const data, threading::CErasedOwnerMsg* const message) noexcept
-    {
-        SProbe& probe = *static_cast<SProbe*>(data);
-        ++probe.posts;
-        const auto* const offered = message->owner().payload<PlatformReportCaptured>();
-        if (!offered)
-        {
-            return EServiceStatus::invalid_request;
-        }
-        if (!probe.first_offer) probe.first_offer = offered;
-        TEST_EXPECT(probe.tests, (probe.first_offer == offered));
-        if (probe.busy) return EServiceStatus::busy;
-        probe.accepted = std::move(*message);
-        return EServiceStatus::success;
-    }
-    void begin() noexcept
+    void begin(const std::uint64_t identity = 1u) noexcept
     {
         modules::CHostEligibleBudget budget{ clock };
         TEST_EXPECT(tests, (budget.start(restrictions.reader(), k_capture_limits.eligible_duration_ns) == modules::EBudgetStatus::running));
-        capture.message(threading::make_pod_message(-1, PlatformReportCaptureRequest{ { context.instance, 1u }, budget.anchor() }));
+        capture.message(threading::make_pod_message(-1, PlatformReportCaptureRequest{ { context.instance, identity }, budget.anchor() }));
     }
-    void tick() noexcept { capture.progress(false, 500000u); }
+    void tick() noexcept
+    {
+        if (busy && !filled)
+        {
+            while (resources.worker_to_host_owned_msgs.writable_count())
+            {
+                threading::CErasedOwnerMsg filler;
+                filler.set_message_type<PlatformReportCaptured>();
+                TEST_EXPECT(tests, resources.worker_to_host_owned_msgs.post(std::move(filler)));
+            }
+            filled = true;
+        }
+        if (!busy && filled)
+        {
+            threading::CErasedOwnerMsg filler;
+            while (resources.worker_to_host_owned_msgs.read(filler)) {}
+            filled = false;
+        }
+        capture.progress(false, 500000u);
+        if (!busy)
+        {
+            threading::CErasedPodMsg message;
+            while (resources.worker_to_host_msgs.read(message))
+            {
+                PlatformReportCaptureFailed outcome;
+                TEST_EXPECT(tests, message.copy_payload_to(outcome));
+                failure = outcome.failure;
+                ++posts;
+            }
+            if (resources.worker_to_host_owned_msgs.read(accepted)) ++posts;
+        }
+    }
     void receipt(const std::uint64_t id) noexcept
     {
         capture.message(threading::make_pod_message(-1, PlatformReportCaptureReceipt{ { context.instance, id }, EDisposition::rejected, {} }));
@@ -159,7 +164,7 @@ static void transfer(tests::TTestContext& tests)
     TEST_EXPECT(tests, (!p.calls && !p.posts));
     p.busy = true;
     for (unsigned n = 0u; n < 5u; ++n) p.tick();
-    TEST_EXPECT(tests, ((p.calls == 1u) && (p.posts == 2u) && p.capture.runnable()));
+    TEST_EXPECT(tests, ((p.calls == 1u) && (p.posts == 0u) && p.capture.runnable()));
     p.busy = false;
     p.tick();
     TEST_EXPECT(tests, (p.accepted.has_owner() && p.capture.active() && !p.capture.runnable()));
@@ -174,6 +179,25 @@ static void transfer(tests::TTestContext& tests)
     p.receipt(1u);
     TEST_EXPECT(tests, !p.capture.active());
     p.begin();
+    TEST_EXPECT(tests, !p.capture.active());
+}
+
+static void receipt_then_request(tests::TTestContext& tests)
+{
+    SProbe p{ tests };
+    p.begin();
+    for (unsigned turn = 0u; (turn < 8u) && !p.accepted.has_owner(); ++turn) p.tick();
+    TEST_EXPECT(tests, (p.accepted.has_owner() && p.capture.active()));
+    p.accepted = {};
+    // One incoming FIFO can contain both before the next pump invocation.
+    p.receipt(1u);
+    p.begin(2u);
+    for (unsigned turn = 0u; (turn < 8u) && !p.accepted.has_owner(); ++turn) p.tick();
+    TEST_EXPECT(tests, (p.accepted.has_owner() && (p.calls == 2u)));
+    const PlatformReportCaptured* const offered = p.accepted.owner().payload<PlatformReportCaptured>();
+    TEST_EXPECT(tests, (offered && (offered->capture.capture_id == 2u)));
+    p.accepted = {};
+    p.receipt(2u);
     TEST_EXPECT(tests, !p.capture.active());
 }
 
@@ -246,7 +270,7 @@ static void restricted_deadline(tests::TTestContext& tests)
     p.tick();
     p.busy = true;
     p.tick();
-    TEST_EXPECT(tests, ((p.calls == 1u) && (p.posts == 1u) && !p.accepted.has_owner()));
+    TEST_EXPECT(tests, ((p.calls == 1u) && (p.posts == 0u) && !p.accepted.has_owner()));
     p.now += k_capture_limits.eligible_duration_ns;
     p.busy = false;
     p.tick();
@@ -493,6 +517,75 @@ namespace host
 
 struct SReportHostTestAccess
 {
+    static void capture_boundaries(tests::TTestContext& tests, const unsigned scenario)
+    {
+        using namespace platform::reports;
+        memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory, system_ids::host };
+        CHost runtime{ allocator };
+        runtime.m_phase = CHost::EPhase::complete;
+        CAssetService& service = runtime.m_asset_service;
+        TEST_EXPECT(tests, service.initialise());
+        tests::SEndpointFixture provider{ module_ids::platform, 800u };
+        provider.phase = EClientPhase::ready;
+        provider.host_execution.restriction = runtime.m_maintenance.restrictions().reader();
+        service.install_report_provider(provider);
+        service.progress_reports(false);
+        if (scenario == 0u)
+        {
+            // Stop is recorded before Platform reads even the capture request.
+            service.close_report_provider(provider);
+            service.progress_reports(false);
+            TEST_EXPECT(tests, (provider.pending() == 2u));
+        }
+        PlatformReportCaptureRequest request;
+        TEST_EXPECT(tests, provider.received(0u).copy_payload_to(request));
+        provider.discard(1u);
+        if (scenario == 0u)
+        {
+            PlatformReportCaptureCancel cancel;
+            TEST_EXPECT(tests, (provider.received(0u).copy_payload_to(cancel) &&
+                (cancel.capture.capture_id == request.capture.capture_id)));
+            provider.discard(1u);
+        }
+        if (scenario == 2u)
+        {
+            provider.phase = EClientPhase::stopped;
+            service.progress_reports(false);
+            TEST_EXPECT(tests, !service.client_idle(provider));
+            provider.terminal_before_drain = provider.incoming_drained = true;
+            service.progress_reports(false);
+            TEST_EXPECT(tests, (service.client_idle(provider) && provider.replies_idle()));
+        }
+        else
+        {
+            service.report_failed(provider, { request.capture, { EStage::lifecycle, EReason::closing } });
+            std::uint32_t fillers = 0u;
+            if (scenario == 1u)
+            {
+                provider.endpoint->host_to_worker_msgs.deallocate();
+                TEST_EXPECT(tests, provider.endpoint->host_to_worker_msgs.initialise_fixed(1u));
+                while (provider.post(threading::make_pod_message(-1, PlatformReportCaptureReceipt{}))) ++fillers;
+                TEST_EXPECT(tests, (fillers != 0u));
+            }
+            service.progress_reports(false);
+            service.progress_reports(false);
+            if (scenario == 1u)
+            {
+                TEST_EXPECT(tests, (!service.client_idle(provider) && !provider.replies_idle()));
+                provider.discard(fillers);
+                service.progress_reports(false);
+            }
+            PlatformReportCaptureReceipt receipt;
+            TEST_EXPECT(tests, (provider.received(0u).copy_payload_to(receipt) &&
+                (receipt.capture.capture_id == request.capture.capture_id) &&
+                (receipt.disposition == EDisposition::interrupted)));
+            provider.discard(1u);
+            TEST_EXPECT(tests, (service.client_idle(provider) && provider.replies_idle()));
+        }
+        service.close_report_provider(provider);
+        service.deallocate();
+    }
+
     static void handoff(tests::TTestContext& tests, const unsigned phase)
     {
         using namespace platform::reports;
@@ -508,20 +601,20 @@ struct SReportHostTestAccess
         platform::system::CPerfCountConversion conversion;
         TEST_EXPECT(tests, conversion.init());
         threading::CThreadPackage recipient{ { thread_ids::executive, module_ids::executive }, conversion };
-        SClientRecord consumer{ module_ids::executive, 31u, &recipient };
+        SClientRecord consumer{ module_ids::executive, 31u, &recipient, modules::SModuleInstance{ 131u } };
         TEST_EXPECT(tests, threading::SDirectConnectionTestAccess::initialise(recipient, consumer.host_execution));
         threading::CThreadContext reader{ threading::SDirectConnectionTestAccess::resources(recipient) };
         consumer.phase = EClientPhase::ready;
-        SClientRecord provider{ module_ids::platform, 32u };
-        provider.execution = EClientExecution::pumped;
-        const modules::SHostPumpV2 capability{};
+        SClientRecord provider{ module_ids::platform, 32u, nullptr, modules::SModuleInstance{ 132u } };
+        tests::CEndpointProbe provider_probe{ provider };
+        const modules::SHostPumpV1 capability{};
         CPumpedClient pump{ provider, binding, capability, host.m_service_router, host.m_maintenance };
         TEST_EXPECT(tests, pump.initialise());
         provider.phase = EClientPhase::ready;
-        service.install_report_provider(provider, pump);
+        service.install_report_provider(provider);
         service.progress_reports(false);
         PlatformReportCaptureRequest request;
-        TEST_EXPECT(tests, ((provider.message_count == 1u) && provider.messages[0].copy_payload_to(request)));
+        TEST_EXPECT(tests, ((provider_probe.pending() == 1u) && provider_probe.received(0u).copy_payload_to(request)));
         auto message = threading::make_owner_message<PlatformReportCaptured>(-1);
         auto* const offered = message.owner().payload<PlatformReportCaptured>();
         if (!offered) return;
@@ -543,16 +636,15 @@ struct SReportHostTestAccess
         header.schema_limits = schema_limits({});
         schema::SSchemaDiagnostic error;
         TEST_EXPECT(tests, candidate.bake(offered->storage, {}, error));
+        provider_probe.discard(1u);
         host.receive_request(message, provider);
         TEST_EXPECT(tests, !message.has_owner());
-        service.progress_reports(false);
-        TEST_EXPECT(tests, !provider.control_count);
-        provider.consume_messages(1u, 0u);
         if (phase < 2u) allocations.fail_on = allocations.attempts + phase;
         service.progress_reports(false);
         service.progress_reports(false);
+        service.progress_reports(false); // Import, settlement, then FIFO receipt publication.
         PlatformReportCaptureReceipt receipt;
-        TEST_EXPECT(tests, ((provider.control_count == 1u) && provider.control_messages[0].copy_payload_to(receipt)));
+        TEST_EXPECT(tests, ((provider_probe.pending() == 1u) && provider_probe.received(0u).copy_payload_to(receipt)));
         if (phase < 2u)
         {
             TEST_EXPECT(tests, allocations.failed);
@@ -563,10 +655,9 @@ struct SReportHostTestAccess
         {
             TEST_EXPECT(tests, (receipt.disposition == EDisposition::published));
         }
-        TEST_EXPECT(tests, !service.client_idle(provider));
-        provider.consume_messages(1u, 1u);
+        provider_probe.discard(1u);
         service.progress_reports(false);
-        TEST_EXPECT(tests, (service.client_idle(provider) && provider.replies_idle() && !provider.report_outcome_reserved));
+        TEST_EXPECT(tests, (service.client_idle(provider) && provider.replies_idle()));
         if (phase == 2u)
         {
             auto& pipe = threading::SDirectConnectionTestAccess::resources(recipient).host_to_worker_msgs;
@@ -594,7 +685,7 @@ struct SReportHostTestAccess
             service.progress_reports(false);
             TEST_EXPECT(tests, (!service.client_idle(consumer) && exposed.bytes.data() && (exposed.bytes.data()[0] == 'M')));
         }
-        reader.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(recipient);
         service.release_client_acquisitions(consumer);
         service.close_report_provider(provider);
         service.progress_reports(false);
@@ -615,7 +706,9 @@ void run_platform_report_windows_tests(tests::TTestContext& tests);
 void run_platform_report_tests(tests::TTestContext& tests)
 {
     for (unsigned phase = 0u; phase < 3u; ++phase) host::SReportHostTestAccess::handoff(tests, phase);
+    for (unsigned scenario = 0u; scenario < 3u; ++scenario) host::SReportHostTestAccess::capture_boundaries(tests, scenario);
     transfer(tests);
+    receipt_then_request(tests);
     failures(tests);
     restricted_deadline(tests);
     malformed(tests);

@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    02 Nov 26
 //
-//  Optional same-process Host-thread execution capability. No native thread resources.
+//  Required module lifecycle pump using a common endpoint without native waits.
 
 #pragma once
 
@@ -15,6 +15,7 @@
 
 #include "framework/module/module_binding.hpp"
 #include "framework/module/host_execution_context.hpp"
+#include "framework/threading/CEndpointContext.hpp"
 #include "framework/services/service_protocol.hpp"
 #include "framework/services/service_borrow.hpp"
 #include "framework/services/service_notifications.hpp"
@@ -43,75 +44,46 @@ struct SPumpInput
 {
     std::uint32_t size{ sizeof(SPumpInput) };
     std::uint32_t version{ 1u };
-    const services::SDispatchedCommand* commands{ nullptr };
-    const threading::CErasedPodMsg* messages{ nullptr };
-    std::uint32_t command_count{ 0u };
-    std::uint32_t message_count{ 0u };
     std::uint32_t notifications_pending{ 0u }; //  Hint only; drain and recheck registration state.
     std::uint64_t time_budget_ns{ 2000000u };
 };
 
 struct SPumpResult
 {
-    std::uint32_t consumed_commands{ 0u };
-    std::uint32_t consumed_messages{ 0u };
     SProgress progress;
-};
-
-//  Callbacks are Host-thread-only and authenticate the stable supplied context.
-//  Ownership moves only to Host, and only on success. busy retains caller data.
-//  The complete current table requires matching size/version and coordinated
-//  Host/module rebuilds. Nominated conditioning uses ordinary Host requests.
-struct SHostPumpServices
-{
-    std::uint32_t size{ sizeof(SHostPumpServices) };
-    std::uint32_t version{ 2u };
-    services::EServiceStatus(MV_STD_ABI_CALL* post_pod)(void* const, const threading::CErasedPodMsg* const) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* post_owner)(void* const, threading::CErasedOwnerMsg* const) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* complete)(void* const, const services::ServiceReply* const) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* prepare_borrow)(void* const, const services::SServiceBorrowOffer* const, services::SServiceBorrow* const) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* begin_borrow_retirement)(void* const, const services::SServiceBorrow) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* finish_borrow_retirement)(void* const, const services::SServiceBorrow) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* bind_borrow_notification)(void* const, const services::SServiceBorrow,
-        const services::SNotificationRegistration, threading::SNotificationEndpoint* const) noexcept{ nullptr };
-    SRestrictionEnterResult(MV_STD_ABI_CALL* enter_restriction)(void* const, const SRestrictionReason) noexcept{ nullptr };
-    ERestrictionStatus(MV_STD_ABI_CALL* leave_restriction)(void* const, const SRestrictionScope) noexcept{ nullptr };
-    SHostMaintenanceResult(MV_STD_ABI_CALL* maintain_host)(void* const) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* commit_resource)(void* const, const services::ServiceReply* const) noexcept{ nullptr };
 };
 
 struct SHostPumpContext
 {
     std::uint32_t size{ sizeof(SHostPumpContext) };
-    std::uint32_t version{ 2u };
+    std::uint32_t version{ 1u };
     SModuleInstance instance;
     services::SClientToken client;
     thread_ids::id_type host_thread{};
-    const SHostPumpServices* services{ nullptr };
-    void* service_context{ nullptr };
+    threading::CEndpointContext* endpoint{ nullptr };
     const SHostExecutionContext* execution{ nullptr };
     platform::threading::SWakeEndpoint owner_wake; //  Retained through all module borrows.
 };
 
-inline constexpr char k_host_pump_symbol_name[]{ "morphic_module_host_pump_v2" };
+inline constexpr char k_host_pump_symbol_name[]{ "morphic_module_host_pump_v1" };
 inline constexpr std::uint32_t k_host_pump_native_events = 1u;
-struct SHostPumpV2
+struct SHostPumpV1
 {
     [[nodiscard]] bool is_valid() const noexcept;
 
-    std::uint32_t size{ sizeof(SHostPumpV2) };
-    std::uint32_t version{ 2u };
+    std::uint32_t size{ sizeof(SHostPumpV1) };
+    std::uint32_t version{ 1u };
     std::uint32_t flags{ 0u };
     ECallStatus(MV_STD_ABI_CALL* activate)(const SHostPumpContext* const, void** const, SProgress* const) noexcept{ nullptr };
     ECallStatus(MV_STD_ABI_CALL* pump)(void* const, const SPumpInput* const, SPumpResult* const) noexcept{ nullptr };
     ECallStatus(MV_STD_ABI_CALL* begin_stop)(void* const, const EStopReason, SProgress* const) noexcept{ nullptr };
     ECallStatus(MV_STD_ABI_CALL* deactivate)(void* const) noexcept{ nullptr };
 };
-using FQueryHostPump = EBindingResult(MV_STD_ABI_CALL*)(const std::uint32_t, SHostPumpV2* const) noexcept;
+using FQueryHostPump = EBindingResult(MV_STD_ABI_CALL*)(const std::uint32_t, SHostPumpV1* const) noexcept;
 
-inline bool SHostPumpV2::is_valid() const noexcept
+inline bool SHostPumpV1::is_valid() const noexcept
 {
-    if ((size != sizeof(SHostPumpV2)) || (version != 2u) || ((flags & ~k_host_pump_native_events) != 0u) ||
+    if ((size != sizeof(SHostPumpV1)) || (version != 1u) || ((flags & ~k_host_pump_native_events) != 0u) ||
         (activate == nullptr) || (pump == nullptr) ||
         (begin_stop == nullptr) || (deactivate == nullptr))
     {
@@ -120,8 +92,7 @@ inline bool SHostPumpV2::is_valid() const noexcept
     return true;
 }
 
-static_assert(std::is_standard_layout_v<SHostPumpV2> && std::is_trivially_copyable_v<SHostPumpV2>);
-static_assert(std::is_standard_layout_v<SHostPumpServices> && std::is_trivially_copyable_v<SHostPumpServices>);
+static_assert(std::is_standard_layout_v<SHostPumpV1> && std::is_trivially_copyable_v<SHostPumpV1>);
 static_assert(std::is_standard_layout_v<SHostPumpContext> && std::is_trivially_copyable_v<SHostPumpContext>);
 static_assert(std::is_standard_layout_v<SPumpInput> && std::is_trivially_copyable_v<SPumpInput>);
 static_assert(std::is_standard_layout_v<SPumpResult> && std::is_trivially_copyable_v<SPumpResult>);

@@ -49,8 +49,6 @@ struct ModuleRequest
     module_ids::id_type module{};
     system_type_id required_function{ system_type_ids::undefined };
     EModuleAction action{ EModuleAction::load };
-    bool require_service_thread{ false }; //  Passive modules otherwise remain valid load destinations.
-    bool require_host_pump{ false };      //  Mutually exclusive with require_service_thread in v1.
 };
 
 struct ModuleResult

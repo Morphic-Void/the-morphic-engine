@@ -35,7 +35,7 @@ static bool payload(const services::ServiceRequest& command, T& value) noexcept
 CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
     const native::SWindowAdapter& adapter, const platform::threading::SAwakeClock clock,
     const native::SControllerAdapter& controllers, const native::SReportAdapter& reports) noexcept
-    : m_context{ context }, m_adapter{ adapter }, m_clock{ clock }, m_report{ context, clock, reports },
+    : m_context{ context }, m_services{ *context.endpoint }, m_adapter{ adapter }, m_clock{ clock }, m_report{ context, clock, reports },
       m_controller_adapter{ controllers }, m_preparation{ clock }
 {
     m_window.native.runtime = this;
@@ -46,7 +46,7 @@ CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
 bool CPlatformRuntime::initialise() noexcept
 {
     catalogue_changed();
-    return m_context.services && m_context.execution && m_context.execution->restriction.is_valid() &&
+    return m_context.endpoint && m_context.execution && m_context.execution->restriction.is_valid() &&
         m_adapter.create && m_adapter.dispatch && m_adapter.destroy && m_uses.initialise() && m_input_installations.initialise();
 }
 
@@ -86,7 +86,7 @@ void CPlatformRuntime::flush_completions() noexcept
         {
             continue;
         }
-        const auto status = m_context.services->complete(m_context.service_context, &completion.reply);
+        const EServiceStatus status = m_services.complete(&completion.reply);
         if (status == EServiceStatus::busy) continue;
         if (status != EServiceStatus::success)
         {
@@ -225,8 +225,7 @@ EServiceStatus CPlatformRuntime::ready(const services::SDispatchedCommand& comma
         close_use(*use, ((budget == modules::EBudgetStatus::expired) ? EServiceStatus::timed_out : EServiceStatus::native_failure));
         return EServiceStatus::closing;
     }
-    const auto status = m_context.services->bind_borrow_notification(m_context.service_context,
-        use->borrow, request.registration, &use->notification);
+    const EServiceStatus status = m_services.bind_borrow_notification(use->borrow, request.registration, &use->notification);
     if (status != EServiceStatus::success) return status;
     use->registration = request.registration;
     if (!use->notification.signal())
@@ -327,63 +326,68 @@ bool CPlatformRuntime::command(const services::SDispatchedCommand& dispatched) n
     EServiceStatus status = EServiceStatus::unsupported;
     switch (opcode)
     {
-    case EWindowCommand::window_ready:
-    {
-        windows::SWindowReady request;
-        status = payload(command, request) ? ready(dispatched, request) : EServiceStatus::invalid_request;
-        break;
+        case EWindowCommand::window_ready:
+        {
+            windows::SWindowReady request;
+            status = payload(command, request) ? ready(dispatched, request) : EServiceStatus::invalid_request;
+            break;
+        }
+        case EWindowCommand::request_close:
+        {
+            if (!payload(command, window))
+            {
+                status = EServiceStatus::invalid_request;
+            }
+            else if (!window.window.value || (window.window.value != m_window.token.value))
+            {
+                status = EServiceStatus::stale;
+            }
+            else if (!holder(dispatched, false))
+            {
+                status = EServiceStatus::invalid_request;
+            }
+            else if (m_window.snapshot.phase == EWindowPhase::closing)
+            {
+                status = EServiceStatus::closing;
+            }
+            else
+            {
+                native_close();
+                status = EServiceStatus::success;
+            }
+            break;
+        }
+        case EWindowCommand::answer_close:
+        {
+            windows::SAnswerClose request;
+            if (!payload(command, request))
+            {
+                status = EServiceStatus::invalid_request;
+            }
+            else if (!request.window.value || (request.window.value != m_window.token.value))
+            {
+                status = EServiceStatus::stale;
+            }
+            else if (!holder(dispatched, true))
+            {
+                status = EServiceStatus::invalid_request;
+            }
+            else
+            {
+                status = m_window.answer_close(request);
+                publish();
+            }
+            break;
+        }
+        default:
+        {
+            break;
+        }
     }
-    case EWindowCommand::request_close:
+    if ((opcode == EWindowCommand::window_ready) && (status == EServiceStatus::busy))
     {
-        if (!payload(command, window))
-        {
-            status = EServiceStatus::invalid_request;
-        }
-        else if (!window.window.value || (window.window.value != m_window.token.value))
-        {
-            status = EServiceStatus::stale;
-        }
-        else if (!holder(dispatched, false))
-        {
-            status = EServiceStatus::invalid_request;
-        }
-        else if (m_window.snapshot.phase == EWindowPhase::closing)
-        {
-            status = EServiceStatus::closing;
-        }
-        else
-        {
-            native_close();
-            status = EServiceStatus::success;
-        }
-        break;
-    }
-    case EWindowCommand::answer_close:
-    {
-        windows::SAnswerClose request;
-        if (!payload(command, request))
-        {
-            status = EServiceStatus::invalid_request;
-        }
-        else if (!request.window.value || (request.window.value != m_window.token.value))
-        {
-            status = EServiceStatus::stale;
-        }
-        else if (!holder(dispatched, true))
-        {
-            status = EServiceStatus::invalid_request;
-        }
-        else
-        {
-            status = m_window.answer_close(request);
-            publish();
-        }
-        break;
-    }
-    default:
-    {
-        break;
-    }
+        m_completions[slot] = {};
+        return false;
     }
     complete(slot, status);
     return true;
@@ -464,18 +468,29 @@ void CPlatformRuntime::progress_uses() noexcept
             {
                 const services::SServiceBorrowOffer offer{ use.acquisition.command.route, use.acquisition.command.request,
                     { &use.view, sizeof(use.view), 1u } };
-                const auto status = m_context.services->prepare_borrow(m_context.service_context, &offer, &use.borrow);
+                const EServiceStatus status = m_services.prepare_borrow(&offer, &use.borrow);
                 if ((status != EServiceStatus::success) && (status != EServiceStatus::busy))
                 {
                     close_use(use, status);
                 }
             }
         }
+        const services::SServiceBorrowOffer pending_offer{ use.acquisition.command.route, use.acquisition.command.request,
+            { &use.view, sizeof(use.view), 1u } };
+        if (!use.borrow.value && m_services.preparing(pending_offer))
+        {
+            const EServiceStatus status = m_services.prepare_borrow(&pending_offer, &use.borrow);
+            if (status == EServiceStatus::busy)
+            {
+                slot = next;
+                continue;
+            }
+        }
         if (use.closing)
         {
             if (!use.retirement_started && use.borrow.value)
             {
-                const auto status = m_context.services->begin_borrow_retirement(m_context.service_context, use.borrow);
+                const EServiceStatus status = m_services.begin_borrow_retirement(use.borrow);
                 if (status == EServiceStatus::success)
                 {
                     use.retirement_started = true;
@@ -495,10 +510,10 @@ void CPlatformRuntime::progress_uses() noexcept
             }
             const bool cleanup = !use.borrow.value || (use.quiescence == services::EServiceQuiescence::never_published) ||
                 (use.quiescence == services::EServiceQuiescence::relinquished);
-            if (cleanup && (use.completion < 0) && !m_callback_depth && !m_native_depth)
+            if (cleanup && m_services.retire_bindings(use.borrow) && (use.completion < 0) && !m_callback_depth && !m_native_depth)
             {
                 use.notification = {};
-                if (!use.borrow.value || (m_context.services->finish_borrow_retirement(m_context.service_context, use.borrow) == EServiceStatus::success))
+                if (!use.borrow.value || (m_services.finish_borrow_retirement(use.borrow) == EServiceStatus::success))
                 {
                     (void)m_uses.erase(slot);
                     --m_use_count;
@@ -563,7 +578,7 @@ void CPlatformRuntime::native_failure(const std::uint32_t error) noexcept
 
 modules::SRestrictionScope CPlatformRuntime::enter_native(const std::uint32_t reason) noexcept
 {
-    const auto entered = m_context.services->enter_restriction(m_context.service_context, { reason });
+    const modules::SRestrictionEnterResult entered = m_context.execution->enter_restriction(m_context.execution->native_context, { reason });
     if (entered.status != modules::ERestrictionStatus::success)
     {
         native_failure(static_cast<std::uint32_t>(EServiceStatus::native_failure));
@@ -581,7 +596,7 @@ void CPlatformRuntime::leave_native(const modules::SRestrictionScope scope) noex
         return;
     }
     --m_native_depth;
-    if (m_context.services->leave_restriction(m_context.service_context, scope) != modules::ERestrictionStatus::success)
+    if (m_context.execution->leave_restriction(m_context.execution->native_context, scope) != modules::ERestrictionStatus::success)
     {
         native_failure(UINT32_MAX);
     }
@@ -602,7 +617,7 @@ void CPlatformRuntime::enter_modal(const bool menu) noexcept
         native_failure(UINT32_MAX);
         return;
     }
-    const auto scope = m_context.services->enter_restriction(m_context.service_context, { menu ? 4u : 3u });
+    const modules::SRestrictionEnterResult scope = m_context.execution->enter_restriction(m_context.execution->native_context, { menu ? 4u : 3u });
     if (scope.status != modules::ERestrictionStatus::success)
     {
         native_failure(UINT32_MAX);
@@ -622,7 +637,7 @@ void CPlatformRuntime::leave_modal(const bool menu) noexcept
     }
     const auto scope = m_modal[index][--m_modal_depth[index]];
     input_eligibility();
-    if (m_context.services->leave_restriction(m_context.service_context, scope) != modules::ERestrictionStatus::success)
+    if (m_context.execution->leave_restriction(m_context.execution->native_context, scope) != modules::ERestrictionStatus::success)
     {
         native_failure(UINT32_MAX);
     }
@@ -637,7 +652,7 @@ bool CPlatformRuntime::maintain_native() noexcept
 {
     if (m_maintaining) return cancelling();
     m_maintaining = true;
-    const auto result = m_context.services->maintain_host(m_context.service_context);
+    const modules::SHostMaintenanceResult result = m_context.execution->maintain_host(m_context.execution->native_context);
     if (result.status != modules::EMaintenanceStatus::success)
     {
         native_failure(UINT32_MAX);
@@ -676,6 +691,10 @@ void CPlatformRuntime::progress_window() noexcept
 
 bool CPlatformRuntime::stopped() const noexcept
 {
+    if (m_command_count || !m_services.idle())
+    {
+        return false;
+    }
     if (m_report.active()) return false;
 #if defined(MV_INPUT_ACCEPTANCE)
     if (!acceptance::retired()) return false;
@@ -711,7 +730,7 @@ bool CPlatformRuntime::stopped() const noexcept
 void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
 {
     progress = {};
-    progress.phase = stopped() ? modules::EPumpPhase::stopped :
+    progress.phase = (stopped() && m_context.endpoint->sealed()) ? modules::EPumpPhase::stopped :
         (m_stopping ? modules::EPumpPhase::stopping : modules::EPumpPhase::ready);
     progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
         !m_window.destruction_failed) ? 1u : 0u;
@@ -776,12 +795,32 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         return ((now - start) < limit) ? (limit - (now - start)) : 0u;
     };
     flush_completions();
-    for (; result.consumed_messages < input.message_count; ++result.consumed_messages)
+    for (std::uint32_t count = 0u; (count < 64u) && remaining(); ++count)
     {
-        if (!message(input.messages[result.consumed_messages]))
+        ::threading::CErasedPodMsg incoming;
+        if (!m_context.endpoint->read(incoming)) break;
+        if (m_services.receive(incoming))
         {
-            break;
+            progress_uses();
+            progress_inputs();
+            progress_catalogues();
+            progress_configurations(remaining());
+            flush_completions();
+            continue;
         }
+        services::ServiceCommand dispatched;
+        if (incoming.copy_payload_to(dispatched))
+        {
+            if (!dispatched.operation || !dispatched.descriptor || (m_command_count == 256u))
+            {
+                m_context.endpoint->fail(::threading::EEndpointFailure::lifecycle_failure);
+                break;
+            }
+            m_pending_commands[(m_command_head + m_command_count) & 255u] = *dispatched.descriptor;
+            ++m_command_count;
+        }
+        else if (incoming.is_payload_a<::threading::ProviderAdmissionClosed>()) m_admission_closed = true;
+        else (void)message(incoming);
     }
     progress_uses();
     progress_inputs();
@@ -806,12 +845,15 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     if (!m_native_first) progress_controllers(std::min((remaining() >> 1u), UINT64_C(500000)));
     if (!m_native_first) progress_mappers(std::min(remaining(), UINT64_C(250000)));
     if (m_native_first) dispatch();
-    for (; (result.consumed_commands < input.command_count) && (result.consumed_commands < 64u) && remaining(); ++result.consumed_commands)
+    for (std::uint32_t count = 0u; (count < 64u) && m_command_count && remaining(); ++count)
     {
-        if (!command(input.commands[result.consumed_commands]))
+        if (!command(m_pending_commands[m_command_head]))
         {
             break;
         }
+        m_pending_commands[m_command_head] = {};
+        m_command_head = (m_command_head + 1u) & 255u;
+        --m_command_count;
     }
     progress_uses();
     progress_inputs();
@@ -825,7 +867,16 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_configurations(remaining());
     m_report.progress((m_stopping || m_host_stop), std::min(remaining(), UINT64_C(500000)));
     progress_catalogues();
+    if (m_stopping && !m_admission_closing)
+    {
+        m_admission_closing = m_context.endpoint->post(::threading::make_pod_message(-1, ::threading::CloseProviderAdmission{}));
+    }
+    if (stopped())
+    {
+        if (m_admission_closed) (void)m_context.endpoint->seal();
+    }
     progress(result.progress);
+    if (m_command_count || !m_services.idle()) result.progress.work_pending = 1u;
 #if defined(MV_INPUT_ACCEPTANCE)
     acceptance::progress(*this, m_stopping);
     acceptance::pump_end();

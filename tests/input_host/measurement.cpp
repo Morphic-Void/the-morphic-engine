@@ -278,13 +278,13 @@ bool CConsumer::report()
             static_cast<unsigned long long>(window_sample.offered), static_cast<unsigned long long>(window_sample.admitted),
             static_cast<unsigned long long>(lateness), static_cast<unsigned long long>(window_sample.wait_end - window_sample.wait_begin),
             static_cast<unsigned long long>(window_sample.round_end - window_sample.round_begin), missing, invalid, excluded, stale);
+        for (std::uint32_t stage = 0u; stage < 6u; ++stage) metric(window_index, names[stage], samples[stage].data(), counts[stage]);
+        metric(window_index, "pump_work", pump_work.data(), pump_count);
+        metric(window_index, "pump_gap", pump_gap.data(), gap_count);
         if (missing || invalid)
         {
             return false;
         }
-        for (std::uint32_t stage = 0u; stage < 6u; ++stage) metric(window_index, names[stage], samples[stage].data(), counts[stage]);
-        metric(window_index, "pump_work", pump_work.data(), pump_count);
-        metric(window_index, "pump_gap", pump_gap.data(), gap_count);
     }
     std::fflush(stdout);
     return true;

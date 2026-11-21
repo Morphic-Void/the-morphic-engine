@@ -11,6 +11,12 @@
 Implemented and committed as `f55d514` following `078b595`, 4 November 2026, after
 coordinator and user review. This document records the first-window interfaces,
 ownership and validation limits.
+The later [common endpoint refactor](host_pump_foundation.md) replaces the original
+pump input arrays and consumed-prefix handling with ordinary endpoint FIFOs and
+asynchronous provider exchanges. References to prefixes and older test counts
+below describe the original increment; window ownership and native cleanup rules
+remain applicable. Notification-pressure tests now fill one deliberately small
+fixed FIFO rather than separate reply/control inboxes.
 It refines [Platform contracts](platform_contracts_v1.md), using the implemented
 [borrow lifetimes](service_borrow_lifetimes.md),
 [notifications](service_notifications.md) and

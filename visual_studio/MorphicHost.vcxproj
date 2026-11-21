@@ -246,6 +246,7 @@
     <ClCompile Include="..\host\runtime\host.cpp" />
     <ClCompile Include="..\host\runtime\batch_pool.cpp" />
     <ClCompile Include="..\host\runtime\client_record.cpp" />
+    <ClCompile Include="..\host\runtime\endpoint_runtime.cpp" />
     <ClCompile Include="..\host\runtime\service_router.cpp" />
     <ClCompile Include="..\host\runtime\service_borrows.cpp" />
     <ClCompile Include="..\host\runtime\direct_connections.cpp" />
@@ -279,6 +280,7 @@
     <ClInclude Include="..\host\runtime\batch_pool.hpp" />
     <ClInclude Include="..\host\runtime\worker_policy.hpp" />
     <ClInclude Include="..\host\runtime\client_record.hpp" />
+    <ClInclude Include="..\host\runtime\module_endpoints.hpp" />
     <ClInclude Include="..\host\runtime\service_router.hpp" />
     <ClInclude Include="..\host\runtime\service_borrows.hpp" />
     <ClInclude Include="..\host\runtime\direct_connections.hpp" />

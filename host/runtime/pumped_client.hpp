@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    02 Nov 26
 //
-//  Host-thread lifecycle and authenticated, queued service callbacks.
+//  Host-thread lifecycle, common endpoint and authenticated native execution hooks.
 
 #pragma once
 
@@ -25,17 +25,12 @@ class CPumpedClient
 {
 public:
     CPumpedClient(SClientRecord& client, modules::CBoundModule& binding,
-        const modules::SHostPumpV2& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept;
+        const modules::SHostPumpV1& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept;
     [[nodiscard]] bool initialise() noexcept;
     void activate() noexcept;
     void pump() noexcept;
     void request_stop(const modules::EStopReason reason) noexcept;
     [[nodiscard]] bool deactivate() noexcept;
-    [[nodiscard]] const threading::CErasedPodMsg* peek_pod(const bool control) noexcept;
-    void consume_pod(const bool control) noexcept;
-    [[nodiscard]] const threading::CErasedOwnerMsg* peek_owner() noexcept;
-    [[nodiscard]] bool capture(threading::CErasedOwnerMsg& message) noexcept;
-    [[nodiscard]] bool report_outcome_capacity() const noexcept { return m_controls.writable_count() && m_owners.writable_count(); }
     [[nodiscard]] bool ready() const noexcept { return m_client.phase == EClientPhase::ready; }
     [[nodiscard]] bool stopped() const noexcept { return m_client.phase == EClientPhase::stopped; }
     [[nodiscard]] bool deactivated() const noexcept { return m_deactivated; }
@@ -52,40 +47,24 @@ private:
     void leave() noexcept;
     void finish_frame() noexcept;
     void observe(const modules::ECallStatus status, const modules::SProgress& progress) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL post_pod(void* const, const threading::CErasedPodMsg* const) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL post_owner(void* const, threading::CErasedOwnerMsg* const) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL complete(void* const, const services::ServiceReply* const) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL commit_resource(void* const, const services::ServiceReply* const) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL prepare_borrow(void* const, const services::SServiceBorrowOffer* const, services::SServiceBorrow* const) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL begin_borrow_retirement(void* const, const services::SServiceBorrow) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL finish_borrow_retirement(void* const, const services::SServiceBorrow) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL bind_borrow_notification(void* const, const services::SServiceBorrow,
-        const services::SNotificationRegistration, threading::SNotificationEndpoint* const) noexcept;
     static modules::SRestrictionEnterResult MV_STD_ABI_CALL enter_restriction(void* const, const modules::SRestrictionReason) noexcept;
     static modules::ERestrictionStatus MV_STD_ABI_CALL leave_restriction(void* const, const modules::SRestrictionScope) noexcept;
     static modules::SHostMaintenanceResult MV_STD_ABI_CALL maintain_host(void* const) noexcept;
 
     SClientRecord& m_client;
     modules::CBoundModule& m_binding;
-    const modules::SHostPumpV2 m_capability;
+    const modules::SHostPumpV1 m_capability;
     CServiceRouter& m_router;
     CHostMaintenance& m_maintenance;
+    threading::CEndpointContext m_endpoint;
     modules::SHostPumpContext m_context;
     void* m_runtime{ nullptr };
-    threading::transports::TRing<threading::CErasedPodMsg> m_pods;
-    threading::transports::TRing<threading::CErasedPodMsg> m_controls;
-    threading::CErasedPodMsg m_pending_pod, m_pending_control;
-    threading::CErasedOwnerMsg m_pending_owner;
-    bool m_has_pending_owner{};
-    bool m_has_pending_pod{ false }, m_has_pending_control{ false };
-    threading::transports::CErasedOwnerMsgTransport m_owners{ module_ids::executable, memory::get_ambient_memory_context() };
     modules::EStopReason m_stop_reason{ modules::EStopReason::requested };
     bool m_activated{ false };
     bool m_stop_begun{ false };
     bool m_deactivated{ false };
     bool m_retained{ false };
     bool m_failed{ false };
-    bool m_protocol_failed{ false };
     bool m_call_failed{ false };
     bool m_work_pending{ false }, m_native_events{ false }, m_native_stop{ false };
     modules::CHostEligibleBudget m_activation_budget;

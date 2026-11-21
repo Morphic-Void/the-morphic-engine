@@ -35,10 +35,16 @@ struct SDirectConnectionTestAccess
         }
         package.m_created = true;
         resources.host_execution = &execution;
+        resources.wait_target = &resources.wait_predicate;
         resources.control_state.mark_running();
         return true;
     }
-    static std::uint32_t pins(const CThreadPackage& package) { return package.m_notification_pins; }
+    static std::uint32_t pins(const CThreadPackage& package) { return package.m_resources.notification_pins; }
+    static void end_execution(CThreadPackage& package)
+    {
+        package.m_resources.control_state.mark_exited();
+        package.m_returned.store(true, std::memory_order_release);
+    }
     static void fail_join(CThreadPackage& package, const bool fail) { package.m_test_fail_join = fail; }
 };
 }   //  namespace threading
@@ -156,6 +162,10 @@ struct SDirectHostFixture
         {
             connections.register_client(source, registration);
         }
+        else if (message.is_payload_a<threading::EndpointReady>())
+        {
+            if (source.direct_connections == host::EDirectConnectionState::unregistered) failed = true;
+        }
         else if (message.copy_payload_to(request))
         {
             if (!source.reserve_replies(1u)) failed = true;
@@ -248,7 +258,7 @@ struct SDirectPeerFixture
     SDirectPeerFixture(SDirectHostFixture& driver, const platform::system::CPerfCountConversion& conversion,
         const module_ids::id_type role, const std::uint64_t instance,
         const connections::SContractPolicy* const policies, const std::uint32_t policy_count) noexcept
-        : host{ driver }, package{ { thread_ids::executive, role }, conversion }, record{ role, instance, &package },
+        : host{ driver }, package{ { thread_ids::executive, role }, conversion }, record{ role, instance, &package, { instance + UINT64_C(0x100000000) } },
           context{ threading::SDirectConnectionTestAccess::resources(package) }, client{ context, role, policies, policy_count }
     {
         record.host_execution.instance = record.instance;
@@ -290,7 +300,7 @@ struct SDirectPeerFixture
         {
             return false;
         }
-        context.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(package);
         if (!package.shutdown() && package.retains_execution())
         {
             return false;

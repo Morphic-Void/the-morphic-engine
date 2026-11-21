@@ -1,215 +1,252 @@
 # Host pump foundation
 
-The generic foundation was committed in `2c6d4b1`. Subsequent committed increments
-add [service borrows](service_borrow_lifetimes.md) (`9db7a3d`),
-[notifications](service_notifications.md) (`aca926f`),
-[Host restriction and maintenance](host_restriction_maintenance.md) (`078b595`),
-and the [Platform shell and first Windows window](platform_first_window.md)
-(`f55d514`). This reference describes the foundation and its current integration;
-the linked references define those later capabilities and their validation limits.
+Host gives every module one lifecycle pump and zero or more explicitly requested
+service threads. All of those execution contexts use the same asynchronous
+endpoint protocol. The selected scope is recorded in
+[the first-pass specification](common_endpoint_first_pass.md); later topology,
+generic provider registration and bounded-capacity work remain separate.
 
 ## Execution and identity
 
-Every installed module gets a stable Host client record, including passive
-modules. Dedicated threads attach their real `CThreadPackage` to that record;
-pumped modules have no thread package or fabricated thread resources. Host
-workers remain separate from clients. Each successful installation gets new,
-nonzero process-local instance and client tokens. A mount point does not identify
-the requester for outstanding work.
+A module instance owns its coordinator, requested threads, binding and shared
+module state. Each endpoint has its own nonzero process-local token, distinct
+from the module instance, system address and native thread ID. Tokens are never
+reused. A replacement cannot inherit an earlier endpoint's replies, acquisitions
+or service routes. Host workers remain separate from module endpoints.
 
-Module, asset, acquisition, filesystem refresh and test dispatch use those client
-records. A reply reservation, outstanding operation or accepted provider borrow
-keeps its exact requester alive. A terminal requester cancels delivery; a
-replacement never inherits its replies or acquisitions. Bundle closure keeps its
-reservation for the existing uncorrelated final notification, or cancels it when
-the owner becomes terminal.
+`CEndpointResources` owns growable POD transports in both directions, an owning
+transport towards Host, notification pins, stop/failure state and a batch client.
+Provisioning uses `initialise_growable(0u)` for POD and `initialise(0u)` for owning
+messages. `CEndpointContext` supplies identity, read, typed post and seal helpers.
+`CThreadContext` adds native waits and progress; `CThreadPackage` owns launch and
+join. Pump endpoints have no fabricated native package or wait predicate.
 
-Loading does not establish persistent loader ownership. An already loaded module
-stays independent of the requesting Executive, including across Executive
-replacement. Ordinary unload or replacement of a provider with open routes is
-busy. Ordinary non-Executive self-unload/replacement and attempts by another
-module to perform Executive's special self-transition are rejected.
+Every module exports `morphic_module_host_pump_v1` and the current bootstrap-v1
+contract. Host checks descriptor size, version, flags and all four callbacks.
+The advertised service-thread launch interface has been removed. The pump's
+activation context contains its endpoint; invocations supply scheduling budgets
+and progress metadata. There are no input arrays, consumed-prefix reports,
+service callbacks or separate cleanup/control queues.
 
-## Service protocol and execution capabilities
+Host-side publication uses `post`, `reply`, `retry_reply` and `publish_reply`
+according to whether an operation needs obligation accounting, retry or an explicit
+publication outcome. They share one outgoing POD FIFO. `reserve_replies` and
+`cancel_reservation` count logical obligations, not reserved transport slots;
+control messages use the same methods. Endpoint execution mode needs no duplicate
+classification field, and modules no longer advertise an optional pump flag.
 
-`framework/services/service_protocol.hpp` owns the execution-independent service
-messages, tokens, contract identity and dispatch context in `services`, together
-with their SYSTEM registrations. Exact module instance identity lives in
-`framework/module/module_identity.hpp` in `modules`. SYSTEM IDs and the 48-byte
-request/reply layouts are unchanged by this separation.
+Before module code runs, Host installs the correct ambient module/thread identity,
+memory context and provisioning pointer. Native restriction/maintenance callbacks
+remain Host-thread authenticated in `SHostExecutionContext`; ordinary endpoint
+posts do not execute services inline or reenter another module.
 
-`foundation/module/service_provider.hpp` defines `modules::SServiceProviderV1`, queried
-through the optional `morphic_module_service_provider_v1` export. It takes the
-caller's descriptor capacity and returns an advertisement with size/version,
-zero flags and at most sixteen distinct nonzero contract numbers with nonzero
-versions. Contract storage is immutable and remains valid until unbinding.
-An absent export means no advertised contracts; an empty valid advertisement
-is also permitted. An existing export returning failure or malformed data fails
-installation independently of the execution capability.
+## Requested threads and readiness
 
-Host publishes an execution-independent provider record after its supported
-execution adapter becomes ready. The router uses that exact client and contract
-list, never a pump descriptor or callback. The record is unavailable during stop
-and is cleared before its client or binding is released. Currently only
-`CPumpedClient` supplies a service execution adapter; advertisement alone does
-not enable service dispatch for passive or threaded modules.
+`CreateThreadRequest` supplies an entry function, module-owned context, thread
+address, priority and optional existing direct-service role. Host authenticates
+the submitting endpoint's module instance, checks stopping and duplicate roles,
+and retains an attempt before provisioning. Creation success means native launch
+and preparation succeeded. Host does not spin waiting for module initialization.
 
-`morphic_module_host_pump_v2` is independent of bootstrap v3 and the existing
-service-thread export. Discovery happens on the binding worker. The export takes
-the caller's descriptor capacity and returns `modules::SHostPumpV2`. Version 2
-requires the complete current descriptor and all four callbacks. Its only flag
-reserves exclusive native-event ownership; see the [Host wait contract](host_timed_wait.md).
-The old V1 export is explicitly rejected and requires a coordinated rebuild.
-Service advertisement is separate from this descriptor. Missing
-exports mean unsupported; malformed advertisements fail installation. A module
-cannot advertise both execution capabilities, and Executive remains threaded.
+The requester receives a correlated result where deliverable. The owning pump
+receives creation, execution-ended and retirement notices, in that order for each
+successful child. A request remains Host's obligation after the requester exits;
+its entry context must be owned by the module, not by that requester's stack.
+Partial preparation failure is joined and cleaned before its failure settles.
 
-The Host-thread callback table is `modules::SHostPumpServices` (version 2).
-Its opt-in `commit_resource` callback accepts durable resource success only after
-command consumption and before cancellation/recipient closure, retaining success
-in the operation's reserved reply storage. Accepted success wins against later
-cancellation; ordinary terminal completion keeps its existing semantics. See
-[input configuration installation](input_configuration_installation.md).
-Pump input
-contains bounded service/message batches and a time budget; native event and
-observation limits belong to the provider. These same-process capability
-descriptors require matching headers and coordinated Host/module rebuilds.
+The minimal `TServiceThreadPump` waits for both successful creation and an
+`EndpointReady` notice naming the exact child. The child publishes readiness only
+after local initialization and successful publication of its direct registration,
+when nominated for that role. Host validates and accounts for Register before the
+later readiness POD from that FIFO, including maintenance replay, and forwards
+readiness to the owning coordinator. Invalid registration cannot advertise ready.
+Readiness cannot reverse stopping, failure or retirement. No-child pumps can
+report ready immediately. This narrow module-coordination message does not add
+public discovery or a general readiness subscription.
 
-The former `foundation/system/service_messages.hpp` umbrella is split into module
-messages in `modules`, logical filesystem messages in `filesystem`, transport
-fallback in `threading`, and common storage type bindings under `system`.
-Each message header owns its registrations and owning-payload eligibility.
-`system/transported_types.hpp` remains the internal owner-operation aggregate.
+Loading does not give the loader persistent ownership. Independent providers
+survive Executive replacement. Existing module-request admission and dependent
+asset cleanup rules remain in force across all relevant endpoints.
 
-Before each lifecycle call, the Host prepares the module-local ambient Host
-thread identity, module memory context and pump-context provisioning. The module
-borrows that stable context through successful deactivation. Its services table
-requires the exact current size/version and exposes queued SYSTEM POD and owning
-requests, terminal service completion, and borrow preparation/retirement.
-Borrow-bound notification endpoints and their wait targets survive until both
-consumer quiescence and final provider cleanup. Notifications also signal the
-aggregate Host wake target; runnable progress and native-event registration have
-separate meanings in the [Host wait contract](host_timed_wait.md).
-See [service notifications](service_notifications.md).
-Callbacks authenticate the currently executing pump
-on the Host thread; calls from another thread or outside a lifecycle call fail.
-Owning request storage transfers only on success and uses existing SYSTEM
-ownership and memory-attribution checks.
-After stopped, request callbacks return closing, including during deactivation;
-deactivation cannot create new work behind the completed drain.
+## Services and publication
 
-Activation may remain starting across pumps. Only ready makes installation
-available. Failed activation with an escaped runtime still receives stop and
-cleanup pumps. Failed activation without an escaped runtime can release the
-binding. The five-second activation budget requests failure cleanup; it does not
-release live state.
+Optional `morphic_module_service_provider_v1` advertises immutable contracts,
+independently of execution. Existing advertised providers bind to the module's
+pump. Routes authenticate exact requesting and providing endpoints. The router
+retains its bounds of 64 routes and 256 admitted operations.
 
-## Messages and admission
+Host publishes `ServiceCommand` in the provider's incoming FIFO. It names an
+immutable descriptor in the operation record, which survives until authenticated
+completion or proven final execution drain. Providers use asynchronous complete,
+resource-commit, borrow-prepare/retirement and notification-bind messages. Each
+has a correlated `ProviderOperationResult`. `CProviderClient` retains the bounded
+pending provider exchanges; domain state retains accepted work while waiting.
 
-Service requests and replies are fixed, aligned 48-byte SYSTEM POD envelopes,
-including 24 inline payload bytes. They contain no owner, borrowed resource,
-function pointer or backend object. Opening a route chooses an exact provider
-instance and advertised contract version. Each dispatched command carries that
-contract number and version alongside its exact requester identity, outside the
-48-byte envelope. Command request IDs are nonzero and strictly
-increase within a route. Receipt acknowledgement precedes one terminal result;
-it is not provider acceptance. Bad routes, reused IDs, invalid payload padding
-and capacity exhaustion produce correlated rejections.
+A queued post means publication, not admission or completion. Post results
+distinguish queued, busy, closed, invalid and transport-failed. Definitely failed
+owning submissions preserve the caller's envelope. Existing reply counters account
+for obligations; they do not reserve physical queue slots. Temporary pressure
+uses existing operation storage for retries. Uncertain publication is never
+retried as if nothing escaped: descriptors and exposed acquisitions remain
+protected through completion or quiescence.
 
-Initial bounds are 64 routes and 256 admitted operations across the Host, 512
-ordinary reply reservations/messages and an independently accounted 16 control
-reservations/messages per pumped inbox, 256 ordinary outbound POD entries, 32
-cleanup POD entries and 64 outbound owning entries per pump. Each POD lane can
-also hold one inspected head awaiting admission. Asset releases and zero-reply
-test completions use the cleanup lane; releases reserve control reply credit,
-while test completions require none. Control replies are offered before ordinary
-replies, with consumed prefixes returning the corresponding lane's capacity.
-Dedicated threads keep their existing growable transport semantics and do not
-inherit the pumped inbox limit. A request reserves
-its acknowledgement and terminal reply before the Host removes it from the
-outbound transport. The POD ring returns busy without poisoning future posts.
-Per turn, the Host offers up to 64 commands and 64 SYSTEM replies and drains up
-to 64 messages of each ordinary outbound kind and 16 cleanup messages per client.
+Host drains up to 64 POD and 64 owning messages per endpoint per turn, and dispatches
+up to 64 service commands per provider. Pump consumers also yield within their
+budget. There is FIFO within each lane and no ordering guarantee across POD and
+owning lanes. Prepared views, terminal results and borrow controls share the same
+incoming stream. [Borrow lifetimes](service_borrow_lifetimes.md) and
+[notifications](service_notifications.md) define their independent resource proof.
 
-Pump input arrays are borrowed for that call only. The provider returns consumed
-prefix lengths; the Host retains the suffix. A completion made during a call
-cannot be delivered until that command's consumption is confirmed. Invalid
-prefixes stop ordinary admission and preserve affected storage through
-quiescence. An already produced, consumed terminal result takes precedence over
-stop cancellation. Prepared notices and resource retirement use the subsequent
-borrow protocol. Unsolicited service-event routing is not implemented; window
-changes use durable borrowed state and generic notification registrations.
+## Closure and retirement
 
-## Retirement
+Module stop and fatal state are durable; recording either does not require inbox
+space. Host keeps progressing pumps, requested threads, workers and settlement.
+A provider closes admission and drains accepted work that needs fresh requests
+before sealing. `SealEndpoint` records both outbound publication boundaries;
+Host acknowledges after it accounts for the complete prefixes. Later submissions
+are limited to typed settlement of existing obligations, with normal Host-side
+identity and resource validation. A generic cleanup flag grants no authority.
 
-Stop is an out-of-band lifecycle operation, so a full inbox cannot block it.
-The Host continues pumps, worker completions and cleanup replies while stopping.
-Once Executive is terminal during normal shutdown, all pumped providers receive
-stop before the Host waits for outstanding provider operations. Executive
-replacement leaves independent providers active.
+Native execution return is recorded even when module code omits its final progress
+update. Host observes return, joins, and drains final submissions before endpoint
+retirement. A progress-state exit alone is insufficient. Batch workers, notification
+publishers, direct connections, borrows and acquisitions remain part of the lifetime
+proof. A stopped pump receives no further invocations; deactivation performs only
+local destruction after the required drains and cleanup are complete.
 
-Only stopped establishes provider quiescence. Deactivation follows drained
-outbound queues, retired acquisitions, completed/cancelled requests and worker
-borrows. Worker failure first retires every worker and drains its final queue
-before cancelling borrowed jobs. Terminal publication is observed before the
-queue drain, so a later publication requires another complete drain. Rejected
-initial-scan admission leaves no phantom in-flight scan. A ten-second shutdown grace expiry reports
-failure and continues progress with resources retained; it never authorises
-destruction or unbinding. Clock setup/read failures also report failure explicitly
-and continue progress without granting cleanup permission.
+The ordinary ten-second grace expiry logs failure and retains live state while
+progress continues. Fatal transport or lifecycle failure starts a separate hard
+ten-second deadline at the first observation. New activity does not extend it.
+Failure to establish/read that clock, unsafe progress or expiry terminates the
+process without unwinding live Host state. There is no watchdog that can interrupt
+a pump stuck inside module/native code.
 
-If a quiescent provider fails deactivation, the process returns failure and
-retains the complete Host graph, native binding, callback storage, module memory
-contexts and Host allocation context until process exit. The debug writer and
-other native worker threads are stopped first. Retaining only a DLL handle would
-leave dangling callback and allocator state.
+Quiescent execution with a failed destructor/unbind path uses the existing
+`TProcessLifetime<SHostProcessState>` retention mechanism. It retains the complete
+Host graph, binding, callbacks and allocator context until process exit. Live
+execution instead requires process termination; neither timeout nor a stop request
+proves quiescence.
 
-The process-facing owner is `TProcessLifetime<SHostProcessState>`, with static
-storage duration and direct inline construction. `CHostContext` owns the allocator
-and Host memory context and installs the ambient context before the embedded
-`CHost` constructs its containers. The module service borrows this allocator
-explicitly. Normal completion destroys the runtime first, restores the previous
-ambient context, and then destroys the context and allocator. Rejected context
-installation follows the same destruction order without starting the runtime.
+Validated child readiness takes effect while Host drains that child's FIFO, so a
+following direct-connection request sees the accepted initialization boundary.
+Native preparation records the creation outcome only. Individual stop, sealing,
+closed admission or module stopping cannot be reversed by a delayed readiness
+message; the module coordinator still determines overall module readiness.
 
-After quiescent failed deactivation, one irreversible retention decision suppresses
-destruction of the complete process state. The owner cannot be reconstructed,
-moved, released or destroyed after retention. It performs no heap allocation or
-placement new; ordinary nested allocations retain their existing curated owners.
-The Host-specific placement policy exceptions and separate context-retention flag
-are removed. Shutdown deadlines still cannot authorise destruction of live state.
+Ordinary module stop leaves child shutdown ordering to the pump. The minimal
+single-child pump explicitly stops its child after creation succeeds and waits
+for retirement. Emergency shutdown or coordinator failure may request all child
+stops. A terminal endpoint with unconsumed batch responses is a lifecycle failure:
+its resources stay retained while the fatal deadline governs shutdown.
 
-## Validation and remaining scope
+## Validation entry points
 
-`HostPump_test_suite.cpp` exercises envelope layout, route authentication,
-correlation, prefix retention, reserved completion capacity, saturation,
-requester replacement, independent control credits, multiple contracts and
-cancellation after quiescence. `HostRuntime_test_cases.cpp` compiles the actual
-Host into the test executable with narrow test-only fault boundaries. It covers
-initial-scan rejection, a real native worker failure racing its healthy sibling's
-final publication, and shutdown clock setup/read failures with log assertions.
-The portable
-`tests/host_pump/run_tests.py` harness loads real DLL/SO providers and Executives,
-including malformed advertisements, failed activation, pump protocol failure,
-Host services from pumped clients, delayed shutdown replies, replacement,
-provider reload, saturated inboxes, emergency shutdown and failed deactivation.
-Separate advertisement checks cover invalid size, version, flags, counts,
-null contract storage, zero versions, duplicate contracts and failed queries;
-an empty advertisement still permits pumped execution and orderly retirement.
-It also exercises 512 held pumped disposal reservations through cleanup, 600
-threaded reservations through releases and self-exit, actual activation deadline
-expiry, and live provider progress beyond shutdown grace expiry.
-The Windows wrapper builds its dedicated fixture project; CMake registers the
-same scenarios with one and two requested Host workers.
+`MorphicTests --host-endpoints` exercises the common router, endpoint lifecycle,
+maintenance, direct connections, borrowed resources, Platform windows, reports
+and input. `HostMaintenance_test_cases.cpp` covers native preparation failure,
+requester departure, multiple children, buffered registration/readiness and both
+seal lanes. `tests/host_pump/run_tests.py` and the module-lifecycle fixtures exercise
+real DLLs and subprocess failures. Validation results are reported separately;
+the existence of a scenario is not a claim that every platform has passed it.
 
-The Windows window provider now uses the generic borrow, notification, restriction
-and maintenance boundaries without introducing native Platform knowledge into
-Host. Subsequent increments implement [direct POD connections](direct_pod_connections.md),
-[Host timed waiting](host_timed_wait.md), [input connections](input_connections.md),
-[prepared configuration](input_configuration_installation.md), [mapping](input_mapping.md),
-[Windows desktop input](desktop_input.md) and [GameInput controllers](controller_input.md).
-Those references own their validation evidence. The separate
-[combined Host/consumer input record](input_host_integration.md) covers integrated
-input pressure, retirement and software-path timing.
-Window modes, Vulkan integration and native Linux UI remain later work. The generic
-routed service-provider adapter remains pumped.
+Related contracts: [module lifecycle](asynchronous_module_lifecycle.md),
+[Host waiting](host_timed_wait.md), [restriction and maintenance](host_restriction_maintenance.md),
+[direct connections](direct_pod_connections.md), [Platform report](platform_report.md),
+[window service](platform_first_window.md), [input configuration](input_configuration_installation.md).
+
+During Executive startup or replacement, ordinary module requests may arrive on
+the owning lane before Host consumes the readiness outcome. Host retains these in
+the existing bounded maintenance owner slots, pins their exact source endpoint,
+and leaves their owning ingress unaccounted until replay. Later owning messages
+from that source cannot overtake them; POD traffic and other endpoints continue.
+Once the bootstrap outcome is consumed, normal module-service admission applies.
+Stop, failure or requester exit rejects the held work and settles its credits.
+An early Executive self-change uses the existing single lifecycle owner slot;
+duplicates cannot overwrite it, and its stop side effect waits for running.
+
+This sequencing supports the built-in Executive, which submits its initial load
+before readiness but does not wait for that result before publishing readiness.
+It does not resolve a dependency cycle in which initialization waits for a nested
+module load before it can become ready. The single module-operation service and
+existing startup failure/deadline policy remain in force.
+
+## Validation on 20 November 2026
+
+The common endpoint implementation and all affected consumers were rebuilt with
+the final version-1 contracts. Export inspection passed for all 16 module DLLs in
+each configuration: the bootstrap is version 1 and no replaced advertised-thread
+or higher-version pump/bootstrap export remains. The obsolete MissingThread
+fixture outputs were removed and replaced by current MissingPump fixtures.
+
+| Windows configuration | Solution and consumers | Core tests | DLL lifecycle | Selected pump cases |
+| --- | --- | --- | --- | --- |
+| x64 Debug | Passed | Passed | 44 passed | All 52 portable cases passed |
+| x64 Release | Passed | Passed | 44 passed | 13 passed, one Host worker |
+| Win32 Debug | Passed | Passed | 44 passed | 13 passed, one Host worker; native-report limitation below |
+| Win32 Release | Passed | Passed | 44 passed | 13 passed, one Host worker |
+
+The full core runs include endpoint creation/departure, both submission lanes,
+readiness ordering, exact-instance authentication, pump-ordered child shutdown,
+uncertain backing exposure and terminal batch retention. The final test-helper
+decode fix was rebuilt in all four configurations; x64 Debug then repeated the
+focused endpoint suite. Win32 builds retained existing vendor and unrelated
+HostRestriction warnings. Whitespace, source-header and line-ending checks passed.
+
+On x64 Debug, all ten real-input functional cases and the documented 120 Hz smoke
+passed with two Host workers. Win32 Release passed input lifecycle, second
+consumer, blocked shutdown and source cleanup with one worker. The x64 Debug
+native-window suite passed 449 checks and all four real-module move/size/menu/report
+cases passed. All three isolated fatal-clock/deadline probes passed with live
+execution retained; the deadline probe terminated after 12.138 seconds including
+process setup. Physical controller acceptance and Linux qualification were not
+performed in this refactor.
+
+The uncontended x64 Release input baseline used one Host worker, four controllers
+at 1,000 reports/s each, and tracing. It passed the documented two-second warm-up
+and three ten-second measured windows (32.49 seconds total). Every window admitted
+40,625 inputs and matched all 80,625 expected outputs, with no source loss,
+missing/invalid/stale samples or trace/clock errors. Offered-to-applied p99 was
+7.59–7.74 ms across the windows, with a 9.58 ms maximum. The runner's `--seconds`
+argument does not change these synthetic measurement windows.
+
+Two qualification gaps remain explicit:
+
+- The previously documented [Win32 Debug native-report deadline failure](platform_report_validation.md)
+  reproduced without an active build: 6.363 seconds of synchronous schema work
+  exceeded the unchanged five-second capture deadline. Host rejected publication
+  and delivered the retirement receipt. The same startup report work blocked this
+  run's Win32 Debug real-input lifecycle; the other selected real-input cases were
+  not rerun through that failed prerequisite. Native report schema placement is
+  separate work, and these cases are not claimed as passing.
+- Earlier x64 Debug 1,000 Hz smoke attempts failed history/output checks. This
+  refactor does not establish whether that high-rate Debug failure predates the
+  change. The documented 120 Hz Debug smoke and 1,000 Hz Release baseline above
+  passed with their original acceptance checks unchanged.
+
+Local evidence is retained under `build/common-final-pump-*`,
+`build/common-final-input-*` and `build/common-final-*-core.log`. The original x64
+Debug full-core log tag is `common-endpoint-final-debug`; its final focused log is
+`build/common-final-Debug-x64-endpoints.log`. DLL lifecycle runtime suffixes are
+`f88d5fac` (x64 Debug), `5a09ac65` (x64 Release), `cee85acc` (Win32 Debug) and
+`ed97f2d7` (Win32 Release). The Release baseline is
+`build/common-final-input-Release-x64/load-1-seokgc93/report.json`. The idle native
+failure is `build/common-final-pump-Debug-Win32-idle/platform-report-1-gvi9hsok`;
+the dependent input failure is
+`build/common-final-input-Debug-Win32/lifecycle-1-eluz7qyj`. Earlier high-rate Debug
+smoke evidence remains under `build/common-endpoint-input`.
+
+## Consolidation on 21 November 2026
+
+Removed the obsolete control/reply aliases and write-only execution/pump-presence
+fields. The window notification-pressure test now fills a single fixed FIFO at
+the transport's minimum capacity and verifies refusal of another message before
+checking notification and retirement progress. No endpoint protocol changed.
+
+x64 Debug and Release Host/test builds passed with zero warnings or errors. The
+focused endpoint suite, including Host, borrow, direct-connection, Platform report,
+input and window regressions, passed 63,679 checks in Debug and 63,680 in Release.
+Evidence is in `build/common-consolidation-*-build.log` and
+`build/common-consolidation-*-tests-final.log`. Line-ending, whitespace and local
+documentation-link checks passed. The qualification limits above are unchanged;
+native, performance and four-configuration matrices were not repeated for this
+cleanup.

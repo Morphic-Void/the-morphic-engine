@@ -134,40 +134,17 @@ bool CBoundModule::query_function(const system_type_id function_type, FModuleFun
     return (result == EBindingResult::success) && (function != nullptr);
 }
 
-EBindingResult CBoundModule::query_service_thread(SServiceThread& service) const noexcept
-{
-    service = {};
-    if (!m_installed) return EBindingResult::invalid_argument;
-    const auto query = reinterpret_cast<FQueryServiceThread>(m_native_module.find_function(k_service_thread_symbol_name));
-    if (query == nullptr) return EBindingResult::unsupported_function;
-    SServiceThread candidate;
-    const EBindingResult result = query(&candidate);
-    if (result != EBindingResult::success) return result;
-    if ((candidate.entry == nullptr) || !thread_ids::ops::is_valid_id(candidate.thread) ||
-        (system_id_registry::lookup_thread_name(candidate.thread) == nullptr)) return EBindingResult::invalid_argument;
-    service = candidate;
-    return EBindingResult::success;
-}
-
-bool MV_STD_ABI_CALL CBoundModule::prepare_thread(void* const context, const thread_ids::id_type thread_id, void* const thread_resources) noexcept
-{
-    CBoundModule* const module = static_cast<CBoundModule*>(context);
-    return (module != nullptr) && module->prepare_thread(thread_id, thread_resources);
-}
-
-EBindingResult CBoundModule::query_host_pump(SHostPumpV2& pump) const noexcept
+EBindingResult CBoundModule::query_host_pump(SHostPumpV1& pump) const noexcept
 {
     pump = {};
     if (!m_installed) return EBindingResult::invalid_argument;
-    const auto query = reinterpret_cast<FQueryHostPump>(m_native_module.find_function(k_host_pump_symbol_name));
+    const FQueryHostPump query = reinterpret_cast<FQueryHostPump>(m_native_module.find_function(k_host_pump_symbol_name));
     if (query == nullptr)
     {
-        //  An old pump cannot safely exchange the extended progress record.
-        return m_native_module.find_function("morphic_module_host_pump_v1") ?
-            EBindingResult::invalid_argument : EBindingResult::unsupported_function;
+        return EBindingResult::unsupported_function;
     }
-    SHostPumpV2 candidate;
-    const auto result = query(sizeof(candidate), &candidate);
+    SHostPumpV1 candidate;
+    const EBindingResult result = query(sizeof(candidate), &candidate);
 
     //  An advertised export must return a valid descriptor; unsupported is only
     //  the absence of the export, never a way to hide a broken advertisement.
@@ -192,7 +169,7 @@ EBindingResult CBoundModule::query_service_provider(SServiceProviderV1& provider
     const auto query = reinterpret_cast<FQueryServiceProvider>(m_native_module.find_function(k_service_provider_symbol_name));
     if (query == nullptr) return EBindingResult::unsupported_function;
     SServiceProviderV1 candidate;
-    const auto result = query(sizeof(candidate), &candidate);
+    const EBindingResult result = query(sizeof(candidate), &candidate);
 
     //  An existing export must supply a valid advertisement.
     if (result != EBindingResult::success) return EBindingResult::invalid_argument;
@@ -202,6 +179,12 @@ EBindingResult CBoundModule::query_service_provider(SServiceProviderV1& provider
     }
     provider = candidate;
     return EBindingResult::success;
+}
+
+bool MV_STD_ABI_CALL CBoundModule::prepare_thread(void* const context,
+    const thread_ids::id_type thread_id, void* const provisioning) noexcept
+{
+    return context && static_cast<CBoundModule*>(context)->prepare_thread(thread_id, provisioning);
 }
 
 bool CBoundModule::prepare_thread(const thread_ids::id_type thread_id, void* const thread_resources) noexcept

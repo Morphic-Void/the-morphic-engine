@@ -24,6 +24,7 @@
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/module_lifecycle/bundle_cases.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/service_thread_pump.hpp"
 #include "memory/memory_context.hpp"
 #include "system/system_context.hpp"
 #include "framework/assets/asset_messages.hpp"
@@ -41,7 +42,7 @@ struct SBatchFixtureItem
 {
     std::uint32_t value{ 0u };
     std::atomic<std::uint32_t>* started{ nullptr };
-    threading::CThreadControlState* wait_for_exit{ nullptr };
+    const threading::CThreadContext* wait_for_exit{ nullptr };
     thread_ids::id_type observed_thread{};
     module_ids::id_type observed_module{};
     memory::CMemoryContext* observed_memory{ nullptr };
@@ -66,9 +67,9 @@ static void MV_STD_ABI_CALL execute_batch_item(void* const object) noexcept
 }
 
 static bool batch_case(threading::CThreadContext& context,
-    const threading::CThreadResources& resources, const bool require_inline) noexcept
+    const bool require_inline) noexcept
 {
-    threading::CBatchClient* const client = resources.batch_client;
+    threading::CBatchClient* const client = context.batch_client();
     if (client == nullptr)
     {
         return false;
@@ -104,7 +105,7 @@ static bool batch_case(threading::CThreadContext& context,
     std::uint32_t received = 0u;
     while (received < queued_count)
     {
-        const std::uint32_t epoch = resources.wait_predicate.get_word();
+        const std::uint32_t epoch = context.observe_epoch();
         threading::SBatchResponse response;
         while (client->receive(response))
         {
@@ -154,7 +155,7 @@ static bool batch_case(threading::CThreadContext& context,
 
 static bool post(threading::CThreadContext& context, const modules::EModuleAction action,
     const module_ids::id_type module, const char* const file, const std::int32_t slot,
-    const system_type_id function = system_type_ids::undefined, const bool require_service = false) noexcept
+    const system_type_id function = system_type_ids::undefined) noexcept
 {
     CErasedOwner owner = CErasedOwner::create<modules::ModuleRequest>();
     modules::ModuleRequest* const request = owner.payload<modules::ModuleRequest>();
@@ -165,7 +166,6 @@ static bool post(threading::CThreadContext& context, const modules::EModuleActio
     request->action = action;
     request->module = module;
     request->required_function = function;
-    request->require_service_thread = require_service || (module == module_ids::rendering);
     threading::CErasedOwnerMsg message;
     message.set_message_type<modules::ModuleRequest>();
     message.set_async_slot(slot);
@@ -247,10 +247,9 @@ static bool self_terminate(threading::CThreadContext& context, const char* const
     return success;
 }
 
-static bool batch_exit_case(threading::CThreadContext& context,
-    threading::CThreadResources& resources) noexcept
+static bool batch_exit_case(threading::CThreadContext& context) noexcept
 {
-    threading::CBatchClient* const client = resources.batch_client;
+    threading::CBatchClient* const client = context.batch_client();
     if (client == nullptr)
     {
         return false;
@@ -265,7 +264,7 @@ static bool batch_exit_case(threading::CThreadContext& context,
     SBatchFixtureItem items[k_items];
     std::atomic<std::uint32_t> started{ 0u };
     items[0].started = &started;
-    items[0].wait_for_exit = &resources.control_state;
+    items[0].wait_for_exit = &context;
     if (client->submit(&execute_batch_item, &items[0], 200u).status != threading::EBatchSubmission::queued)
     {
         return false;
@@ -297,7 +296,7 @@ static bool batch_exit_case(threading::CThreadContext& context,
     std::uint32_t received = 0u;
     while (received < k_items)
     {
-        const std::uint32_t epoch = resources.wait_predicate.get_word();
+        const std::uint32_t epoch = context.observe_epoch();
         threading::SBatchResponse response;
         while (client->receive(response))
         {
@@ -687,10 +686,10 @@ static bool executive_test_routing_case(threading::CThreadContext& context,
 static bool service_lifecycle_case(threading::CThreadContext& context, const char* const selected) noexcept
 {
     auto change = [&](const modules::EModuleAction action, const char* const file, const std::int32_t slot,
-        const bool required, const modules::EModuleStatus expected, const bool available) noexcept
+        const modules::EModuleStatus expected, const bool available) noexcept
     {
         if (!post(context, action, module_ids::conditioning_general, file, slot,
-            system_type_ids::undefined, required))
+            system_type_ids::undefined))
         {
             return false;
         }
@@ -734,13 +733,19 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
             (result.failed == 0u) && (result.skipped == 0u) && s_direct->retire();
     };
     const auto service_file = test_environment::module_filename("package:/bin/MorphicLifecycleService");
-    if ((std::strcmp(selected, "service-invalid-entry") == 0) || (std::strcmp(selected, "service-invalid-id") == 0) ||
-        (std::strcmp(selected, "service-start-failure") == 0))
+    if (std::strcmp(selected, "service-start-failure") == 0)
     {
-        const auto expected = (std::strcmp(selected, "service-start-failure") == 0) ?
-            modules::EModuleStatus::installation_failed : modules::EModuleStatus::function_unavailable;
-        return change(modules::EModuleAction::load, service_file.c_str(), 1, true, expected, false) &&
-            change(modules::EModuleAction::unload, nullptr, 2, false, modules::EModuleStatus::not_loaded, false) && self_terminate(context, nullptr);
+        if (!post(context, modules::EModuleAction::load, module_ids::conditioning_general, service_file.c_str(), 1))
+        {
+            return false;
+        }
+        while (!context.exit_requested())
+        {
+            threading::CErasedPodMsg ignored;
+            (void)context.read(ignored);
+            platform::threading::processor_relax();
+        }
+        return true;
     }
     if (!operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(),
         1, modules::EModuleStatus::success, true))
@@ -748,11 +753,11 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
         return false;
     }
     const auto passive_file = test_environment::module_filename("package:/bin/MorphicLifecyclePassive");
-    if (!change(modules::EModuleAction::load, passive_file.c_str(), 2, true, modules::EModuleStatus::function_unavailable, false) ||
-        !change(modules::EModuleAction::load, passive_file.c_str(), 3, false, modules::EModuleStatus::success, true) ||
-        !test(4, connections::EStatus::unsupported) ||
-        !change(modules::EModuleAction::load, passive_file.c_str(), 5, true, modules::EModuleStatus::function_unavailable, true) ||
-        !change(modules::EModuleAction::replace, service_file.c_str(), 6, true, modules::EModuleStatus::success, true) ||
+    if (!change(modules::EModuleAction::load, passive_file.c_str(), 2, modules::EModuleStatus::success, true) ||
+        !change(modules::EModuleAction::load, passive_file.c_str(), 3, modules::EModuleStatus::already_loaded, true) ||
+        !test(4, connections::EStatus::unavailable) ||
+        !change(modules::EModuleAction::load, passive_file.c_str(), 5, modules::EModuleStatus::already_loaded, true) ||
+        !change(modules::EModuleAction::replace, service_file.c_str(), 6, modules::EModuleStatus::success, true) ||
         !test(7, connections::EStatus::success))
     {
         return false;
@@ -761,9 +766,9 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
     {
         CAssetId dependent;
         if (!retain_raw_asset(context, true, &dependent, mount_point_ids::conditioning) ||
-            !change(modules::EModuleAction::replace, service_file.c_str(), 8, true, modules::EModuleStatus::success, true) ||
+            !change(modules::EModuleAction::replace, service_file.c_str(), 8, modules::EModuleStatus::success, true) ||
             !dispose_asset(context, dependent, EAssetStatus::invalid_asset) || !test(9, connections::EStatus::success) ||
-            !change(modules::EModuleAction::unload, nullptr, 10, false, modules::EModuleStatus::success, false) ||
+            !change(modules::EModuleAction::unload, nullptr, 10, modules::EModuleStatus::success, false) ||
             !test(11, connections::EStatus::unavailable))
         {
             return false;
@@ -776,7 +781,7 @@ static bool audio_lifecycle_case(threading::CThreadContext& context) noexcept
 {
     const auto file = test_environment::module_filename("package:/bin/MorphicAudio");
     if (!post(context, modules::EModuleAction::load, module_ids::audio, file.c_str(), 1,
-        system_type_ids::undefined, true))
+        system_type_ids::undefined))
     {
         return false;
     }
@@ -844,7 +849,7 @@ static bool audio_lifecycle_case(threading::CThreadContext& context) noexcept
 }
 
 static bool run_case(threading::CThreadContext& context,
-    threading::CThreadResources& resources, const char* const selected) noexcept
+    const char* const selected) noexcept
 {
     if (std::strcmp(selected, "audio-lifecycle") == 0)
     {
@@ -892,7 +897,7 @@ static bool run_case(threading::CThreadContext& context,
         memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
         const auto allocations = memory->get_live_allocation_count();
         const auto bytes = memory->get_live_allocated_bytes();
-        if (!bundle_case(context, resources, selected) || (memory->get_live_allocation_count() != allocations) ||
+        if (!bundle_case(context, selected) || (memory->get_live_allocation_count() != allocations) ||
             (memory->get_live_allocated_bytes() != bytes))
         {
             return false;
@@ -903,15 +908,15 @@ static bool run_case(threading::CThreadContext& context,
     }
     if (std::strcmp(selected, "batch") == 0)
     {
-        return batch_case(context, resources, false) && self_terminate(context, nullptr);
+        return batch_case(context, false) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "batch-inline") == 0)
     {
-        return batch_case(context, resources, true) && self_terminate(context, nullptr);
+        return batch_case(context, true) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "batch-exit") == 0)
     {
-        return batch_exit_case(context, resources);
+        return batch_exit_case(context);
     }
     if (std::strcmp(selected, "render-exit-disposal") == 0)
     {
@@ -922,15 +927,11 @@ static bool run_case(threading::CThreadContext& context,
         return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             unload_during_saves(context) && self_terminate(context, nullptr);
     }
-    if (std::strcmp(selected, "thread-failures") == 0)
+    if (std::strcmp(selected, "pump-required") == 0)
     {
-        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
-            operation(context, modules::EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingFailure").c_str(), 2, modules::EModuleStatus::installation_failed, false) &&
-            operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 3, modules::EModuleStatus::success, true) &&
-            operation(context, modules::EModuleAction::unload, nullptr, 4, modules::EModuleStatus::success, false) &&
-            operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingFailure").c_str(), 5, modules::EModuleStatus::installation_failed, false) &&
-            operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleMissingThread").c_str(), 6, modules::EModuleStatus::function_unavailable, false) &&
-            self_terminate(context, nullptr);
+        return operation(context, modules::EModuleAction::load,
+            test_environment::module_filename("package:/bin/MorphicLifecycleMissingPump").c_str(),
+            1, modules::EModuleStatus::function_unavailable, false) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-shutdown") == 0)
     {
@@ -1026,10 +1027,8 @@ static bool run_case(threading::CThreadContext& context,
         self_terminate(context, nullptr);
 }
 
-static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
+static std::uint32_t MV_STD_ABI_CALL executive_entry(threading::CThreadContext& context, void* const) noexcept
 {
-    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context{ resources };
     context.startup();
     char selected[32]{};
     std::size_t required{ 0u };
@@ -1049,7 +1048,8 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
         return 1u;
     }
     context.mark_running();
-    const bool success = configured && run_case(context, resources, selected);
+    if (!context.publish_ready()) return 1u;
+    const bool success = configured && run_case(context, selected);
     if (success)
     {
         MV_LOG_RICH(info, "Lifecycle fixture: %s passed", selected);
@@ -1067,9 +1067,8 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
 static constexpr auto k_advertised_module_id = module_ids::conditioning_general;
 
 #if MV_LIFECYCLE_SERVICE
-static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
+static std::uint32_t MV_STD_ABI_CALL service_entry(threading::CThreadContext& context, void* const) noexcept
 {
-    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
     context.startup();
     auto fail = [&]() noexcept {
         if (s_direct)
@@ -1091,6 +1090,7 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
     SDirectService direct{ context, module_ids::conditioning_general };
     if (!direct.ready) return fail();
     context.mark_running();
+    if (!context.publish_ready()) return 1u;
     auto read = [&](threading::CErasedPodMsg& message) noexcept
     {
         platform::system::CPerfCounter timer;
@@ -1198,10 +1198,13 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
 static constexpr auto k_advertised_module_id = module_ids::rendering;
 
 #if MV_LIFECYCLE_RENDERING_FAILURE
-static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
+static std::uint32_t MV_STD_ABI_CALL rendering_entry(threading::CThreadContext& context, void* const) noexcept
 {
-    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
     context.startup();
+    if (!context.post(threading::make_pod_message(-1, connections::Register{})))
+    {
+        return 1u;
+    }
     context.mark_failed(1u);
     return 1u;
 }
@@ -1434,10 +1437,8 @@ static bool malformed_test_completion(threading::CThreadContext& context) noexce
     return s_direct->wait([&] { return context.exit_requested(); });
 }
 
-static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
+static std::uint32_t MV_STD_ABI_CALL rendering_entry(threading::CThreadContext& context, void* const) noexcept
 {
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context{ resources };
     context.startup();
     char selected[32]{};
     std::size_t required{ 0u };
@@ -1453,6 +1454,7 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
         }
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
+        if (!context.publish_ready()) return 1u;
         const bool success = rendering_test_routing_case(context, (std::strcmp(selected, "tests-worker-exit") == 0), (std::strcmp(selected, "tests-client-unload") == 0));
         MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
@@ -1471,6 +1473,7 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
         }
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
+        if (!context.publish_ready()) return 1u;
         const bool success = rendering_acquisition_case(context, (std::strcmp(selected, "acquire-render-release") == 0));
         MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
@@ -1488,18 +1491,24 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
         }
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
+        if (!context.publish_ready()) return 1u;
         const bool success = malformed_test_completion(context);
         MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
         else context.mark_failed(1u);
         return success ? 0u : 1u;
     }
+    if (!context.post(threading::make_pod_message(-1, connections::Register{})))
+    {
+        return 1u;
+    }
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         (std::strcmp(selected, "bundle-rendering") == 0))
     {
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
-        const bool success = rendering_bundle_case(context, resources);
+        if (!context.publish_ready()) return 1u;
+        const bool success = rendering_bundle_case(context);
         MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
         else context.mark_failed(1u);
@@ -1522,6 +1531,7 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
 
     MV_LOG(info, "Rendering: Running");
     context.mark_running();
+    if (!context.publish_ready()) return 1u;
     std::uint32_t epoch{ 0u };
     while (!context.exit_requested())
     {
@@ -1583,35 +1593,28 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 
 }   //  namespace module_lifecycle_tests
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(
     modules::SBootstrapFunctions* const functions) noexcept
 {
     return module_lifecycle_tests::s_binding.bootstrap(functions);
 }
 
-#if MV_LIFECYCLE_RENDERING_FAILURE || MV_LIFECYCLE_RENDERING_DISPOSAL || MV_LIFECYCLE_SERVICE
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(
-    modules::SServiceThread* const service) noexcept
+#if !MV_LIFECYCLE_MISSING_PUMP
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(
+    const std::uint32_t capacity, modules::SHostPumpV1* const value) noexcept
 {
-    if (service == nullptr)
+    if (!value || (capacity != sizeof(*value)))
     {
         return modules::EBindingResult::invalid_argument;
     }
-#if MV_LIFECYCLE_SERVICE
-    *service = { thread_ids::simulation, &module_lifecycle_tests::service_entry };
-    char selected[40]{};
-    std::size_t required{ 0u };
-    (void)getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE");
-    if (std::strcmp(selected, "service-invalid-entry") == 0)
-    {
-        service->entry = nullptr;
-    }
-    if (std::strcmp(selected, "service-invalid-id") == 0)
-    {
-        service->thread = {};
-    }
+#if MV_LIFECYCLE_EXECUTIVE
+    *value = modules::TServiceThreadPump<&module_lifecycle_tests::executive_entry, &thread_ids::executive>::capability();
+#elif MV_LIFECYCLE_SERVICE
+    *value = modules::TServiceThreadPump<&module_lifecycle_tests::service_entry, &thread_ids::simulation>::capability();
+#elif MV_LIFECYCLE_RENDERING_FAILURE || MV_LIFECYCLE_RENDERING_DISPOSAL
+    *value = modules::TServiceThreadPump<&module_lifecycle_tests::rendering_entry, &thread_ids::rendering>::capability();
 #else
-    *service = { thread_ids::rendering, &module_lifecycle_tests::rendering_entry };
+    *value = modules::TServiceThreadPump<>::capability();
 #endif
     return modules::EBindingResult::success;
 }

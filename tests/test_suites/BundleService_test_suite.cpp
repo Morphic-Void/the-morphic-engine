@@ -18,6 +18,7 @@
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
 #include "tests/support/host_client_fixture.hpp"
+#include "tests/support/endpoint_fixture.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
@@ -187,6 +188,74 @@ void release(TTestContext& ctx, SFixture& fixture, CAssetAcquisitionId id,
     fixture.service.request_release({ id }, 12, client ? *client : fixture.package);
     AssetReleaseResult result;
     TEST_EXPECT(ctx, fixture.receive(result, 12, client) && result.acquisition == id && result.status == status);
+}
+
+void test_uncertain_ordinary_acquisition(TTestContext& ctx)
+{
+    tests::TAllocationFailureFixture allocation;
+    memory::CMemoryAllocator allocator{ &allocation, tests::allocate_with_failure, tests::deallocate_test_memory, system_ids::host };
+    memory::CMemoryContext memory{ allocator, system_ids::host };
+    tests::TMemoryContextScope scope{ &memory };
+    tests::SEndpointFixture recipient{ module_ids::executable, 701u };
+    recipient.phase = host::EClientPhase::ready;
+    CAssetService service;
+    TEST_EXPECT(ctx, service.initialise());
+    auto owner = CErasedOwner::create<RawAssetTransfer>();
+    RawAssetTransfer* const raw = owner.payload<RawAssetTransfer>();
+    TEST_EXPECT(ctx, (raw && raw->storage.value.resize(32u, 32u)));
+    std::memset(raw->storage.value.data(), 0x5a, 32u);
+    threading::CErasedOwnerMsg request;
+    request.set_message_type<RawAssetTransfer>();
+    request.set_async_slot(1);
+    request.set_owner(std::move(owner));
+    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
+    service.request(request, recipient);
+    threading::CErasedPodMsg message;
+    AssetResult retained;
+    TEST_EXPECT(ctx, (recipient.endpoint->host_to_worker_msgs.read(message) && message.copy_payload_to(retained) &&
+        (retained.status == EAssetStatus::success)));
+    // Prime the acquisition table so the injected allocation failure occurs in
+    // reply publication, after the ordinary view may already have escaped.
+    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
+    service.request_acquire({ retained.asset }, 2, recipient);
+    AssetAcquireResult primed;
+    TEST_EXPECT(ctx, (recipient.endpoint->host_to_worker_msgs.read(message) && message.copy_payload_to(primed)));
+    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
+    service.request_release({ primed.acquisition }, 3, recipient);
+    TEST_EXPECT(ctx, recipient.endpoint->host_to_worker_msgs.read(message));
+    const threading::CErasedPodMsg filler = threading::make_pod_message(-1, AssetResult{});
+    do { TEST_EXPECT(ctx, recipient.post(filler)); }
+    while (!recipient.endpoint->host_to_worker_msgs.post_would_reallocate(1u));
+    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
+    allocation.fail_on = allocation.attempts + 1u;
+    service.request_acquire({ retained.asset }, 4, recipient);
+    TEST_EXPECT(ctx, (allocation.failed && recipient.endpoint->host_to_worker_msgs.posting_poisoned() && service.failed()));
+    allocation.fail_on = 0u;
+    AssetAcquireResult exposed;
+    unsigned acquisitions = 0u;
+    while (recipient.endpoint->host_to_worker_msgs.read(message))
+    {
+        if (message.copy_payload_to(exposed)) ++acquisitions;
+    }
+    TEST_EXPECT(ctx, ((acquisitions == 1u) && exposed.acquisition && (exposed.byte_view().data()[31] == 0x5a)));
+    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
+    service.request_disposal({ retained.asset }, 5, recipient);
+    service.release_client_acquisitions(recipient);
+    service.complete_disposals();
+    TEST_EXPECT(ctx, (!service.client_idle(recipient) && (exposed.byte_view().data()[0] == 0x5a)));
+    recipient.phase = host::EClientPhase::stopped;
+    service.release_client_acquisitions(recipient);
+    service.complete_disposals();
+    TEST_EXPECT(ctx, (!service.client_idle(recipient) && (exposed.byte_view().data()[31] == 0x5a)));
+    recipient.terminal_before_drain = recipient.incoming_drained = true;
+    recipient.invocation_active = true;
+    service.release_client_acquisitions(recipient);
+    TEST_EXPECT(ctx, !service.client_idle(recipient));
+    recipient.invocation_active = false;
+    service.release_client_acquisitions(recipient);
+    service.complete_disposals();
+    TEST_EXPECT(ctx, (service.client_idle(recipient) && service.is_idle() && recipient.replies_idle()));
+    service.deallocate();
 }
 
 void test_generic_acquisitions(TTestContext& ctx)
@@ -629,8 +698,7 @@ std::uint32_t MV_STD_ABI_CALL blocked_recipient(void* data) noexcept
     auto& resources = *static_cast<threading::CThreadResources*>(data);
     threading::CThreadContext context(resources);
     context.startup();
-    //  Before startup completes the Host cannot post. Make a bounded inbox and
-    //  deliberately leave it unread to exercise a live recipient's failed post.
+    // The fixture waits for Waiting before posting into this bounded inbox.
     resources.host_to_worker_msgs.deallocate();
     if (!resources.host_to_worker_msgs.initialise_fixed(1u)) { context.mark_failed(1u); return 1u; }
     context.mark_running();
@@ -650,6 +718,10 @@ void test_live_notification_failure(TTestContext& ctx)
     tests::CHostClientFixture recipient{ threading::ThreadConfig{ thread_ids::executive, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
     TEST_EXPECT(ctx, recipient.startup());
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]
+    {
+        return recipient.query_state() == threading::EThreadRunState::Waiting;
+    }));
     const auto original = fixture.publish(ctx, &recipient);
     threading::CErasedPodMsg filler;
     filler.assign_payload(AssetDisposeResult{});
@@ -711,6 +783,10 @@ void test_acquisition_failure(TTestContext& ctx)
     tests::CHostClientFixture recipient{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
     TEST_EXPECT(ctx, recipient.startup());
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]
+    {
+        return recipient.query_state() == threading::EThreadRunState::Waiting;
+    }));
     threading::CErasedPodMsg filler;
     filler.assign_payload(AssetReleaseResult{});
     bool full = false;
@@ -792,6 +868,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
 int run_bundle_service_tests()
 {
     TTestContext ctx;
+    test_uncertain_ordinary_acquisition(ctx);
     test_generic_acquisitions(ctx);
     test_acquired_bundle_closure(ctx);
     test_acquisition_save_and_client_exit(ctx);

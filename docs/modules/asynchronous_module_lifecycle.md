@@ -9,7 +9,7 @@ Date:   21 Sep 2026
 # Asynchronous module lifecycle
 
 This reference describes the implemented Host module service, Executive startup
-policy and passive, threaded and Host-pumped module lifecycles. The
+policy and module lifecycles with a coordinator pump and optional requested threads. The
 [Host foundation](host_pump_foundation.md), [borrow protocol](service_borrow_lifetimes.md)
 and [restriction/maintenance contract](host_restriction_maintenance.md) specify
 the generic execution and lifetime boundaries in detail. Completion history and
@@ -27,8 +27,8 @@ The module catalogue contains `executable`, `executive`, `conditioning_general`,
 `render`, `audio` and `platform` mounts respectively. The conditioning module and
 `simulation` thread identities support independent-service lifecycle fixtures. The production renderer's identity
 is backend-neutral. The batch-runner thread range remains contiguous and covers
-all 32 supported runners. Audio advertises its service thread; Platform advertises
-Host pumping and has no native service thread or fabricated thread package.
+all 32 supported runners. Audio requests its service thread through its minimal
+coordinator pump; Platform runs its service provider in its pump.
 
 Pre-release catalogue ordinals are not a compatibility promise. Removing entries
 changes encoded identities and dependency bits, so clean-build all components and
@@ -40,13 +40,15 @@ solely to preserve earlier pre-release numbering.
 
 The Host starts its configured workers and builds the filesystem image on its file I/O
 worker before requesting the Executive DLL. Its normal
-message loop receives the binding completion and then creates the Executive
-thread. Per-thread context installation still runs on the newly created thread,
-because that operation installs thread-local state.
+message loop receives the binding completion and activates the Executive pump,
+which asynchronously requests its service thread. Per-thread context installation still runs on the newly created thread,
+because that operation installs thread-local state. Creation success is separate
+from module readiness; the minimal pump waits for its exact child readiness notice
+after initialization and validated direct registration.
 
 The [bootstrap configuration file](../project/bootstrap_configuration.md) requires
 `executive=<logical module filename>` to select the implementation advertising the
-Executive identity and exporting the Executive thread function. The checked-in
+Executive identity and exporting the mandatory Host pump. The checked-in
 flow-test presets select `package:/bin/MorphicExecutive.${module_extension}`.
 The bootstrap reader expands the token to the native extension before requesting the module.
 The [development filesystem image](../../development/README.md#build-output-redirect)
@@ -185,50 +187,40 @@ The test Executive, deliberate missing-export/failed-startup DLLs, and a renderi
 fixture that posts disposals during exit remain fixtures; production rendering
 contains no test switches.
 
-## Module service threads
+## Module pumps and requested threads
 
-A module may export `morphic_module_service_thread_v1(SServiceThread*)`, returning
-`EBindingResult::success` and a descriptor containing its thread identity and
-entry point. This optional, versioned export leaves the version-3 bootstrap ABI
-and the identity catalogue unchanged by that export itself. Modules with neither
-service-thread nor Host-pump capability remain passive. A caller can set
-`ModuleRequest::require_service_thread` to reject a passive destination with
-`function_unavailable`, including an already loaded
-passive module. An existing passive binding remains available after that rejection.
+Every bound module exports `morphic_module_host_pump_v1` and coordinates its
+lifecycle through `SHostPumpV1`. Host validates this capability on the binding
+worker, then installs module-local context for activation and subsequent Host
+invocations. A passive module uses a minimal pump with no child thread.
 
-The I/O worker queries the capability after installation. A successful descriptor
-must have a non-null entry point and a valid, registered thread identity; malformed
-descriptors fail loading. Host starts one normal-priority service thread per
-advertising module, using its stable binding, memory context and batch client.
-It tracks packages by module identity, so several modules may have independent
-service threads. Executive retains its separate bootstrap and system-control
-role and cannot also advertise an ordinary service thread.
+Each pump and requested thread owns a separate common endpoint. Either may
+submit `CreateThreadRequest`; Host provisions and prepares the native execution
+asynchronously and reports its outcome to both requester and coordinator.
+Creation, execution end and endpoint retirement are distinct facts. Requests
+already admitted remain module obligations when the requester exits. Exact
+endpoint identities prevent stale results from reaching replacements.
 
-Readiness completes the pending load or replacement. Failed startup joins the
-package and schedules worker-side unbinding before reporting failure. Host
-routes owning asset requests from every registered service and samples every
-service's state before draining final messages and releasing abandoned
-acquisitions. Unload and replacement protect active test callers/workers, wait
-for accepted asset work and batch publishers, join the service, dispose dependent
-assets, and only then unbind. Executive replacement preserves the other services;
-system shutdown requests their exit so they can release acquisitions before
-the module unload sequence proceeds.
+The built-in minimal coordinator waits for both successful creation and the
+matching child's `EndpointReady` notice. Children publish readiness after local
+initialization and direct-service registration. Host validates registration
+before forwarding readiness in the same FIFO. Failed, stopped or retired
+children cannot complete module startup. A no-child pump is ready immediately.
 
-Lifecycle fixtures run a `conditioning_general` service with the `simulation`
-thread identity alongside Rendering. They cover passive capability rejection,
-malformed descriptors, failed startup, replacement and shutdown with retained
-acquisitions, deferred disposal and dependent-asset cleanup.
+Stopping remains durable while Host continues fair queue and service progress.
+Host joins only returned native execution and drains its final submissions before
+retiring resources. Pumps close provider admission and seal their POD and owning
+submission boundaries after child retirement. Unload waits for accepted work,
+borrowers, batch publishers and notification users before local destruction and
+worker-side unbinding. Executive replacement preserves independent modules.
 
 ## Host-pumped services
 
-The independent `morphic_module_host_pump_v2` export advertises a complete
-`modules::SHostPumpV2` lifecycle. The binding worker discovers/validates it, then
-Host prepares module-local context and invokes activate, pump, stop and deactivate
-on the Host thread. A module cannot advertise both threaded and pumped execution;
-`require_host_pump` is separate from `require_service_thread`. The generic service
-advertisement is independent of execution, although the current provider adapter
-supports pumped execution only. Threaded consumers already use the same service
-and borrow protocols.
+Provider operations use ordinary asynchronous endpoint messages and results.
+The provider advertisement remains independent of execution; the existing
+module service destination is its coordinator endpoint. There is no inline
+Host service callback table or mutually exclusive pumped/threaded capability.
+See the [common endpoint reference](host_pump_foundation.md).
 
 Platform is an on-demand pumped provider. Binding/activation creates no window;
 explicit service commands create or acquire the first Windows window. Its native

@@ -18,6 +18,32 @@ stopping so required cleanup can be accounted after sticky shutdown. It retains
 thread/invocation checks, bounded accounting and clock-failure handling; deactivation
 cannot enter a scope, and ordinary work admission stays closed.
 
+## Current common-endpoint integration
+
+The [common endpoint reference](host_pump_foundation.md) supersedes the historical
+pump array, consumed-prefix and inline-service descriptions below. Pumps now read
+their own ordinary FIFO; Host never supplies an input array or validates a
+consumed count. Native execution callbacks retain restriction and maintenance
+authority only. Provider service calls are asynchronous ordinary POD exchanges.
+
+Nested maintenance retains invocation-protected operation and resource records.
+It may account for bounded endpoint submissions and stage work whose effects
+require the outer Host loop. It does not invoke another pump or reclaim storage
+accessible to the suspended invocation. Deferred messages replay through the same
+endpoint dispatcher in FIFO order, including registration before child readiness.
+Owning envelopes remain retained until safe outer processing or quiescent drain.
+The independent POD/owner seal boundaries replace consumed-prefix confirmation;
+no separate priority inbox or cleanup queue remains.
+
+Reply reservations now count outstanding obligations on the common FIFO. There
+are no separate control credits or control-publication methods. Native invocation
+protection and bounded maintenance capture remain necessary to prevent reentrant
+dispatch or reclamation while a module invocation is suspended.
+
+The sections below preserve the original design decisions and validation record
+for the earlier increments. Where they describe pump transport or callback APIs,
+use the current endpoint contract above.
+
 ## Ownership and header structure
 
 Host owns availability restriction state, maintenance scheduling and client

@@ -21,6 +21,7 @@
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "framework/module/host_pump.hpp"
+#include "framework/services/provider_client.hpp"
 #include "framework/threading/messages/CErasedPodMsg.hpp"
 
 namespace platform::runtime
@@ -118,6 +119,10 @@ private:
     void leave_native(const modules::SRestrictionScope scope) noexcept;
 
     const modules::SHostPumpContext& m_context;
+    services::CProviderClient m_services;
+    services::SDispatchedCommand m_pending_commands[256];
+    std::uint32_t m_command_head{ 0u }, m_command_count{ 0u };
+    bool m_admission_closing{ false }, m_admission_closed{ false };
     const native::SWindowAdapter& m_adapter;
     platform::threading::SAwakeClock m_clock;
     CReportCapture m_report;

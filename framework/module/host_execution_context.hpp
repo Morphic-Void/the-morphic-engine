@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "foundation/platform/platform_defines.hpp"
 #include "framework/module/host_restriction.hpp"
 #include "framework/services/service_protocol.hpp"
 #include "foundation/threading/CNotification.hpp"
@@ -31,16 +32,6 @@ struct SHostStopEndpoint
     }
 };
 
-struct SHostExecutionContext
-{
-    SModuleInstance instance;
-    services::SClientToken client;
-    SHostRestrictionSubscription subscription;
-    SHostRestrictionReader restriction;
-    threading::SNotificationReader notification;
-    SHostStopEndpoint stop;
-};
-
 enum class EMaintenanceStatus : std::uint32_t { success, invalid_context, reentrant, failed };
 struct SHostMaintenanceResult
 {
@@ -51,5 +42,21 @@ struct SHostMaintenanceResult
     std::uint32_t shutdown_requested{ 0u };
     std::uint32_t cancel_native{ 0u };
 };
+
+
+struct SHostExecutionContext
+{
+    SModuleInstance instance;
+    services::SClientToken client;
+    SHostRestrictionSubscription subscription;
+    SHostRestrictionReader restriction;
+    threading::SNotificationReader notification;
+    SHostStopEndpoint stop;
+    void* native_context{ nullptr };
+    SRestrictionEnterResult(MV_STD_ABI_CALL* enter_restriction)(void* const, const SRestrictionReason) noexcept{ nullptr };
+    ERestrictionStatus(MV_STD_ABI_CALL* leave_restriction)(void* const, const SRestrictionScope) noexcept{ nullptr };
+    SHostMaintenanceResult(MV_STD_ABI_CALL* maintain_host)(void* const) noexcept{ nullptr };
+};
+
 
 }   //  namespace modules

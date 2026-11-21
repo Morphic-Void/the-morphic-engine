@@ -22,6 +22,7 @@ namespace platform::runtime
 {
 struct SInputAcceptanceAccess
 {
+    static services::CProviderClient& services(CPlatformRuntime& runtime) noexcept { return runtime.m_services; }
     static std::int32_t reserve(CPlatformRuntime& runtime, const services::ServiceRequest& request) noexcept
     { return runtime.reserve(request, true); }
     static void complete(CPlatformRuntime& runtime, const std::int32_t slot, const services::EServiceStatus status) noexcept
@@ -340,7 +341,7 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
                 const reports::PlatformReportCaptureFailed stale{
                     { request.capture.platform_instance, (request.capture.capture_id - 1u) }, { reports::EStage::capture, reports::EReason::clock_failed } };
                 const auto previous = ::threading::make_pod_message(-1, stale);
-                (void)state.context.services->post_pod(state.context.service_context, &previous);
+                (void)services::submission_status(state.context.endpoint->post(previous));
             }
         }
         else if (message.copy_payload_to(receipt) && state.report_hold && (receipt.disposition == reports::EDisposition::interrupted))
@@ -356,7 +357,7 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
             (receipt.disposition == reports::EDisposition::published))
         {
             const auto read = ::threading::make_pod_message(710, reports::PlatformReportRequest{});
-            if (state.context.services->post_pod(state.context.service_context, &read) != EServiceStatus::success)
+            if (services::submission_status(state.context.endpoint->post(read)) != EServiceStatus::success)
             {
                 MV_LOG(error, "Platform report fixture could not submit current read");
             }
@@ -365,7 +366,7 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
         {
             const auto release = ::threading::make_pod_message(711, AssetReleaseRequest{ current.acquisition });
             if ((current.status != reports::EStatus::success) || !current.acquisition || !current.bytes.size() ||
-                (state.context.services->post_pod(state.context.service_context, &release) != EServiceStatus::success))
+                (services::submission_status(state.context.endpoint->post(release)) != EServiceStatus::success))
             {
                 MV_LOG(error, "Platform report fixture failed to acquire current");
             }
@@ -403,11 +404,11 @@ void progress(runtime::CPlatformRuntime& runtime, const bool stopping) noexcept
     if (state.offered && !state.completed)
     {
         EServiceStatus status = EServiceStatus::closing;
-        if (!state.shared.closing.load())
+        const services::SServiceBorrowOffer offer{ state.acquisition.command.route, state.acquisition.command.request,
+            { &state.view, sizeof(state.view), 1u } };
+        if (!state.shared.closing.load() || SInputAcceptanceAccess::services(runtime).preparing(offer))
         {
-            const services::SServiceBorrowOffer offer{ state.acquisition.command.route, state.acquisition.command.request,
-                { &state.view, sizeof(state.view), 1u } };
-            status = context.services->prepare_borrow(context.service_context, &offer, &state.borrow);
+            status = SInputAcceptanceAccess::services(runtime).prepare_borrow( &offer, &state.borrow);
         }
         if (status != EServiceStatus::busy)
         {
@@ -419,14 +420,14 @@ void progress(runtime::CPlatformRuntime& runtime, const bool stopping) noexcept
     {
         if (!state.retiring)
         {
-            const EServiceStatus status = context.services->begin_borrow_retirement(context.service_context, state.borrow);
+            const EServiceStatus status = SInputAcceptanceAccess::services(runtime).begin_borrow_retirement( state.borrow);
             if (status == EServiceStatus::success) state.retiring = true;
             else if (status != EServiceStatus::busy) state.shared.failed.store(true);
         }
         const bool safe = (state.quiescence == services::EServiceQuiescence::relinquished) ||
             (state.quiescence == services::EServiceQuiescence::execution_ended) ||
             (state.quiescence == services::EServiceQuiescence::never_published);
-        if (state.retiring && safe && (context.services->finish_borrow_retirement(context.service_context, state.borrow) == EServiceStatus::success))
+        if (state.retiring && safe && (SInputAcceptanceAccess::services(runtime).finish_borrow_retirement( state.borrow) == EServiceStatus::success))
         {
             state.borrow = {};
         }

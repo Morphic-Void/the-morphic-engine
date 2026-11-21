@@ -1,7 +1,7 @@
 Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 License: MIT (see LICENSE file in repository root)
 
-# Module Bootstrap ABI Version 4
+# Module Bootstrap ABI Version 1
 
 The [asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
 is the implemented Host orchestration around this ABI. The Host I/O worker loads,
@@ -13,11 +13,11 @@ Shared binding contracts and installation support live in `framework/module/`.
 `host/module/bound_module.*` owns the binding and native module lifetime;
 Foundation's `foundation/platform/module/binding.*` supplies the reusable native loader.
 
-Version 4 adds installation of the Host-owned shared sequence counter to the
-core function table, increasing it from eight to nine function pointers. This
-changes the DLL ABI, so the Host and all modules must be rebuilt together.
-The exported entry point is
-`morphic_module_bootstrap_v4`. Host and module exchange the same
+The current pre-release ABI retains the nine-function core table, including
+installation of the Host-owned shared sequence counter. The common endpoint
+refactor resets the affected bootstrap contract to version 1; the Host and all
+modules must be rebuilt together. The exported entry point is
+`morphic_module_bootstrap_v1`. Host and module exchange the same
 `SAdvertisedIdentity` representation: claimed module ID, version, and inclusive
 functional-major range. No compatibility adapter is retained; all components
 are rebuilt together.
@@ -30,13 +30,13 @@ The functional-major range describes the shared bootstrap/core protocol majors
 with which each participant can interoperate. Binding requires the two ranges
 to overlap and negotiates the highest common major. That selected major governs
 the core function table and subsequent function queries. Host, module, and
-functional majors are currently all 4.
+functional majors are currently all 1.
 
 The executive validates and installs its immutable local-type table and its
 component-local erased-owner operation authority before returning bootstrap
 functions. That authority combines a SYSTEM table compiled into the DLL with
 the DLL's own LOCAL table. The host then exchanges numeric advertised
-identities, populates the version-4 core surface, and installs services in this
+identities, populates the version-1 core surface, and installs services in this
 order:
 
 1. host-owned system-registry view;
@@ -90,16 +90,18 @@ the atomic, but must not store/reset it during use.
 
 `host/threading/CThreadPackage` owns the native thread, launch configuration,
 prepare callback/context, batch-client instance and notification/execution pins.
-Its trampoline receives the Host package, then passes the same
-`framework/threading/CThreadResources` pointer to preparation and worker entry.
-The module's exact `is_thread_context_ready()` provisioning-pointer check is
-unchanged. Shared resources contain assigned identities, performance conversion,
+Its trampoline receives the Host package and constructs a
+`framework/threading/CThreadContext` before preparation. Preparation installs that
+exact context pointer; the requested entry receives the context by reference.
+The module's `is_thread_context_ready()` check validates that installed pointer.
+Shared endpoint resources contain assigned identities, performance conversion,
 wait/control state and message channels, with borrowed batch-client and Host
 execution access; they do not contain the native thread or launch callbacks.
 Host supplies the owner and worker endpoint identities when creating them.
 
-`framework/threading/CThreadContext` exposes worker lifecycle, identity,
-batch-client, message and wait operations. Terminal publication, native join,
+`framework/threading/CEndpointContext` exposes common lifecycle, identity,
+batch-client and message operations to pumps and requested threads.
+`CThreadContext` adds native-thread waiting. Terminal publication, native join,
 late notification/batch-publisher quiescence and final resource/pin release
 remain separate steps. A terminal state or completed join alone does not permit
 releasing resources still reachable by publishers.
@@ -110,9 +112,10 @@ the host unloads it without starting module work.
 
 Operation authority is installed once and has no uninstall path. Its function
 pointers remain in component-local static storage and are not part of the
-bootstrap ABI exchanged with the host. Shutdown first stops and joins all
-module threads, which destroys module-local runtime state and deallocates their
-transports. Accepted asset operations are drained; any retained assets still
+bootstrap ABI exchanged with the host. During ordinary shutdown the module pump
+orders child stops. Host joins returned native executions and drains their final
+submissions; endpoint transports and pins remain until accepted work and all
+publishers are quiescent. Accepted asset operations are drained; any retained assets still
 flagging a dependency on the outgoing module trigger an assertion log and are
 disposed of before unbinding. The host then requires the module context's allocation count and
 attributed bytes both to be zero before native unload. A failed audit leaves the

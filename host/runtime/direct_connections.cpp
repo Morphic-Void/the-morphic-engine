@@ -203,7 +203,7 @@ void CDirectConnections::request(SClientRecord& client, SClientRecord* const pee
 
 bool CDirectConnections::publish(const SSide& side, const threading::CErasedPodMsg& message) noexcept
 {
-    if (side.client->post_reply(message)) return true;
+    if (side.client->post(message)) return true;
     if (side.client->thread && side.client->thread->pod_delivery_poisoned())
     {
         side.client->request_exit();

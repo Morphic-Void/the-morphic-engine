@@ -247,7 +247,7 @@ void CAssetService::progress_processes() noexcept
         SClientRecord& client = *process.client;
         if (process.phase == EProcessPhase::accepting)
         {
-            if (client.thread && client.thread->pod_delivery_poisoned())
+            if (client.endpoint->host_to_worker_msgs.posting_poisoned())
             {
                 process.outcome = Status::delivery_failed;
                 client.request_exit();
@@ -261,7 +261,7 @@ void CAssetService::progress_processes() noexcept
                 }
                 const auto published = client.publish_reply(threading::make_pod_message(process.slot,
                     SchemaProcessAccepted{ process.id }));
-                if (client.thread && client.thread->pod_delivery_poisoned())
+                if (client.endpoint->host_to_worker_msgs.posting_poisoned())
                 {
                     if (published == EReplyPublication::busy) client.cancel_reservation(1u);
                     client.request_exit();
@@ -335,7 +335,7 @@ void CAssetService::publish_process(SProcess& process) noexcept
             ((result.status == Status::invalid_request) ? Reason::deadline : Reason::transport))));
         result.failure.reason = static_cast<std::uint16_t>(reason);
     }
-    const bool already_poisoned = client.thread && client.thread->pod_delivery_poisoned();
+    const bool already_poisoned = client.endpoint->host_to_worker_msgs.posting_poisoned();
     EReplyPublication publication = EReplyPublication::cancelled;
     if (already_poisoned)
     {
@@ -344,7 +344,7 @@ void CAssetService::publish_process(SProcess& process) noexcept
         m_failed = true;
     }
     else publication = client.publish_reply(threading::make_pod_message(process.slot, result));
-    const bool ambiguous = !already_poisoned && client.thread && client.thread->pod_delivery_poisoned();
+    const bool ambiguous = !already_poisoned && client.endpoint->host_to_worker_msgs.posting_poisoned();
     if (ambiguous)
     {
         if (publication == EReplyPublication::busy) client.cancel_reservation(1u);
@@ -356,7 +356,7 @@ void CAssetService::publish_process(SProcess& process) noexcept
     {
         acquisition->client = &client;
         acquisition->source = backing->asset;
-        acquisition->schema_output = true;
+        acquisition->requires_quiescence = true;
         backing->references.open = true;
         backing->ambiguous_client = ambiguous ? &client : nullptr;
         backing->private_output = false;

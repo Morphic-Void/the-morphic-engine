@@ -111,7 +111,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
         const SInputInstallation* installation = nullptr;
         for (const SConfiguration& configuration : m_configurations)
         {
-            if (configuration.token.value && (configuration.token.value == request.installation.value))
+            if (configuration.token.value && (configuration.token.value == request.installation.value) && (configuration.retirement < 0))
             {
                 const SInputInstallation* const candidate = configuration.data->profile(request.profile, kind);
                 if (candidate && candidate->contains(request.context)) installation = candidate;
@@ -238,8 +238,7 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
                     else
                     {
                         ::threading::SNotificationEndpoint endpoint;
-                        status = m_context.services->bind_borrow_notification(m_context.service_context,
-                            connection->borrow, ready.registration, &endpoint);
+                        status = m_services.bind_borrow_notification(connection->borrow, ready.registration, &endpoint);
                         if (status == EServiceStatus::success)
                         {
                             connection->registration = ready.registration;
@@ -345,6 +344,11 @@ bool CPlatformRuntime::input_command(const services::SDispatchedCommand& dispatc
             }
         }
     }
+    if ((opcode == ECommand::input_ready) && (status == EServiceStatus::busy))
+    {
+        m_completions[completion] = {};
+        return false;
+    }
     complete(completion, status);
     return true;
 }
@@ -429,11 +433,21 @@ void CPlatformRuntime::progress_inputs() noexcept
             {
                 const services::SServiceBorrowOffer offer{ connection.acquisition.command.route, connection.acquisition.command.request,
                     { &connection.view, sizeof(connection.view), 4u } };
-                const EServiceStatus status = m_context.services->prepare_borrow(m_context.service_context, &offer, &connection.borrow);
+                const EServiceStatus status = m_services.prepare_borrow(&offer, &connection.borrow);
                 if ((status != EServiceStatus::success) && (status != EServiceStatus::busy))
                 {
                     close_input(connection, status);
                 }
+            }
+        }
+        const services::SServiceBorrowOffer pending_offer{ connection.acquisition.command.route, connection.acquisition.command.request,
+            { &connection.view, sizeof(connection.view), 4u } };
+        if (!connection.borrow.value && m_services.preparing(pending_offer))
+        {
+            const EServiceStatus status = m_services.prepare_borrow(&pending_offer, &connection.borrow);
+            if (status == EServiceStatus::busy)
+            {
+                continue;
             }
         }
         if (connection.snapshot().phase != EPhase::closing)
@@ -452,7 +466,7 @@ void CPlatformRuntime::progress_inputs() noexcept
         close_input(connection, (connection.snapshot().failure ? EServiceStatus::delivery_failed : EServiceStatus::closing));
         if (!connection.retirement_started && connection.borrow.value)
         {
-            const EServiceStatus status = m_context.services->begin_borrow_retirement(m_context.service_context, connection.borrow);
+            const EServiceStatus status = m_services.begin_borrow_retirement(connection.borrow);
             if (status == EServiceStatus::success) connection.retirement_started = true;
             else if (status != EServiceStatus::busy) native_failure(static_cast<std::uint32_t>(status));
         }
@@ -468,13 +482,12 @@ void CPlatformRuntime::progress_inputs() noexcept
         const bool cleanup = !connection.borrow.value || (connection.quiescence == services::EServiceQuiescence::never_published) ||
             (connection.quiescence == services::EServiceQuiescence::relinquished) ||
             (connection.quiescence == services::EServiceQuiescence::execution_ended);
-        if (cleanup && (connection.completion < 0) && !m_native_depth && !m_callback_depth && !m_modal_depth[0] && !m_modal_depth[1])
+        if (cleanup && m_services.retire_bindings(connection.borrow) && (connection.completion < 0) && !m_native_depth && !m_callback_depth && !m_modal_depth[0] && !m_modal_depth[1])
         {
             connection.notification = {};
             if ((connection.view.kind == EConnection::desktop) && m_native_capture) continue;
             if (!connection.mapper().clear_step()) continue;
-            if (!connection.borrow.value || (m_context.services->finish_borrow_retirement(m_context.service_context,
-                connection.borrow) == EServiceStatus::success))
+            if (!connection.borrow.value || (m_services.finish_borrow_retirement(connection.borrow) == EServiceStatus::success))
             {
                 if (connection.view.kind == EConnection::desktop)
                 {

@@ -153,6 +153,7 @@
     <ClInclude Include="..\tests\test_suites\ShaderBatch_cases.hpp" />
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
     <ClCompile Include="..\host\runtime\client_record.cpp" />
+    <ClCompile Include="..\host\runtime\endpoint_runtime.cpp" />
     <ClCompile Include="..\host\runtime\service_router.cpp" />
     <ClCompile Include="..\host\runtime\service_borrows.cpp" />
     <ClCompile Include="..\host\runtime\direct_connections.cpp" />
@@ -235,6 +236,8 @@
     <ClInclude Include="..\tests\support\direct_connection_fixture.hpp" />
     <ClInclude Include="..\tests\support\input_schema.hpp" />
     <ClInclude Include="..\tests\support\host_client_fixture.hpp" />
+    <ClInclude Include="..\tests\support\endpoint_fixture.hpp" />
+    <ClInclude Include="..\tests\support\provider_endpoint_fixture.hpp" />
     <ClInclude Include="..\tests\support\thread_helpers.hpp" />
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp" />
     <ClInclude Include="..\tests\support\collection_growth_helpers.hpp" />

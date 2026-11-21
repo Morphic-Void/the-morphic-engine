@@ -11,6 +11,7 @@
 #include <thread>       //  std::this_thread::yield
 
 #include "host/threading/CThreadPackage.hpp"
+#include "framework/threading/CThreadContext.hpp"
 
 #include "debug/macros.hpp"
 #include "platform/threading/thread_naming.hpp"
@@ -23,7 +24,7 @@ namespace threading
 std::uint32_t MV_STD_ABI_CALL CThreadPackage::thread_entry_point(void* const user_data) noexcept
 {
     CThreadPackage* const package = static_cast<CThreadPackage*>(user_data);
-    if ((package == nullptr) || (package->m_config.entry_point == nullptr))
+    if (package == nullptr)
     {
         return ~0u;
     }
@@ -40,13 +41,28 @@ std::uint32_t MV_STD_ABI_CALL CThreadPackage::thread_entry_point(void* const use
     }
     (void)platform::threading::set_current_thread_priority(config.priority);
 
-    if ((config.prepare != nullptr) && !config.prepare(config.prepare_context, config.thread_id, resources))
+    CThreadContext context{ *resources };
+    if ((config.prepare != nullptr) && !config.prepare(config.prepare_context, config.thread_id, &context))
     {
+        package->m_preparation.store(2u, std::memory_order_release);
         resources->control_state.mark_failed(~0u);
+        package->m_returned.store(true, std::memory_order_release);
+        (void)resources->owner_wake.signal();
         return ~0u;
     }
 
-    return config.entry_point(resources);
+    package->m_preparation.store(1u, std::memory_order_release);
+    resources->control_state.mark_running();
+    (void)resources->owner_wake.signal();
+    const std::uint32_t result = config.endpoint_entry ? config.endpoint_entry(context, config.module_context) : config.entry_point(resources);
+    if ((result != 0u) || (resources->control_state.query_state() == EThreadRunState::Failed))
+    {
+        if (resources->control_state.query_state() != EThreadRunState::Failed) resources->control_state.mark_failed(result);
+    }
+    else resources->control_state.mark_exited();
+    package->m_returned.store(true, std::memory_order_release);
+    (void)resources->owner_wake.signal();
+    return result;
 }
 
 bool CThreadPackage::install_owner_wake(const platform::threading::SWakeEndpoint wake) noexcept
@@ -59,7 +75,7 @@ bool CThreadPackage::install_owner_wake(const platform::threading::SWakeEndpoint
 
 bool CThreadPackage::startup() noexcept
 {
-    if (m_config.entry_point == nullptr)
+    if ((m_config.entry_point == nullptr) && (m_config.endpoint_entry == nullptr))
     {
         return false;
     }
@@ -72,10 +88,10 @@ bool CThreadPackage::startup() noexcept
             {
                 if (m_resources.wait_predicate.acquire_control())
                 {
-                    bool prepared = !m_host_notification || m_host_notification->initialise(m_resources.wait_predicate);
+                    m_resources.wait_target = &m_resources.wait_predicate;
+                    bool prepared = !m_host_notification || m_resources.pin_notification(*m_host_notification);
                     if (prepared && m_host_notification)
                     {
-                        ++m_notification_pins;
                         m_host_pinned = true;
                         m_host_execution->notification = m_host_notification->reader();
                         m_resources.host_execution = m_host_execution;
@@ -91,16 +107,7 @@ bool CThreadPackage::startup() noexcept
                     }
                     if (m_created)
                     {
-                        while (m_resources.control_state.is_starting())
-                        {
-                            std::this_thread::yield();
-                        }
-                        if (m_resources.control_state.is_ready())
-                        {
-                            return true;
-                        }
-                        if (!join_execution()) return false;
-                        m_created = false;
+                        return true;
                     }
                     m_resources.control_state.mark_empty();
                     retire_host_execution();
@@ -155,7 +162,7 @@ bool CThreadPackage::retire_host_execution() noexcept
     MV_ASSERT(!m_created || m_resources.control_state.is_done());
     //  A terminal publication precedes the native return. Keep the context and
     //  predicate pin until join proves even that final execution has finished.
-    if (m_created && (!m_resources.control_state.is_done() || !join_execution()))
+    if (m_created && (!execution_ended() || !join_execution()))
     {
         return false;
     }
@@ -168,36 +175,34 @@ bool CThreadPackage::retire_host_execution() noexcept
 bool CThreadPackage::join_terminated_execution() noexcept
 {
     if (!m_thread.is_valid()) return true;
-    return m_resources.control_state.is_done() && join_execution();
+    return execution_ended() && join_execution();
 }
 
 bool CThreadPackage::shutdown() noexcept
 {
     //  The owner must continue provider retirement before attempting teardown.
-    if (m_notification_pins != 0u) return false;
-    if (m_created && m_resources.wait_predicate.has_control())
+    if (m_resources.notification_pins != 0u) return false;
+    if (m_created)
     {
         m_resources.control_state.request_exit();
-        (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
-        while (!m_resources.control_state.is_done())
-        {
-            std::this_thread::yield();
-        }
+        if (m_resources.wait_predicate.has_control()) (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
+        if (!execution_ended()) return false;
         if (!join_execution()) return false;
         release_wait_control();
-        if (!m_created)
+        if (m_created)
         {
             m_resources.worker_to_host_owned_msgs.deallocate();
             m_resources.worker_to_host_msgs.deallocate();
             m_resources.host_to_worker_msgs.deallocate();
+            m_created = false;
         }
     }
-    return m_created;
+    return !m_created;
 }
 
 void CThreadPackage::release_wait_control() noexcept
 {
-    MV_ASSERT(m_notification_pins == 0u);
+    MV_ASSERT(m_resources.notification_pins == 0u);
     //  A joined requester can have consumed its final response before the
     //  runner finishes waking it. Keep the predicate controlled until then.
     while ((m_resources.batch_client != nullptr) &&
@@ -210,24 +215,17 @@ void CThreadPackage::release_wait_control() noexcept
 
 CThreadPackage::~CThreadPackage() noexcept
 {
-    MV_ASSERT(m_notification_pins == 0u);
+    MV_ASSERT(m_resources.notification_pins == 0u);
 }
 
 bool CThreadPackage::pin_notification(CNotification& notification) noexcept
 {
-    if (!m_created || (m_notification_pins == ~0u) ||
-        !notification.initialise(m_resources.wait_predicate))
-    {
-        return false;
-    }
-    ++m_notification_pins;
-    return true;
+    return m_created && m_resources.pin_notification(notification);
 }
 
 void CThreadPackage::unpin_notification() noexcept
 {
-    MV_ASSERT(m_notification_pins != 0u);
-    if (m_notification_pins != 0u) --m_notification_pins;
+    m_resources.unpin_notification();
 }
 
 }   //  namespace threading

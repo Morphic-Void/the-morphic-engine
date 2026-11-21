@@ -30,6 +30,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\messages\CErasedMessageTransports.hpp"><Filter>Framework\threading\messages</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CBatchWork.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_protocol.hpp"><Filter>Framework\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\provider_messages.hpp"><Filter>Framework\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\provider_client.hpp"><Filter>Framework\services</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_notifications.hpp"><Filter>Framework\services</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow_client.hpp"><Filter>Framework\services</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\services\service_borrow.hpp"><Filter>Framework\services</Filter></ClInclude>
@@ -40,12 +42,16 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_pump.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\service_thread_pump.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_execution_context.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_messages.hpp"><Filter>Framework\filesystem</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\schema_messages.hpp"><Filter>Framework\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\assets\asset_messages.hpp"><Filter>Framework\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.hpp"><Filter>Framework\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CEndpointResources.hpp"><Filter>Framework\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CEndpointContext.hpp"><Filter>Framework\threading</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\endpoint_messages.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadResources.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_memory.hpp"><Filter>Framework\platform</Filter></ClInclude>
@@ -95,6 +101,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.cpp"><Filter>Framework\module</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.cpp"><Filter>Framework\module</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.cpp"><Filter>Framework\threading</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\threading\CEndpointContext.cpp"><Filter>Framework\threading</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\framework\system\system_erased_owner_operations.cpp"><Filter>Framework\system</Filter></ClCompile>
   </ItemGroup>
 </Project>

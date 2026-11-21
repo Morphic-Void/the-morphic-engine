@@ -11,6 +11,13 @@ Review: 04 Nov 2026
 
 ## Status and scope
 
+Host/module communication is now implemented by the
+[common endpoint contract](host_pump_foundation.md). Its mandatory lifecycle pump,
+requested service threads and common asynchronous queues supersede this design's
+optional execution advertisements, pump service callbacks and consumed-prefix
+mechanics. Earlier decisions and validation below remain a historical record;
+they do not define an additional communication path.
+
 The [controller acquisition contract](controller_input.md), accepted 9 November,
 adds portable discovery, explicit assignment, four independent pipes and Windows
 GameInput integration. Input service/endpoint version 4 supersedes the earlier

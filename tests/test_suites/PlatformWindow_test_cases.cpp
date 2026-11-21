@@ -11,6 +11,7 @@
 //  native adapter, plus explicitly invoked Windows geometry and modal acceptance.
 
 #include "framework/system/system_ids.hpp"
+#include "tests/support/provider_endpoint_fixture.hpp"
 #include "platform/runtime/platform_runtime.hpp"
 #include "host/runtime/service_router.hpp"
 #include "host/runtime/host_restrictions.hpp"
@@ -41,6 +42,8 @@ struct SPlatformTestAccess
         runtime.leave_native(scope);
         return status == services::EServiceStatus::success;
     }
+    static void native_first(CPlatformRuntime& runtime) noexcept { runtime.m_native_first = false; }
+    static std::uint32_t pending_commands(const CPlatformRuntime& runtime) noexcept { return runtime.m_command_count; }
     static std::uint32_t uses(const CPlatformRuntime& runtime) noexcept { return runtime.m_use_count; }
     static void permit_test_cleanup_retry(CPlatformRuntime& runtime) noexcept { runtime.m_window.destruction_failed = false; }
     static void discharge_fake_external_resources(CPlatformRuntime& runtime) noexcept
@@ -89,6 +92,7 @@ struct SNative
     SClock* clock{ nullptr };
     std::uint64_t dispatch_cost{ 0u };
     bool fail_create{ false }, fail_destroy{ false }, pending_close{ false }, pending_events{ false };
+    bool native_loss_requested{ false };
     static inline SNative* current{ nullptr };
     static EServiceStatus create(platform::native::SWindow& window) noexcept
     {
@@ -139,11 +143,12 @@ struct SFixture
     SClock clock;
     SNative native;
     host::CHostRestrictions restrictions{ clock.source() };
-    host::SClientRecord client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
-    host::SClientRecord provider{ module_ids::platform, 103u };
+    tests::SEndpointFixture client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
+    tests::SEndpointFixture provider{ module_ids::platform, 103u };
     host::CServiceRouter router;
     modules::SHostExecutionContext execution;
-    modules::SHostPumpServices services;
+    threading::CEndpointContext endpoint{ *provider.endpoint };
+    tests::CProviderEndpointFixture exchanges;
     modules::SHostPumpContext context;
     TInstance<platform::runtime::CPlatformRuntime> runtime;
     SServiceRoute route, other_route;
@@ -154,7 +159,6 @@ struct SFixture
     unsigned posted_count{ 0u };
     std::uint64_t binding_cost{ 0u };
     std::atomic<unsigned> native_modes{ 0u }, cancel_requested{ 0u }, maintenance_calls{ 0u };
-    unsigned last_commands{ 0u };
     modules::SProgress progress;
 
     static EServiceStatus MV_STD_ABI_CALL post(void* const context, const threading::CErasedPodMsg* const message) noexcept
@@ -172,6 +176,11 @@ struct SFixture
     {
         auto& self = *static_cast<SFixture*>(context);
         return self.completion_busy ? EServiceStatus::busy : self.router.complete(self.provider, *reply);
+    }
+    static EServiceStatus MV_STD_ABI_CALL commit(void* const context, const ServiceReply* const reply) noexcept
+    {
+        auto& self = *static_cast<SFixture*>(context);
+        return self.completion_busy ? EServiceStatus::busy : self.router.commit_resource(self.provider, *reply);
     }
     static EServiceStatus MV_STD_ABI_CALL prepare(void* const context, const SServiceBorrowOffer* const offer,
         SServiceBorrow* const borrow) noexcept
@@ -223,20 +232,13 @@ struct SFixture
         SNative::current = &native;
         native.clock = &clock;
         client.phase = other.phase = provider.phase = host::EClientPhase::ready;
-        client.execution = other.execution = provider.execution = host::EClientExecution::pumped;
-        services.complete = &complete;
-        services.post_pod = &post;
-        services.prepare_borrow = &prepare;
-        services.begin_borrow_retirement = &begin;
-        services.finish_borrow_retirement = &finish;
-        services.bind_borrow_notification = &bind;
-        services.enter_restriction = &enter;
-        services.leave_restriction = &leave;
-        services.maintain_host = &maintain;
         execution.restriction = restrictions.reader();
         context.instance = provider.instance;
-        context.services = &services;
-        context.service_context = this;
+        context.endpoint = &endpoint;
+        execution.native_context = this;
+        execution.enter_restriction = &enter;
+        execution.leave_restriction = &leave;
+        execution.maintain_host = &maintain;
         context.execution = &execution;
         TEST_EXPECT(tests, (runtime.emplace(context, adapter, clock.source()) && runtime->initialise()));
         host::SServiceProvider advertisement{ &provider, &k_window_contract, 1u };
@@ -245,9 +247,9 @@ struct SFixture
             TEST_EXPECT(tests, recipient->reserve_replies(1u));
             router.open({ module_ids::platform, 1u, 1u, { 1u } }, 1, *recipient, &advertisement);
             OpenServiceResult result;
-            TEST_EXPECT(tests, (recipient->messages[0].copy_payload_to(result) && (result.status == EServiceStatus::success)));
+            TEST_EXPECT(tests, (recipient->received(0).copy_payload_to(result) && (result.status == EServiceStatus::success)));
             ((recipient == &client) ? route : other_route) = result.route;
-            recipient->consume(1u);
+            recipient->discard(1u);
         }
     }
 
@@ -271,35 +273,34 @@ struct SFixture
     template<typename T> std::uint64_t submit(const EWindowCommand opcode, const T& request, const bool second = false) noexcept
     { return submit(opcode, &request, sizeof(request), second); }
 
-    void step() noexcept
+    void step(const unsigned turns = 256u) noexcept
     {
-        router.progress();
-        SDispatchedCommand commands[64];
-        threading::CErasedPodMsg messages[64];
-        std::uint32_t controls = 0u;
-        modules::SPumpInput input;
-        input.commands = commands;
-        input.command_count = router.prepare_batch(provider, commands, 64u);
-        input.messages = messages;
-        input.message_count = provider.copy_messages(messages, 64u, controls);
-        modules::SPumpResult result;
-        TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
-        runtime->pump(input, result);
-        progress = result.progress;
-        TEST_EXPECT(tests, restrictions.end_invocation());
-        TEST_EXPECT(tests, router.finish_batch(provider, commands, input.command_count, result.consumed_commands));
-        provider.consume_messages(result.consumed_messages, controls);
-        last_commands = result.consumed_commands;
-        router.progress();
+        for (unsigned turn = 0u; turn < turns; ++turn)
+        {
+            router.progress();
+            (void)exchanges.progress(*this);
+            modules::SPumpInput input;
+            modules::SPumpResult result;
+            TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
+            runtime->pump(input, result);
+            progress = result.progress;
+            TEST_EXPECT(tests, restrictions.end_invocation());
+            const bool work = exchanges.progress(*this);
+            router.progress();
+            if (!work && !provider.endpoint->host_to_worker_msgs.refresh_readable_count())
+            {
+                break;
+            }
+        }
     }
 
     SPreparedServiceBorrow prepared(const std::uint64_t request, const bool second = false) const noexcept
     {
         const auto& recipient = second ? other : client;
-        for (std::uint32_t index = 0u; index < recipient.message_count; ++index)
+        for (std::uint32_t index = 0u; index < recipient.pending(); ++index)
         {
             ServiceReply reply;
-            if (recipient.messages[index].copy_payload_to(reply) && (reply.request.value == request) && (reply.notice == EServiceNotice::prepared))
+            if (recipient.received(index).copy_payload_to(reply) && (reply.request.value == request) && (reply.notice == EServiceNotice::prepared))
             {
                 SPreparedServiceBorrow result;
                 std::memcpy(&result, reply.payload, sizeof(result));
@@ -311,10 +312,10 @@ struct SFixture
     EServiceStatus terminal(const std::uint64_t request, const bool second = false) const noexcept
     {
         const auto& recipient = second ? other : client;
-        for (std::uint32_t index = 0u; index < recipient.message_count; ++index)
+        for (std::uint32_t index = 0u; index < recipient.pending(); ++index)
         {
             ServiceReply reply;
-            if (recipient.messages[index].copy_payload_to(reply) && (reply.request.value == request) && (reply.notice == EServiceNotice::completed))
+            if (recipient.received(index).copy_payload_to(reply) && (reply.request.value == request) && (reply.notice == EServiceNotice::completed))
             {
                 return reply.status;
             }
@@ -327,7 +328,7 @@ struct SFixture
         TEST_EXPECT(tests, recipient.reserve_replies(1u));
         router.register_notification(recipient, { (second ? other_route : route), borrow.borrow }, 400);
         ServiceNotificationRegistered result;
-        TEST_EXPECT(tests, recipient.messages[recipient.message_count - 1u].copy_payload_to(result));
+        TEST_EXPECT(tests, recipient.received(recipient.pending() - 1u).copy_payload_to(result));
         return result;
     }
     void ready(const std::uint64_t acquisition, const bool second = false) noexcept
@@ -352,10 +353,10 @@ struct SFixture
         completion_busy = false;
         for (auto* recipient : { &client, &other })
         {
-            for (std::uint32_t index = 0u; index < recipient->message_count; ++index)
+            for (std::uint32_t index = 0u; index < recipient->pending(); ++index)
             {
                 ServiceReply reply;
-                if (recipient->messages[index].copy_payload_to(reply) && (reply.notice == EServiceNotice::prepared))
+                if (recipient->received(index).copy_payload_to(reply) && (reply.notice == EServiceNotice::prepared))
                 {
                     SPreparedServiceBorrow borrow;
                     std::memcpy(&borrow, reply.payload, sizeof(borrow));
@@ -370,8 +371,8 @@ struct SFixture
         TEST_EXPECT(tests, restrictions.end_invocation());
         for (unsigned iteration = 0u; (iteration < 40u) && !runtime->stopped(); ++iteration)
         {
-            client.consume_messages(client.control_count, client.control_count);
-            other.consume_messages(other.control_count, other.control_count);
+            client.discard(client.pending());
+            other.discard(other.pending());
             step();
         }
         TEST_EXPECT(tests, (runtime->stopped() && router.provider_borrows_retired(provider)));
@@ -449,7 +450,7 @@ void fifo_capacity_and_late_ready(TTestContext& ctx)
         f.ready(acquisition);
     }
     f.step();
-    TEST_EXPECT(ctx, ((f.last_commands == 33u) && (f.terminal(excess) == EServiceStatus::busy)));
+    TEST_EXPECT(ctx, (f.terminal(excess) == EServiceStatus::busy));
     for (const auto acquisition : acquisitions)
     {
         TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success));
@@ -546,10 +547,13 @@ void shared_slice_and_loss(TTestContext& ctx)
     const auto window = static_cast<const SWindowViewV1*>(prepared.view.descriptor)->window;
     f.native.dispatch_cost = 2000000u;
     const auto close = f.submit(EWindowCommand::request_close, SWindowRequest{ window });
-    f.step(); // Native-first slice consumes the available time.
-    TEST_EXPECT(ctx, ((f.last_commands == 0u) && (f.terminal(close) == EServiceStatus::unavailable)));
-    f.step(); // Alternation lets the FIFO command run before the next native batch.
-    TEST_EXPECT(ctx, ((f.last_commands == 1u) && (f.terminal(close) == EServiceStatus::success)));
+    platform::runtime::SPlatformTestAccess::native_first(*f.runtime);
+    f.step(1u); // Native-first slice consumes the available time.
+    TEST_EXPECT(ctx, ((platform::runtime::SPlatformTestAccess::pending_commands(*f.runtime) == 1u) &&
+        (f.terminal(close) == EServiceStatus::unavailable)));
+    f.step(1u); // Alternation lets the retained command run before the next native batch.
+    TEST_EXPECT(ctx, ((platform::runtime::SPlatformTestAccess::pending_commands(*f.runtime) == 0u) &&
+        (f.terminal(close) == EServiceStatus::success)));
     f.runtime->native_failure(1400u); // Unexpected established HWND loss.
     SWindowSnapshot snapshot;
     TEST_EXPECT(ctx, (static_cast<const SWindowViewV1*>(prepared.view.descriptor)->state->read(snapshot) == EWindowRead::failed));
@@ -575,11 +579,12 @@ void command_slice_and_failure_retention(TTestContext& ctx)
         f.step();
         f.ready(first); f.ready(second);
         f.binding_cost = 2000000u;
+        f.step(1u); // Binding is submitted asynchronously; the next invocation receives its outcome.
+        TEST_EXPECT(ctx, ((f.terminal(first) == EServiceStatus::unavailable) &&
+            (f.terminal(second) == EServiceStatus::unavailable)));
         f.step();
-        TEST_EXPECT(ctx, ((f.last_commands == 1u) && (f.terminal(first) == EServiceStatus::success) && (f.terminal(second) == EServiceStatus::unavailable)));
-        const auto dispatches = f.native.dispatches;
-        f.step();
-        TEST_EXPECT(ctx, ((f.last_commands == 1u) && (f.terminal(second) == EServiceStatus::success) && (f.native.dispatches == dispatches)));
+        TEST_EXPECT(ctx, ((f.terminal(first) == EServiceStatus::success) &&
+            (f.terminal(second) == EServiceStatus::success)));
     }
     {
         SFixture f{ ctx };
@@ -650,9 +655,18 @@ void notification_pressure(TTestContext& ctx)
     const auto& view = *static_cast<const SWindowViewV1*>(prepared.view.descriptor);
     const auto registration = f.registration(prepared);
     registration.reader.clear_pending();
-    const auto filler = threading::make_pod_message(-1, ServiceReply{});
-    while (f.client.post_reply(filler)) {}
-    while (f.client.post(filler)) {}
+    //  Use one small fixed FIFO to exercise notification delivery under pressure.
+    f.client.discard(f.client.pending());
+    f.client.endpoint->host_to_worker_msgs.deallocate();
+    constexpr std::uint32_t k_pressure_capacity =
+        threading::transports::TQueue<threading::CErasedPodMsg>::k_min_capacity;
+    TEST_EXPECT(ctx, f.client.endpoint->host_to_worker_msgs.initialise_fixed(k_pressure_capacity));
+    const threading::CErasedPodMsg filler = threading::make_pod_message(-1, ServiceReply{});
+    for (std::uint32_t count = 0u; count < k_pressure_capacity; ++count)
+    {
+        TEST_EXPECT(ctx, f.client.post(filler));
+    }
+    TEST_EXPECT(ctx, !f.client.post(filler));
     f.runtime->native_close();
     SWindowSnapshot snapshot;
     TEST_EXPECT(ctx, (registration.reader.pending() && (view.state->read(snapshot) == EWindowRead::success) &&
@@ -662,7 +676,7 @@ void notification_pressure(TTestContext& ctx)
     f.router.release_borrow(f.client, { f.route, prepared.borrow });
     f.step();
     TEST_EXPECT(ctx, (!f.native.destroyed && !f.router.provider_borrows_retired(f.provider)));
-    f.client.consume_messages((f.client.message_count + f.client.control_count), f.client.control_count);
+    f.client.discard(f.client.pending());
     f.router.quiesce_borrow(f.client, { f.route, prepared.borrow });
     f.step(); f.step();
     TEST_EXPECT(ctx, ((f.native.destroyed == 1u) && f.router.provider_borrows_retired(f.provider)));
@@ -675,15 +689,15 @@ void unsupported_completions_under_pressure(TTestContext& ctx)
     const auto first = f.submit(static_cast<EWindowCommand>(65535u));
     const auto second = f.submit(static_cast<EWindowCommand>(65535u));
     f.step();
-    TEST_EXPECT(ctx, ((f.client.message_count == 2u) && (f.client.reserved_replies == 2u)));
+    TEST_EXPECT(ctx, ((f.client.pending() == 2u) && (f.client.reserved_replies == 2u)));
     modules::SProgress progress;
     f.runtime->begin_stop(progress);
     TEST_EXPECT(ctx, (!f.runtime->stopped() && (progress.phase == modules::EPumpPhase::stopping)));
     f.step();
-    TEST_EXPECT(ctx, ((f.client.message_count == 2u) && (f.client.reserved_replies == 2u) && !f.runtime->stopped()));
+    TEST_EXPECT(ctx, ((f.client.pending() == 2u) && (f.client.reserved_replies == 2u) && !f.runtime->stopped()));
     f.completion_busy = false;
     f.step();
-    TEST_EXPECT(ctx, ((f.client.message_count == 4u) && !f.client.reserved_replies && f.runtime->stopped()));
+    TEST_EXPECT(ctx, ((f.client.pending() == 4u) && !f.client.reserved_replies && f.runtime->stopped()));
     TEST_EXPECT(ctx, ((f.terminal(first) == EServiceStatus::unsupported) && (f.terminal(second) == EServiceStatus::unsupported)));
     TEST_EXPECT(ctx, !f.native.created);
 }
@@ -745,8 +759,12 @@ struct SNativeDriver
     }
 };
 
-static bool native_loss_dispatch(platform::native::SWindow& window, const std::uint64_t) noexcept
+static bool native_loss_dispatch(platform::native::SWindow& window, const std::uint64_t budget) noexcept
 {
+    if (!SNative::current->native_loss_requested)
+    {
+        return platform::native::window_adapter().dispatch(window, budget);
+    }
     return DestroyWindow(reinterpret_cast<HWND>(window.handle)) != FALSE;
 }
 
@@ -779,16 +797,17 @@ void actual_native_window(TTestContext& ctx, const unsigned scenario)
     TEST_EXPECT(ctx, ((snapshot.logical_width <= 1280u) && (snapshot.logical_height <= 720u) &&
         (outer.left >= monitor.rcWork.left) && (outer.top >= monitor.rcWork.top) && (outer.right <= monitor.rcWork.right) && (outer.bottom <= monitor.rcWork.bottom)));
     f.ready(acquisition);
+    f.step();
+    TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success));
     if (scenario == 4u)
     {
+        f.native.native_loss_requested = true;
         f.step();
         TEST_EXPECT(ctx, (!IsWindow(handle) && (view.state->read(snapshot) == EWindowRead::failed) && (snapshot.phase == EWindowPhase::closing)));
         TEST_EXPECT(ctx, (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
         f.release(prepared);
         return;
     }
-    f.step();
-    TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success));
     if (scenario == 5u)
     {
         //  Windowless records share the subscribed queue and must be consumed.
@@ -922,12 +941,13 @@ struct SPlatformHostTestAccess
         SNative::current = &native;
         current = &frame;
         const auto index = module_ids::platform_index.raw_value();
-        TEST_EXPECT(ctx, host.m_clients[index].emplace(module_ids::platform, 901u));
-        auto& client = *host.m_clients[index];
-        client.execution = EClientExecution::pumped;
-        const modules::SHostPumpV2 capability{ sizeof(modules::SHostPumpV2), 2u, 0u, &activate, &pump, &stop, &deactivate };
-        TEST_EXPECT(ctx, host.m_pumps[index].emplace(client, binding, capability, host.m_service_router, host.m_maintenance));
-        auto& adapter = *host.m_pumps[index];
+        TEST_EXPECT(ctx, host.m_modules[index].emplace());
+        auto& owned = *host.m_modules[index];
+        TEST_EXPECT(ctx, owned.coordinator.emplace(module_ids::platform, 901u, nullptr, modules::SModuleInstance{ 900u }));
+        auto& client = *owned.coordinator;
+        const modules::SHostPumpV1 capability{ sizeof(modules::SHostPumpV1), 1u, 0u, &activate, &pump, &stop, &deactivate };
+        TEST_EXPECT(ctx, owned.pump.emplace(client, binding, capability, host.m_service_router, host.m_maintenance));
+        auto& adapter = *owned.pump;
         TEST_EXPECT(ctx, adapter.initialise());
         adapter.activate();
         TEST_EXPECT(ctx, (adapter.ready() && (native.created == 1u) && !native.destroyed));
@@ -935,14 +955,18 @@ struct SPlatformHostTestAccess
         host.m_maintenance.poll_stop();
         TEST_EXPECT(ctx, host.m_maintenance.stop_requested());
         adapter.request_stop(modules::EStopReason::shutdown);
-        adapter.pump();
+        for (unsigned turn = 0u; (turn < 16u) && !adapter.stopped(); ++turn)
+        {
+            adapter.pump();
+            host.drain_client(client);
+        }
         TEST_EXPECT(ctx, (adapter.stopped() && !adapter.failed() && (native.destroyed == 1u) && (native.callbacks == 2u)));
         TEST_EXPECT(ctx, !host.m_maintenance.restrictions().active());
         TEST_EXPECT(ctx, (adapter.deactivate() && frame.deactivated));
         client.terminal_before_drain = client.incoming_drained = true;
         TEST_EXPECT(ctx, client.retire_host_execution(true));
-        host.m_pumps[index].reset();
-        host.m_clients[index].reset();
+        owned.pump.reset();
+        owned.coordinator.reset();
         host.m_phase = CHost::EPhase::complete;
         TEST_EXPECT(ctx, host.shutdown());
     }

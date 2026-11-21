@@ -372,7 +372,8 @@ std::uint32_t MV_STD_ABI_CALL fake_service(void* const data) noexcept
     {
         resources.worker_to_host_msgs.deallocate();
     }
-    return audio::serve_audio(resources, output);
+    threading::CThreadContext context{ resources };
+    return audio::serve_audio(context, output);
 }
 
 void service_tests(TTestContext& ctx)
@@ -384,7 +385,7 @@ void service_tests(TTestContext& ctx)
     host.data_capacity = 32u;
     threading::ThreadConfig config{ thread_ids::audio, module_ids::audio, EThreadPriority::Normal, &fake_service, &tests::TThreadFixtureState<FakeOutput>::prepare, &output };
     threading::CThreadPackage package{ config, conversion };
-    host::SClientRecord worker{ module_ids::audio, 101u, &package };
+    host::SClientRecord worker{ module_ids::audio, 101u, &package, modules::SModuleInstance{ 1101u } };
     tests::SDirectPeerFixture executive{ host, conversion, module_ids::executive, 102u,
         modules::test_connections::policies, modules::test_connections::policy_count };
     TEST_EXPECT(ctx, (executive.ready && host.attach(worker) && worker.install_host_execution(host.restrictions.reader())));
@@ -401,6 +402,11 @@ void service_tests(TTestContext& ctx)
         worker.incoming_drained = worker.terminal_before_drain;
         host.progress(); executive.pump(); host.progress();
     };
+    TEST_EXPECT(ctx, await([&]
+    {
+        pump();
+        return worker.direct_connections == host::EDirectConnectionState::available;
+    }));
     connections::SToken token;
     auto connect = [&](const std::int32_t correlation) {
         TEST_EXPECT(ctx, executive.client.open(module_ids::audio, modules::test_connections::version, correlation));
@@ -494,7 +500,10 @@ void service_tests(TTestContext& ctx)
     rejected.reject_delivery = true;
     config.prepare_context = &rejected;
     threading::CThreadPackage broken{ config, conversion };
-    TEST_EXPECT(ctx, !broken.startup()); // Registration fails before device work.
+    TEST_EXPECT(ctx, broken.startup());
+    TEST_EXPECT(ctx, await([&] { return broken.execution_ended(); }));
+    TEST_EXPECT(ctx, (broken.query_state() == threading::EThreadRunState::Failed));
+    TEST_EXPECT(ctx, broken.shutdown()); // Registration failure is observed asynchronously.
     TEST_EXPECT(ctx, ((rejected.starts == 0u) && (rejected.opens == 0u) && !broken.retains_execution()));
 }
 }   //  namespace

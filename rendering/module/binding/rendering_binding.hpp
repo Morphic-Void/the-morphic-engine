@@ -14,7 +14,7 @@
 #define RENDERING_BINDING_HPP_INCLUDED
 
 #include "framework/system/system_ids.hpp"
-#include "platform/threading/thread_lifetime.hpp"
+#include "framework/threading/endpoint_messages.hpp"
 #include "system/system_type_registration.hpp"
 
 namespace rendering
@@ -26,7 +26,7 @@ namespace rendering
 
 struct CRenderingThreadFunction;
 
-using FRenderingThread = platform::threading::FThreadEntry;
+using FRenderingThread = threading::FEndpointThreadEntry;
 
 }   //  namespace rendering
 

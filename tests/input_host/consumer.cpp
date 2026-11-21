@@ -10,6 +10,7 @@
 //  Independently scheduled input consumer using the real Host service protocol.
 
 #include "framework/system/system_ids.hpp"
+#include "framework/module/service_thread_pump.hpp"
 #include "tests/input_host/consumer.hpp"
 
 namespace input_host
@@ -316,8 +317,6 @@ bool CConsumer::module(const modules::EModuleAction action, const module_ids::id
     if (!request) return false;
     request->module = module;
     request->action = action;
-    request->require_host_pump = !threaded;
-    request->require_service_thread = threaded;
     const char* const basename = (module == module_ids::rendering) ? "package:/bin/MorphicInputSecondary" :
         (ordinary ? "package:/bin/MorphicPlatform" : "package:/bin/MorphicInputPlatform");
     const std::string file = test_environment::module_filename(basename);
@@ -875,11 +874,11 @@ bool CConsumer::run_secondary()
     const bool retired = teardown();
     return success && retired;
 }
-static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
+static std::uint32_t MV_STD_ABI_CALL executive_entry(::threading::CThreadContext& context, void* const) noexcept
 {
-    ::threading::CThreadContext context{ *static_cast<::threading::CThreadResources*>(data) };
     context.startup();
     context.mark_running();
+    if (!context.publish_ready()) return 1u;
     TInstance<CConsumer> consumer;
     const bool allocated = consumer.emplace(context);
 #if defined(MV_INPUT_SECONDARY)
@@ -926,18 +925,21 @@ static constexpr modules::SModuleBindingConfig k_binding_config = MV_MODULE_BIND
 static modules::CModuleBindingContext s_binding{ k_binding_config };
 }
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(modules::SBootstrapFunctions* const functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(modules::SBootstrapFunctions* const functions) noexcept
 {
     return input_host::s_binding.bootstrap(functions);
 }
-#if defined(MV_INPUT_SECONDARY)
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(modules::SServiceThread* const value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(
+    const std::uint32_t capacity, modules::SHostPumpV1* const value) noexcept
 {
-    if (!value)
+    if (!value || (capacity != sizeof(*value)))
     {
         return modules::EBindingResult::invalid_argument;
     }
-    *value = { thread_ids::rendering, &input_host::executive_entry };
+#if defined(MV_INPUT_SECONDARY)
+    *value = modules::TServiceThreadPump<&input_host::executive_entry, &thread_ids::rendering, false>::capability();
+#else
+    *value = modules::TServiceThreadPump<&input_host::executive_entry, &thread_ids::executive, false>::capability();
+#endif
     return modules::EBindingResult::success;
 }
-#endif

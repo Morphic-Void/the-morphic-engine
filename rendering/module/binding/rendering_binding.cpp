@@ -16,6 +16,7 @@
 #include "module/types/local_type_ids.hpp"
 #include "runtime/rendering_thread.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/service_thread_pump.hpp"
 
 namespace rendering::module_binding
 {
@@ -52,16 +53,24 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 
 }   //  namespace rendering::module_binding
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(
     modules::SBootstrapFunctions* const functions) noexcept
 {
     return rendering::module_binding::s_binding.bootstrap(functions);
 }
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(
-    modules::SServiceThread* const service) noexcept
+static std::uint32_t MV_STD_ABI_CALL requested_entry(threading::CThreadContext& context, void* const module_context) noexcept
 {
-    if (service == nullptr) return modules::EBindingResult::invalid_argument;
-    *service = { thread_ids::rendering, rendering::rendering_thread_entry_point() };
+    return rendering::rendering_thread_entry_point()(context, module_context);
+}
+
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(
+    const std::uint32_t capacity, modules::SHostPumpV1* const pump) noexcept
+{
+    if (!pump || (capacity != sizeof(*pump)))
+    {
+        return modules::EBindingResult::invalid_argument;
+    }
+    *pump = modules::TServiceThreadPump<&requested_entry, &thread_ids::rendering>::capability();
     return modules::EBindingResult::success;
 }

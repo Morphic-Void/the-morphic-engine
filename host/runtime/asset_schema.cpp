@@ -113,7 +113,7 @@ void CAssetService::progress_schemas() noexcept
             }
             const EReplyPublication publication = operation.client->publish_reply(
                 threading::make_pod_message(operation.client_slot, result));
-            const bool poisoned = operation.client->thread && operation.client->thread->pod_delivery_poisoned();
+            const bool poisoned = operation.client->endpoint->host_to_worker_msgs.posting_poisoned();
             if (poisoned)
             {
                 //  False is not proof of non-escape for a poisoned TQueue. Treat

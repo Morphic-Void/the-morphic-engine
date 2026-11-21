@@ -14,7 +14,7 @@
 #define EXECUTIVE_BINDING_HPP_INCLUDED
 
 #include "framework/system/system_ids.hpp"
-#include "platform/threading/thread_lifetime.hpp"
+#include "framework/threading/endpoint_messages.hpp"
 #include "system/system_type_registration.hpp"
 
 namespace executive
@@ -26,7 +26,7 @@ namespace executive
 
 struct CExecutiveThreadFunction;
 
-using FExecutiveThread = platform::threading::FThreadEntry;
+using FExecutiveThread = threading::FEndpointThreadEntry;
 
 }   //  namespace executive
 

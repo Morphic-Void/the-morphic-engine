@@ -10,6 +10,17 @@ Date:   02 Nov 2026
 
 ## Scope and status
 
+The [common endpoint contract](host_pump_foundation.md) now defines Host/module
+communication. Every module has a lifecycle pump and requests zero or more service
+threads. Each pump/thread uses its own POD FIFO in each direction and an owning
+queue towards Host. Provider operations use asynchronous POD requests/results;
+only native restriction/maintenance hooks remain synchronous execution facilities.
+The identity and pump sections below preserve the earlier design, including the
+superseded optional-pump, callback-table and consumed-prefix mechanisms. They are
+not current interface specifications. Use the common endpoint reference and current
+headers for implementation; the current pre-release pump and bootstrap versions
+are both 1 after the coordinated rebuild.
+
 The original contract pass for the [Platform design](platform_host_pumped_design.md)
 was reviewed against `07064fc`. As of `f55d514` (4 November 2026), the
 [Host foundation](host_pump_foundation.md), [borrow protocol](service_borrow_lifetimes.md),
@@ -119,6 +130,9 @@ above; the original absence statements below are not a current backlog.
 
 ## Identity and Host client records
 
+Historical design; current endpoint identity and lifecycle are specified in the
+[common endpoint reference](host_pump_foundation.md#execution-and-identity).
+
 Use distinct wrapper types around nonzero `u64` values for module instances, service
 routes, requests, windows, window uses, input connections, devices, installations
 and notification registrations. Host issues module-instance/client/route identities;
@@ -153,10 +167,12 @@ is required. Availability follows execution readiness, not DLL binding alone.
 
 ## Optional pumped capability and Host services
 
-The V1 description below is historical. [Host timed waiting](host_timed_wait.md)
-supersedes it with `SHostPumpV2`, `morphic_module_host_pump_v2` and the complete V2
-context, including owner wake and native-event ownership. Current Host rejects
-legacy V1 exports. Use current headers and a coordinated rebuild.
+The description below records the original V1 design and its later V2 transition.
+Both were superseded by the [common endpoint contract](host_pump_foundation.md).
+The current mandatory `SHostPumpV1` contains lifecycle callbacks; it has no service
+callback table or borrowed input arrays. Its version-1 marker does not make an
+earlier version-1 layout compatible. Host validates the current descriptor layout,
+and all consumers must be rebuilt together.
 
 Export `morphic_module_host_pump_v1`, queried by `CBoundModule::query_host_pump` on
 the binding worker. Its query accepts the caller's descriptor size and returns

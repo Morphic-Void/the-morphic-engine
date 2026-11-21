@@ -41,8 +41,8 @@ static TInstance<runtime::CPlatformRuntime>& runtime_state() noexcept
 static modules::ECallStatus MV_STD_ABI_CALL activate(const modules::SHostPumpContext* const context,
     void** const runtime, modules::SProgress* const progress) noexcept
 {
-    if (!context || !runtime || !progress || (context->size != sizeof(*context)) || (context->version != 2u) ||
-        !context->services || (context->services->size != sizeof(*context->services)) || (context->services->version != 2u) ||
+    if (!context || !runtime || !progress || (context->size != sizeof(*context)) || (context->version != 1u) ||
+        !context->endpoint ||
         !s_binding.is_thread_context_ready(context) || runtime_state())
     {
         return modules::ECallStatus::invalid_argument;
@@ -77,8 +77,7 @@ static modules::ECallStatus MV_STD_ABI_CALL pump(void* const runtime, const modu
     modules::SPumpResult* const result) noexcept
 {
     if (!runtime_state() || (runtime != &*runtime_state()) || !input || !result ||
-        (input->size != sizeof(*input)) || (input->version != 1u) ||
-        (input->command_count && !input->commands) || (input->message_count && !input->messages))
+        (input->size != sizeof(*input)) || (input->version != 1u))
         return modules::ECallStatus::invalid_argument;
     const bool failed = runtime_state()->failed();
     runtime_state()->pump(*input, *result);
@@ -105,17 +104,17 @@ static modules::ECallStatus MV_STD_ABI_CALL deactivate(void* const runtime) noex
 
 }   //  namespace platform::module_binding
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v4(modules::SBootstrapFunctions* const functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(modules::SBootstrapFunctions* const functions) noexcept
 {
     return platform::module_binding::s_binding.bootstrap(functions);
 }
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v2(const std::uint32_t capacity,
-    modules::SHostPumpV2* const value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(const std::uint32_t capacity,
+    modules::SHostPumpV1* const value) noexcept
 {
     if (!value || (capacity != sizeof(*value))) return modules::EBindingResult::invalid_argument;
     using namespace platform::module_binding;
-    *value = { sizeof(*value), 2u, modules::k_host_pump_native_events, &activate, &pump, &begin_stop, &deactivate };
+    *value = { sizeof(*value), 1u, modules::k_host_pump_native_events, &activate, &pump, &begin_stop, &deactivate };
     return modules::EBindingResult::success;
 }
 

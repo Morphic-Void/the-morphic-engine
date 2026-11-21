@@ -317,7 +317,6 @@ static modules::EModuleStatus perform_module_work(SModuleWork& work) noexcept
 {
     const modules::ModuleRequest& request = *work.request;
     work.function = nullptr;
-    work.service_thread = {};
     work.host_pump = {};
     work.service_provider = {};
     if (work.previous != nullptr)
@@ -364,23 +363,13 @@ static modules::EModuleStatus perform_module_work(SModuleWork& work) noexcept
             {
                 status = modules::EModuleStatus::function_unavailable;
             }
-            const modules::EBindingResult service = work.next->query_service_thread(work.service_thread);
             const modules::EBindingResult pump = work.next->query_host_pump(work.host_pump);
             const modules::EBindingResult provider = work.next->query_service_provider(work.service_provider);
             if ((provider != modules::EBindingResult::success) && (provider != modules::EBindingResult::unsupported_function))
             {
                 status = modules::EModuleStatus::function_unavailable;
             }
-            if (((service != modules::EBindingResult::success) &&
-                    ((service != modules::EBindingResult::unsupported_function) || request.require_service_thread)) ||
-                ((work.service_thread.entry != nullptr) && (request.module == module_ids::executive)))
-            {
-                status = modules::EModuleStatus::function_unavailable;
-            }
-            if (((pump != modules::EBindingResult::success) &&
-                    ((pump != modules::EBindingResult::unsupported_function) || request.require_host_pump)) ||
-                ((work.host_pump.activate != nullptr) &&
-                    ((work.service_thread.entry != nullptr) || (request.module == module_ids::executive))))
+            if (pump != modules::EBindingResult::success)
             {
                 status = modules::EModuleStatus::function_unavailable;
             }

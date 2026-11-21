@@ -59,6 +59,18 @@ bool wait_until(const platform::system::CPerfCountConversion& conversion, TPredi
     return false;
 }
 
+// Standalone fixture workers do not depend on a Host loop for exit progress.
+template<typename TPackage>
+bool stop_and_join(TPackage& package, const platform::system::CPerfCountConversion& conversion) noexcept
+{
+    package.request_exit();
+    if (package.retains_execution() && !wait_until(conversion, [&] { return package.execution_ended(); }))
+    {
+        return false;
+    }
+    return package.shutdown();
+}
+
 }   //  namespace tests
 
 #endif  //  MORPHIC_TEST_THREAD_HELPERS_HPP_INCLUDED

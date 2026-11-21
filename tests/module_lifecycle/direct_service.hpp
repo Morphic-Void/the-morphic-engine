@@ -47,7 +47,7 @@ public:
     bool ready;
 
     SDirectService(threading::CThreadContext& context, const module_ids::id_type role, const bool enabled = true) noexcept
-        : context{ context }, client{ context, role, direct_policies, 3u }, ready{ !enabled || client.register_service() },
+        : context{ context }, client{ context, role, direct_policies, 3u }, ready{ client.register_service() },
           m_previous{ s_direct }, m_enabled{ enabled }
     {
         if (enabled) s_direct = this;

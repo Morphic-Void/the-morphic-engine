@@ -60,7 +60,7 @@ struct SRealFixture
     threading::CErasedPodMsg host_message;
     bool host_pending{ false };
     threading::SBatchWork held;
-    platform::threading::FThreadEntry entry{ nullptr };
+    threading::FEndpointThreadEntry entry{ nullptr };
 
     ~SRealFixture() noexcept
     {
@@ -97,16 +97,17 @@ struct SRealFixture
         {
             return false;
         }
-        entry = reinterpret_cast<platform::threading::FThreadEntry>(function);
+        entry = reinterpret_cast<threading::FEndpointThreadEntry>(function);
         return true;
     }
 
     bool start(const bool queued) noexcept
     {
         shared.runner_count = queued ? 1u : 0u;
-        const threading::ThreadConfig config{ thread_ids::rendering, module_ids::rendering,
-            platform::threading::EThreadPriority::Normal, entry, (&modules::CBoundModule::prepare_thread), (&module) };
-        if (!package.emplace(config, conversion) || !client.emplace(module_ids::rendering, 101u, &*package) ||
+        threading::ThreadConfig config{ thread_ids::rendering, module_ids::rendering,
+            platform::threading::EThreadPriority::Normal, nullptr, (&modules::CBoundModule::prepare_thread), (&module) };
+        config.endpoint_entry = entry;
+        if (!package.emplace(config, conversion) || !client.emplace(module_ids::rendering, 101u, &*package, modules::SModuleInstance{ 1101u }) ||
             !direct.attach(*client) || !client->install_host_execution(direct.restrictions.reader()) ||
             !executive.emplace(direct, conversion, module_ids::executive, 102u,
                 modules::test_connections::policies, modules::test_connections::policy_count) || !executive->ready ||

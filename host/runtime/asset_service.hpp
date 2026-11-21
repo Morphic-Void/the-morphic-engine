@@ -93,7 +93,7 @@ public:
     void dispose_dependencies(const mount_point_ids::id_type mount) noexcept;
     void complete_disposals() noexcept;
 
-    void install_report_provider(SClientRecord& client, CPumpedClient& pump) noexcept;
+    void install_report_provider(SClientRecord& client) noexcept;
     void close_report_provider(SClientRecord& client) noexcept;
     void progress_reports(const bool admission_closed) noexcept;
     void request_report(SClientRecord& client, const std::int32_t slot, const bool update, const bool closed) noexcept;
@@ -263,7 +263,7 @@ private:
         SClientRecord* client{ nullptr };
         CAssetId source{};
         CAssetAcquisitionId identity{};
-        bool schema_output{};
+        bool requires_quiescence{};
     };
 
     struct SReportBacking
@@ -288,6 +288,8 @@ private:
         platform::reports::SFailure failure;
         CErasedOwner candidate;
         bool outcome{}, settled{}, cancel_sent{};
+        platform::reports::PlatformReportCaptureReceipt receipt;
+        bool receipt_settled{ false }, receipt_published{ false };
     };
     [[nodiscard]] platform::reports::PlatformReportResult report_state() const noexcept;
     [[nodiscard]] bool report_matches(const SClientRecord& client, const platform::reports::SCaptureIdentity identity) const noexcept;
@@ -297,7 +299,6 @@ private:
     void retire_capture() noexcept;
     void deliver_reports() noexcept;
     SClientRecord* m_report_provider{};
-    CPumpedClient* m_report_pump{};
     std::uint64_t m_next_capture{ 1u };
     std::int32_t m_current_report{ -1 };
     bool m_initial_report{}, m_report_closing{};

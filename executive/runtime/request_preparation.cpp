@@ -67,8 +67,7 @@ bool prepare_save_request(threading::CErasedOwnerMsg& pending, const std::int32_
 }
 
 bool prepare_module_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const module_ids::id_type module, const modules::EModuleAction action, const char* const file,
-    const bool require_service_thread) noexcept
+    const module_ids::id_type module, const modules::EModuleAction action, const char* const file) noexcept
 {
     if (!can_prepare_request(pending, slot)) return false;
     auto candidate = threading::make_owner_message<modules::ModuleRequest>(slot);
@@ -81,7 +80,6 @@ bool prepare_module_request(threading::CErasedOwnerMsg& pending, const std::int3
     }
     request->module = module;
     request->action = action;
-    request->require_service_thread = require_service_thread;
     pending = std::move(candidate);
     return true;
 }

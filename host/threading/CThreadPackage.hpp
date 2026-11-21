@@ -39,6 +39,8 @@ struct ThreadConfig
     platform::threading::FThreadEntry entry_point{ nullptr };
     FThreadPrepare prepare{ nullptr };
     void* prepare_context{ nullptr };
+    FEndpointThreadEntry endpoint_entry{ nullptr };
+    void* module_context{ nullptr };
 };
 
 class CThreadPackage
@@ -48,6 +50,9 @@ public:
     ~CThreadPackage() noexcept;
 
     bool startup() noexcept;
+    [[nodiscard]] CThreadResources& resources() noexcept { return m_resources; }
+    [[nodiscard]] std::uint32_t preparation() const noexcept { return m_preparation.load(std::memory_order_acquire); }
+    [[nodiscard]] bool execution_ended() const noexcept { return m_returned.load(std::memory_order_acquire); }
     [[nodiscard]] bool install_owner_wake(const platform::threading::SWakeEndpoint wake) noexcept;
     bool shutdown() noexcept;
     [[nodiscard]] bool retains_execution() const noexcept { return m_created && m_resources.wait_predicate.has_control(); }
@@ -88,9 +93,10 @@ private:
     const ThreadConfig m_config;
     platform::threading::CThread m_thread;
     bool m_created{ false };
+    std::atomic<std::uint32_t> m_preparation{ 0u }; //  Pending, prepared, failed.
+    std::atomic<bool> m_returned{ false };
     CThreadResources m_resources;
     TInstance<CBatchClient> m_batch_client;
-    std::uint32_t m_notification_pins{ 0u };
     modules::SHostExecutionContext* m_host_execution{ nullptr };
     CNotification* m_host_notification{ nullptr };
     bool m_host_pinned{ false };

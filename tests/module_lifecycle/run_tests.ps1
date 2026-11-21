@@ -33,19 +33,19 @@ if (!$SkipBuild) {
         & $MSBuild (Join-Path $repository 'MorphicEngine.sln') /m "/p:Configuration=$Configuration" "/p:Platform=$solutionPlatform" /v:minimal
         if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
     }
-    foreach ($role in @('MissingThread', 'RenderingFailure', 'RenderingDisposal', 'Service', 'Passive', 'Executive')) {
+    foreach ($role in @('MissingPump', 'RenderingFailure', 'RenderingDisposal', 'Service', 'Passive', 'Executive')) {
         & $MSBuild (Join-Path $repository 'visual_studio/MorphicLifecycleFixture.vcxproj') /m "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" "/p:FixtureRole=$role" /v:minimal
         if ($LASTEXITCODE -ne 0) { throw "$role fixture build failed." }
     }
 }
 
 if ($Cases.Count -eq 0) {
-    $Cases = @('audio-lifecycle', 'bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload', 'service-lifecycle', 'service-shutdown', 'service-invalid-entry', 'service-invalid-id', 'service-start-failure')
+    $Cases = @('audio-lifecycle', 'bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'pump-required', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-pump', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload', 'service-lifecycle', 'service-shutdown', 'service-start-failure')
 }
 foreach ($case in $Cases) {
     $tag = "lifecycle-$suffix-$case"
     $normalExecutive = $case.StartsWith('normal-')
-    $serviceFailure = $case -in @('normal-unavailable', 'normal-bad-start', 'normal-missing-thread')
+    $serviceFailure = $case -in @('normal-unavailable', 'normal-bad-start', 'normal-missing-pump')
     $executive = if ($case -eq 'bootstrap-missing') { 'MorphicMissingExecutive.dll' } elseif ($normalExecutive) { 'MorphicExecutive.dll' } else { 'MorphicLifecycleExecutive.dll' }
     $launchDirectory = $binaryDirectory
     if ($serviceFailure -or ($case -eq 'normal-tests-malformed')) {
@@ -55,12 +55,12 @@ foreach ($case in $Cases) {
         foreach ($file in @('MorphicEngine.exe', 'MorphicExecutive.dll', 'MorphicAudio.dll')) {
             Copy-Item -LiteralPath (Join-Path $binaryDirectory $file) -Destination (Join-Path $launchDirectory $file)
         }
-        $fixture = if ($case -eq 'normal-bad-start') { 'MorphicLifecycleRenderingFailure.dll' } elseif ($case -eq 'normal-missing-thread') { 'MorphicLifecycleMissingThread.dll' } elseif ($case -eq 'normal-tests-malformed') { 'MorphicLifecycleRenderingDisposal.dll' }
+        $fixture = if ($case -eq 'normal-bad-start') { 'MorphicLifecycleRenderingFailure.dll' } elseif ($case -eq 'normal-missing-pump') { 'MorphicLifecycleMissingPump.dll' } elseif ($case -eq 'normal-tests-malformed') { 'MorphicLifecycleRenderingDisposal.dll' }
         if ($fixture) {
             Copy-Item -LiteralPath (Join-Path $binaryDirectory $fixture) -Destination (Join-Path $launchDirectory 'MorphicRendering.dll')
         }
     }
-    $expectedExit = if ($serviceFailure -or $case.EndsWith('-missing') -or ($case.EndsWith('-failure') -and ($case -ne 'service-start-failure')) -or ($case -eq 'normal-tests-malformed')) { 1 } else { 0 }
+    $expectedExit = if ($serviceFailure -or $case.EndsWith('-missing') -or ($case.EndsWith('-failure') -and ($case -ne 'service-start-failure')) -or ($case -eq 'normal-tests-malformed') -or ($case -eq 'service-start-failure')) { 1 } else { 0 }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo.FileName = Join-Path $launchDirectory 'MorphicEngine.exe'
     $process.StartInfo.WorkingDirectory = $runtime
@@ -91,6 +91,11 @@ foreach ($case in $Cases) {
         $events += Get-Content -LiteralPath $directLog -Raw
         if ($events -match 'Lifecycle fixture failed|notification failed|\[(critical|fatal):') { throw "$case has unexpected diagnostics: $log" }
         $errors = @($events -split '\r?\n' | Where-Object { $_ -match '\[error:' })
+        if ($serviceFailure -or ($case -in @('normal-tests-malformed', 'service-start-failure'))) {
+            $nativeFailures = @($errors | Where-Object { $_ -match '\[endpoint_runtime\.cpp:\d+\] Host: requested execution failed, module \d+, instance \d+, endpoint \d+, correlation 0$' })
+            if ($nativeFailures.Count -ne 1) { throw "$case did not record exactly one native execution failure: $log" }
+            $errors = @($errors | Where-Object { $_ -notin $nativeFailures })
+        }
         if ($case -eq 'bundle-failures') {
             $expectedErrors = @(
                 '\[error:event\] \[host_worker_thread\.cpp:\d+\] Bundle slot 0: loaded document adoption failed$',
@@ -101,6 +106,16 @@ foreach ($case in $Cases) {
             foreach ($pattern in $expectedErrors) {
                 if (@($errors | Where-Object { $_ -match $pattern }).Count -ne 1) { throw "$case has a missing or duplicate expected error: $log" }
             }
+        }
+        elseif ($case -in @('startup-failure', 'replace-startup-failure')) {
+            $native = @($errors | Where-Object { $_ -match '\[endpoint_runtime\.cpp:\d+\] Host: requested execution failed, module \d+, instance \d+, endpoint \d+, correlation 0$' })
+            $lifecycle = @($errors | Where-Object { $_ -match '\[host\.cpp:\d+\] Executive module lifecycle failed, status 7$' })
+            if (($errors.Count -ne 2) -or ($native.Count -ne 1) -or ($lifecycle.Count -ne 1)) {
+                throw "$case has an unexpected initialization failure diagnostic: $log"
+            }
+        }
+        elseif ($case -in @('normal-bad-start', 'service-start-failure')) {
+            if ($errors.Count -ne 0) { throw "$case has unexpected errors after its native initialization failure: $log" }
         }
         elseif ($serviceFailure) {
             if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_thread\.cpp:\d+\] Executive: module_startup failed: module unavailable or invalid load reply \(scenario slot 0, filesystem step 0, bundle step 0\)$')) {
@@ -135,10 +150,10 @@ foreach ($case in $Cases) {
             if ($unload -lt $cleanup) { throw "$case did not dispose dependencies before unload." }
             if (($case -notin @('dependency', 'render-replace-dependency', 'render-drain', 'service-lifecycle')) -and ($events.IndexOf("Lifecycle fixture: $case passed") -gt $cleanup)) { throw "$case disposed assets before the outgoing Executive finished." }
         }
-        if (($expectedExit -eq 1) -and !$serviceFailure -and ($case -ne 'normal-tests-malformed') -and !$events.Contains('Executive module lifecycle failed')) { throw "$case has no lifecycle failure diagnostic." }
+        if (($expectedExit -eq 1) -and !$serviceFailure -and ($case -notin @('normal-tests-malformed', 'service-start-failure')) -and !$events.Contains('Executive module lifecycle failed')) { throw "$case has no lifecycle failure diagnostic." }
         if (!$normalExecutive -and ($case -ne 'bootstrap-missing') -and ($case -ne 'startup-failure')) {
             if (!$events.Contains("Lifecycle fixture: $case passed") -or
-                (($case -ne 'tests-worker-exit') -and !$events.Contains('Host requested Executive exit without notifications'))) {
+                (($case -notin @('tests-worker-exit', 'service-start-failure')) -and !$events.Contains('Host requested Executive exit without notifications'))) {
                 throw "$case fixture did not complete."
             }
         }
@@ -225,7 +240,7 @@ foreach ($case in $Cases) {
             if (($requested -lt 0) -or ($acknowledged -lt $requested)) { throw "$case did not acknowledge the Executive's rendering request." }
             if ($serviceFailure) {
                 if (($ready -ge 0) -or $events.Contains('Asset acceptance:') -or $events.Contains('Executive: retain_raw passed') -or
-                    !$events.Contains('module unavailable or invalid load reply')) { throw "$case did not stop cleanly before asset acceptance." }
+                    (($case -ne 'normal-bad-start') -and !$events.Contains('module unavailable or invalid load reply'))) { throw "$case did not stop cleanly before asset acceptance." }
             }
             elseif ($case -eq 'normal-tests-malformed') {
                 if (($ready -lt $acknowledged) -or !$events.Contains('Lifecycle rendering: malformed test completion posted') -or
@@ -238,7 +253,7 @@ foreach ($case in $Cases) {
                 throw "$case did not wait for rendering readiness before asset acceptance."
             }
         }
-        $starts = [regex]::Matches($events, 'Host: Module rendering service thread started after asynchronous binding').Count
+        $starts = [regex]::Matches($events, 'Host: Module rendering service thread started').Count
         $joins = [regex]::Matches($events, 'Host: Module rendering service thread joined').Count
         if ($case -in @('tests-routing', 'tests-worker-exit', 'tests-client-unload')) {
             $completionMarker = if ($case -eq 'tests-routing') { 'Lifecycle tests: Executive terminal completion passed' } else { 'Lifecycle tests: pending conversation cancelled on closing' }
@@ -265,17 +280,18 @@ foreach ($case in $Cases) {
             throw 'Rendering acquisition did not survive Executive replacement.'
         }
         if (($case -eq 'normal-startup') -and ($starts -ne 1)) { throw 'Normal Executive did not start exactly one renderer.' }
-        if (($serviceFailure -or ($case -in @('shutdown', 'shutdown-dependency'))) -and ($starts -ne 0)) { throw "$case unexpectedly started a renderer." }
+        if (($case -eq 'normal-bad-start') -and ($starts -ne 1)) { throw 'Failed renderer did not enter exactly one native execution.' }
+        if ((($serviceFailure -and ($case -ne 'normal-bad-start')) -or ($case -in @('shutdown', 'shutdown-dependency'))) -and ($starts -ne 0)) { throw "$case unexpectedly started a renderer." }
         if (($case -eq 'render-executive-replace') -and !$events.Contains('Executive: Rendering ready (already loaded)')) { throw 'Replacement Executive did not reuse the available renderer.' }
         if ($starts -ne $joins) { throw "$case left a rendering thread unjoined." }
         if (($case -eq 'render-executive-replace') -and (($starts -ne 1) -or
             ($events.IndexOf('Host: Module rendering service thread joined') -lt $events.IndexOf('Asset acceptance: 50 sequential and 32 concurrent operations passed')))) {
             throw 'Rendering did not survive the Executive replacement and acceptance flow.'
         }
-        if (($case -in @('ordinary', 'dependency', 'disposal', 'disposal-during-save', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal')) -and ($starts -eq 0)) {
+        if (($case -in @('ordinary', 'dependency', 'disposal', 'disposal-during-save', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal')) -and ($starts -eq 0)) {
             throw "$case did not start the real rendering thread."
         }
-        if (($case -eq 'thread-failures') -and ([regex]::Matches($events, 'Lifecycle fixture: operation \d+ passed').Count -ne 6)) {
+        if (($case -eq 'pump-required') -and ([regex]::Matches($events, 'Lifecycle fixture: operation \d+ passed').Count -ne 1)) {
             throw 'Rendering failure checks incomplete.'
         }
         if ($case -eq 'render-exit-disposal') {
@@ -286,12 +302,12 @@ foreach ($case in $Cases) {
                 $deferred = $events.IndexOf('Host asset disposal deferred for accepted borrowers at client slot 600')
                 $completed = $events.IndexOf('Host asset disposal completed at client slot 600')
                 $finalCompleted = $events.IndexOf('Host asset disposal completed at client slot 601')
-                $joined = $events.IndexOf('Host: Module rendering service thread joined')
+                $retired = $events.IndexOf('Host: Module rendering endpoint retired')
                 # Saves can legally finish before the renderer posts disposal.
                 # When deferral occurs, require its completion ordering too.
                 if (($completed -lt 0) -or (($deferred -ge 0) -and ($completed -lt $deferred)) -or ($finalCompleted -lt 0) -or
-                    ($joined -lt $completed) -or ($joined -lt $finalCompleted)) {
-                    throw 'Rendering disposal did not complete and drain final requests before package destruction.'
+                    ($retired -lt $completed) -or ($retired -lt $finalCompleted)) {
+                    throw 'Rendering disposal did not complete before endpoint retirement.'
                 }
             }
         }
@@ -335,7 +351,7 @@ foreach ($case in $Cases) {
             }
             if ($line.Contains('Rendering: Exited')) { $exited = $true }
             if ($line.Contains('Host: Module rendering service thread joined')) {
-                if (!$running -or !$exited) { throw "$case joined before the rendering exit path completed." }
+                if (($case -ne 'normal-bad-start') -and (!$running -or !$exited)) { throw "$case joined before the rendering exit path completed." }
                 $running = $false
             }
             if ($line.Contains('Module unloaded on Host worker, mount render') -and $running) {

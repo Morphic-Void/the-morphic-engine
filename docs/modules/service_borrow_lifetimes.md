@@ -32,8 +32,8 @@ provider object, and its destructor cannot substitute for asynchronous release.
 publish one borrow. A single descriptor may group several related views, such as
 desktop text and control endpoints.
 
-`prepare_borrow` authenticates the currently invoked provider, exact route and
-accepted request. It reserves record storage and an additional prepared-reply
+`PrepareServiceBorrow` authenticates the sending provider endpoint, exact route
+and accepted request; its result is asynchronous. It reserves record storage and an additional prepared-reply
 credit before returning success. A rejected offer has not escaped. An accepted
 offer must remain valid until provider retirement completes, even if no terminal
 acquisition result has yet been produced. Repeated offers for one request fail.
@@ -44,11 +44,11 @@ same-process, same-architecture data, never a serialised or cross-bitness addres
 The contract/opcode identifies its provider-defined type; consumers validate its
 size, version and domain fields before using it. Host does not dereference it.
 
-Offers made inside a pump are held until consumed command prefixes are confirmed.
-An invalid prefix never authorises publication. Prepared publication precedes the
-terminal result in the ordinary reply stream. Publication explicitly distinguishes
-queued, cancelled before exposure and backpressure; ordinary reply cancellation
-is not mistaken for delivery.
+A command descriptor remains in its Host operation record until authenticated
+completion or provider quiescence. Prepared publication precedes the terminal
+result in the common incoming FIFO. Publication distinguishes queued, cancelled
+before exposure and backpressure. Uncertain publication retains the view until
+consumer relinquishment or final execution drain; it never proves never-published.
 
 Domain readiness remains separate. An input consumer can install readers and
 perform its readiness/boundary exchange before acquisition completes. The terminal
@@ -59,9 +59,9 @@ the descriptor or terminal result rather than replacing the Host borrow token.
 
 `ReleaseServiceBorrow` requests cooperative retirement. Providers can initiate the
 same transition through `begin_borrow_retirement`. Host records closing durably
-and sends `ServiceBorrowControl` notifications through the independent control
-lane. A full ordinary inbox cannot consume cleanup capacity. Full control queues
-leave transitions pending in the existing borrow record, requiring no new allocation.
+and sends `ServiceBorrowControl` notifications through the common incoming FIFO.
+Temporary queue pressure leaves transitions pending in the existing borrow record.
+Closing cannot overtake a previously queued prepared view.
 
 The consumer stops every read and releases dependent consumer-side objects before
 posting `ServiceBorrowQuiescent`. This message is an assertion of completed local
@@ -102,8 +102,8 @@ deadline never authorises destruction or unbinding.
 ## Cancellation
 
 `CancelServiceRequest` cancels the client's wait, separately from provider work.
-The sender waits for receipt acknowledgment before posting cancellation, so the
-cleanup lane cannot overtake the original request's admission. The consumer helper
+The consumer helper waits for receipt acknowledgement before posting cancellation;
+request and cancellation use the same outgoing FIFO. The consumer helper
 enforces this prerequisite. `abandon_unsubmitted` removes local preparation only
 when the caller proves transport submission never succeeded.
 Cancellation before dispatch removes work without invoking the provider. After
@@ -120,39 +120,26 @@ An existing borrow enters retirement. A later offer for a cancelled operation is
 rejected; provider code retains responsibility for cleaning up its unexposed
 candidate. No late success can publish to a replacement client.
 
-Release, quiescence and cancellation submissions use zero-reply cleanup admission.
+Release, quiescence and cancellation are typed settlement submissions with no reply obligation.
 They are idempotent for the exact tracked identity; stale or foreign identities
-cannot affect another record. The sender retries a failed transport submission.
+cannot affect another record. The sender retries definite temporary pressure, never an uncertain publication.
 
 ## Pump adapter and protocol boundary
 
-`modules::SHostPumpServices` is one current table containing queued POD and owner
-submission, terminal completion, borrow preparation, begin/finish retirement, and
-notification binding and restriction/maintenance callbacks. Providers require
-the exact current size and version before using the
-table. These fields reject mismatched binaries; older layouts are not supported.
-Host and modules use matching headers and coordinated rebuilds, including changes
-to the SYSTEM catalogue. No native types or Platform opcodes are added to Host.
+`CEndpointContext` queues POD and owning requests for both execution modes.
+Providers use `CProviderClient` for asynchronous completion, resource commit,
+borrow preparation/retirement and notification binding. Native restriction and
+maintenance callbacks remain in the authenticated `SHostExecutionContext`.
+Host and modules require matching version-1 bootstrap/pump layouts and a coordinated
+rebuild, including SYSTEM catalogue changes. Unsupported layouts are rejected.
 
-Generic SYSTEM cleanup messages travel through the existing pump message batch;
-there is no recursive provider dispatch or new execution capability. The protocol
-also supports threaded consumers. Service providers still use the pumped adapter.
-
-Window uses implement generic borrow retirement and quiescence, with domain
-cleanup preceding the appropriate acknowledgment; separate window-release opcodes
-are not implemented. The same lifetime boundary is the starting point for input
-connections, whose readiness and stream barriers remain unimplemented. Platform
-owns close policy and native resource destruction. Notifications
-use [borrow-bound registrations](service_notifications.md), retaining their wait
-targets through final publisher cleanup. [Modal restriction and maintenance](host_restriction_maintenance.md)
-and [native Windows windows](platform_first_window.md) are implemented separately.
-Worker preparation and service-thread provider support remain future work. The
-next input/direct-POD-connection review must assess common lifetime support and
-domain-specific barriers without treating proposed endpoint layouts as implemented.
+Generic settlement messages share each endpoint's ordinary FIFO. There is no
+recursive provider dispatch. Existing advertised providers bind to the module
+pump; consumers may be pumps or requested threads.
 
 ## Verification
 
-`ServiceBorrow_test_cases.cpp` exercises consumed-prefix publication, exact-instance
+`ServiceBorrow_test_cases.cpp` exercises common-FIFO publication, exact-instance
 authentication, retained borrows after terminal success, cancellation tombstones,
 late prepared replies, independent consumers, bounded admission, saturated control
 queues, terminal-before-drain proof and completion precedence.

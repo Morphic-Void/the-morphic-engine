@@ -50,7 +50,7 @@ struct SFixture
     host::CHostRestrictions restrictions;
     threading::CThreadPackage first{ { thread_ids::executive, module_ids::executive }, conversion };
     threading::CThreadPackage second{ { thread_ids::rendering, module_ids::rendering }, conversion };
-    host::SClientRecord a{ module_ids::executive, 11u, &first }, b{ module_ids::rendering, 22u, &second };
+    host::SClientRecord a{ module_ids::executive, 11u, &first, modules::SModuleInstance{ 1011u } }, b{ module_ids::rendering, 22u, &second, modules::SModuleInstance{ 1022u } };
     threading::CThreadContext context_a{ threading::SDirectConnectionTestAccess::resources(first) };
     threading::CThreadContext context_b{ threading::SDirectConnectionTestAccess::resources(second) };
     connections::CClient client_a{ context_a, module_ids::executive, policies, policy_count };
@@ -72,7 +72,8 @@ struct SFixture
     }
     ~SFixture()
     {
-        context_a.mark_exited(); context_b.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(first);
+        threading::SDirectConnectionTestAccess::end_execution(second);
         a.terminal_before_drain = b.terminal_before_drain = true;
         a.incoming_drained = b.incoming_drained = true;
         coordinator.close_all(); coordinator.progress();
@@ -599,7 +600,7 @@ static void retirement_admission(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, (fixture.client_a.take_result(result, slot) && (result.status == EStatus::closing) && !result.token.value));
     TEST_EXPECT(ctx, (fixture.client_b.take_result(result, slot) && (result.status == EStatus::closing) && !result.token.value));
     TEST_EXPECT(ctx, (fixture.coordinator.empty() && (fixture.a.reserved_replies == 0u) && (fixture.b.reserved_replies == 0u)));
-    host::SClientRecord replacement{ module_ids::rendering, 23u, &fixture.second };
+    host::SClientRecord replacement{ module_ids::rendering, 23u, &fixture.second, modules::SModuleInstance{ 1023u } };
     fixture.coordinator.register_client(replacement, {});
     TEST_EXPECT(ctx, (replacement.direct_connections == host::EDirectConnectionState::available));
 }
@@ -824,7 +825,7 @@ static void native_join_retention(tests::TTestContext& ctx, const bool bulk = fa
     threading::CThreadPackage first{ { thread_ids::executive, module_ids::executive,
         platform::threading::EThreadPriority::Normal, &terminal_worker, &tests::TThreadFixtureState<SNativeState>::prepare, &state }, conversion };
     threading::CThreadPackage second{ { thread_ids::rendering, module_ids::rendering }, conversion };
-    host::SClientRecord a{ module_ids::executive, 31u, &first }, b{ module_ids::rendering, 32u, &second };
+    host::SClientRecord a{ module_ids::executive, 31u, &first, modules::SModuleInstance{ 1031u } }, b{ module_ids::rendering, 32u, &second, modules::SModuleInstance{ 1032u } };
     a.phase = b.phase = host::EClientPhase::ready;
     a.direct_connections = b.direct_connections = host::EDirectConnectionState::available;
     b.host_execution.instance = b.instance;
@@ -859,6 +860,7 @@ static void native_join_retention(tests::TTestContext& ctx, const bool bulk = fa
     threading::SDirectConnectionTestAccess::fail_join(first, true);
     state.terminal.store(true, std::memory_order_release);
     TEST_EXPECT(ctx, await([&] { return state.published.load(std::memory_order_acquire); }));
+    coordinator.close_client(a); // Progress-state exit does not prove native execution ended.
     a.terminal_before_drain = a.incoming_drained = true;
     coordinator.progress();
     while (context_b.read(message))
@@ -886,6 +888,7 @@ static void native_join_retention(tests::TTestContext& ctx, const bool bulk = fa
     TEST_EXPECT(ctx, await([&] { return state.signalled.load(std::memory_order_acquire); }));
     state.finish.store(true, std::memory_order_release);
     threading::SDirectConnectionTestAccess::fail_join(first, false);
+    TEST_EXPECT(ctx, await([&] { return first.execution_ended(); }));
     TEST_EXPECT(ctx, first.join_terminated_execution());
     TEST_EXPECT(ctx, (threading::SDirectConnectionTestAccess::pins(first) == 1u));
     coordinator.progress();
@@ -894,7 +897,7 @@ static void native_join_retention(tests::TTestContext& ctx, const bool bulk = fa
     {
         TEST_EXPECT(ctx, client_b.handle(message));
     }
-    context_b.mark_exited();
+    threading::SDirectConnectionTestAccess::end_execution(second);
     TEST_EXPECT(ctx, (first.shutdown() && second.shutdown()));
 }
 

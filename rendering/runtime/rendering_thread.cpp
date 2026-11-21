@@ -31,21 +31,14 @@
 namespace rendering
 {
 
-static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcept
+static std::uint32_t MV_STD_ABI_CALL thread_entry(threading::CThreadContext& context, void* const module_context) noexcept
 {
-    if (user_data == nullptr)
+    (void)module_context;
+    if (!modules::is_thread_context_ready(&context))
     {
+        context.mark_failed(~0u);
         return ~0u;
     }
-
-    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(user_data);
-    if (!modules::is_thread_context_ready(user_data))
-    {
-        resources.control_state.mark_failed(~0u);
-        return ~0u;
-    }
-
-    threading::CThreadContext context{ resources };
     context.startup();
     connections::CClient connection{ context, module_ids::rendering,
         modules::test_connections::policies, modules::test_connections::policy_count };
@@ -54,7 +47,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         context.mark_failed(1u);
         return 1u;
     }
-    CResourceRequests requests{ *context.batch_client(), { &context, [](void* const value, const threading::CErasedPodMsg& message) noexcept {
+    CResourceRequests requests{ *context.batch_client(), { &context, [](void* const value, const threading::CErasedPodMsg& message) noexcept -> bool {
         return static_cast<threading::CThreadContext*>(value)->post(message); } } };
     CTextureFlowTests tests{ context, context.module_id(), requests, connection };
     if (!requests.initialise())
@@ -69,7 +62,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         MV_LOG(info, "Rendering: DXC is unavailable; shader requests will retain failure reports");
     }
     context.mark_running();
-    bool failed = false;
+    bool failed = !context.publish_ready();
     for (;;)
     {
         const std::uint32_t epoch = context.observe_epoch();

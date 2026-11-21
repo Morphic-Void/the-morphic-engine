@@ -109,7 +109,6 @@ void CModuleService::request(CErasedOwner&& owner, const std::int32_t slot, SCli
         (system_id_registry::lookup_module_name(request->module) == nullptr) ||
         (module_ids::ops::get_mount_point_id(request->module) == mount_point_ids::executable) ||
         (request->action > modules::EModuleAction::replace) ||
-        (request->require_service_thread && request->require_host_pump) ||
         ((purpose == EPurpose::client) &&
             (module_ids::ops::get_mount_point_id(request->module) == mount_point_ids::executive) &&
             (request->action != modules::EModuleAction::load)) ||
@@ -124,9 +123,7 @@ void CModuleService::request(CErasedOwner&& owner, const std::int32_t slot, SCli
     SModuleRecord* const previous = find(pending_mount_point());
     if ((request->action == modules::EModuleAction::load) && (previous != nullptr))
     {
-        finish(((request->require_service_thread && !previous->has_service_thread) ||
-            (request->require_host_pump && !previous->has_host_pump)) ?
-            modules::EModuleStatus::function_unavailable : modules::EModuleStatus::already_loaded);
+        finish(modules::EModuleStatus::already_loaded);
         return;
     }
 
@@ -210,9 +207,7 @@ void CModuleService::complete(const threading::CErasedPodMsg& message) noexcept
     }
     if ((result.status == modules::EModuleStatus::success) && (m_work.next != nullptr))
     {
-        //  Keep the request and client correlation until the Host starts the thread.
-        find(pending_mount_point())->has_service_thread = m_work.service_thread.entry != nullptr;
-        find(pending_mount_point())->has_host_pump = m_work.host_pump.activate != nullptr;
+        //  Keep the request and client correlation until the module coordinator is ready.
         m_start_pending = true;
         return;
     }
@@ -260,12 +255,10 @@ void CModuleService::finish(const modules::EModuleStatus status) noexcept
         if ((status == modules::EModuleStatus::success) && (m_work.next == &current->binding))
         {
             current->function = m_work.function;
-            current->has_service_thread = m_work.service_thread.entry != nullptr;
-            current->has_host_pump = m_work.host_pump.activate != nullptr;
         }
 
         result.available = current->binding.is_ready() &&
-            (!(current->has_service_thread || current->has_host_pump) || current->thread_started);
+            current->thread_started;
         result.module = current->identity;
         result.function = result.available ? current->function : nullptr;
     }

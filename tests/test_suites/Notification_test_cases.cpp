@@ -10,6 +10,7 @@
 
 #include "tests/support/thread_helpers.hpp"
 #include "framework/system/system_ids.hpp"
+#include "tests/support/endpoint_fixture.hpp"
 #include <thread>
 #include "host/threading/CThreadPackage.hpp"
 #include "framework/threading/CThreadContext.hpp"

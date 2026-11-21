@@ -110,6 +110,7 @@
     <ClCompile Include="..\tests\test_suites\TextureBatch_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\client_record.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\endpoint_runtime.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\service_router.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\service_borrows.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\direct_connections.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
@@ -211,6 +212,8 @@
     <ClInclude Include="..\tests\support\direct_connection_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\input_schema.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\host_client_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\endpoint_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\provider_endpoint_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\thread_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\collection_growth_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>

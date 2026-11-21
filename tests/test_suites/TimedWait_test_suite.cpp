@@ -290,6 +290,7 @@ struct ServiceProbe
     std::atomic<unsigned> stage{ 0u };
     WaitResult timeout, message, exit, drain_timeout, drain_wake;
     void* prepared_resources{ nullptr };
+    threading::CThreadResources* resources{ nullptr };
     bool exact_provisioning{ false };
     bool running_after_timeout{ false };
     bool exiting_after_timeout{ false };
@@ -308,18 +309,16 @@ bool MV_STD_ABI_CALL prepare_timed_service(void* const state,
     return true;
 }
 
-std::uint32_t MV_STD_ABI_CALL timed_service(void* const data) noexcept
+std::uint32_t MV_STD_ABI_CALL timed_service(threading::CThreadContext& context, void* const) noexcept
 {
-    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(data);
     ServiceProbe& probe = tests::TThreadFixtureState<ServiceProbe>::get();
-    probe.exact_provisioning = probe.prepared_resources == data;
-    threading::CThreadContext context(resources);
+    probe.exact_provisioning = probe.prepared_resources == &context;
     context.startup();
     context.mark_running();
     CWaitDeadline limit;
     (void)limit.set_after_milliseconds(20u);
     probe.timeout = context.wait_for_new_epoch(0u, limit);
-    probe.running_after_timeout = resources.control_state.query_state() == threading::EThreadRunState::Running;
+    probe.running_after_timeout = probe.resources->control_state.query_state() == threading::EThreadRunState::Running;
     (void)limit.set_after_milliseconds(5000u);
     probe.stage.store(1u, std::memory_order_release);
     probe.message = context.wait_for_new_epoch(0u, limit);
@@ -332,11 +331,11 @@ std::uint32_t MV_STD_ABI_CALL timed_service(void* const data) noexcept
     const std::uint32_t drain_epoch = context.observe_epoch();
     (void)limit.set_after_milliseconds(0u);
     probe.drain_timeout = context.wait_for_new_epoch_preserving_state(drain_epoch, limit);
-    probe.exiting_after_timeout = resources.control_state.query_state() == threading::EThreadRunState::Exiting;
+    probe.exiting_after_timeout = probe.resources->control_state.query_state() == threading::EThreadRunState::Exiting;
     (void)limit.set_after_milliseconds(5000u);
     probe.stage.store(3u, std::memory_order_release);
     probe.drain_wake = context.wait_for_new_epoch_preserving_state(drain_epoch, limit);
-    probe.exiting_after_wake = resources.control_state.query_state() == threading::EThreadRunState::Exiting;
+    probe.exiting_after_wake = probe.resources->control_state.query_state() == threading::EThreadRunState::Exiting;
     (void)context.read(message);
     if (context.exit_requested()) context.mark_exited();
     else context.mark_failed(1u);
@@ -348,9 +347,11 @@ void test_service_message_and_exit(TTestContext& ctx)
     platform::system::CPerfCountConversion conversion;
     TEST_EXPECT(ctx, conversion.init());
     ServiceProbe probe;
-    const threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-        EThreadPriority::Normal, &timed_service, &prepare_timed_service, &probe };
+    threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
+        EThreadPriority::Normal, nullptr, &prepare_timed_service, &probe };
+    config.endpoint_entry = &timed_service;
     threading::CThreadPackage package(config, conversion);
+    probe.resources = &package.resources();
     const bool started = package.startup();
     TEST_EXPECT(ctx, started);
     if (!started) return;
@@ -365,7 +366,7 @@ void test_service_message_and_exit(TTestContext& ctx)
     TEST_EXPECT(ctx, await([&] { return (probe.stage.load(std::memory_order_acquire) == 3u) &&
         (package.query_state() == threading::EThreadRunState::Exiting); }));
     TEST_EXPECT(ctx, package.post(message));
-    TEST_EXPECT(ctx, await([&] { return package.query_state() == threading::EThreadRunState::Exited; }));
+    TEST_EXPECT(ctx, await([&] { return package.execution_ended(); }));
     TEST_EXPECT(ctx, package.shutdown());
     TEST_EXPECT(ctx, probe.timeout.status == EWaitStatus::timed_out && probe.running_after_timeout);
     TEST_EXPECT(ctx, probe.message.status == EWaitStatus::satisfied && probe.received);

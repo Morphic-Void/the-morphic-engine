@@ -95,7 +95,8 @@ credits too. Page-wise retirement bounds cleanup. Time limits are cooperative:
 one already-entered bounded step can finish after its clock deadline. Runnable
 local work requests another pump; waiting solely for Host replies permits sleep.
 
-`SHostPumpServices` version 2 adds `commit_resource`. It authenticates the exact
+`CommitServiceResource` is an ordinary asynchronous endpoint request. Host returns
+`ProviderOperationResult` after authenticating the exact
 provider and operation, requires confirmed command consumption, rejects prior
 cancellation/recipient closure and stores terminal success in the already
 reserved operation/reply capacity. It returns `busy` before command consumption.

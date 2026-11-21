@@ -33,8 +33,8 @@ namespace memory { class CMemoryContext; }
 namespace modules
 {
 
-inline constexpr char k_bootstrap_symbol_name[]{ "morphic_module_bootstrap_v4" };
-inline constexpr std::uint32_t k_binding_abi_major = 4u;
+inline constexpr char k_bootstrap_symbol_name[]{ "morphic_module_bootstrap_v1" };
+inline constexpr std::uint32_t k_binding_abi_major = 1u;
 
 struct SVersion
 {
@@ -77,19 +77,6 @@ enum class EBindingResult : std::uint32_t
 };
 
 using FModuleFunction = void(MV_STD_ABI_CALL*)() noexcept;
-
-//  Optional, independently versioned service-thread capability. Absence means
-//  a passive module. A successful query must supply both fields; Host owns the
-//  thread and keeps the binding installed until its work drains and it joins.
-inline constexpr char k_service_thread_symbol_name[]{ "morphic_module_service_thread_v1" };
-using FServiceThreadEntry = std::uint32_t(MV_STD_ABI_CALL*)(void* const resources) noexcept;
-struct SServiceThread
-{
-    thread_ids::id_type thread{};
-    FServiceThreadEntry entry{ nullptr };
-};
-using FQueryServiceThread = EBindingResult(MV_STD_ABI_CALL*)(SServiceThread* const service) noexcept;
-static_assert(std::is_standard_layout_v<SServiceThread> && std::is_trivially_copyable_v<SServiceThread>);
 
 using FQueryAdvertisedIdentity = EBindingResult(MV_STD_ABI_CALL*)(SAdvertisedIdentity* const identity) noexcept;
 using FInstallPeerIdentity = EBindingResult(MV_STD_ABI_CALL*)(const SAdvertisedIdentity* const identity) noexcept;
@@ -161,10 +148,10 @@ using FBootstrap = EBindingResult(MV_STD_ABI_CALL*)(SBootstrapFunctions* const f
 
 static_assert(std::is_standard_layout_v<SVersion> && std::is_trivially_copyable_v<SVersion>);
 static_assert(std::is_standard_layout_v<SAdvertisedIdentity> && std::is_trivially_copyable_v<SAdvertisedIdentity>);
-static_assert((sizeof(SAdvertisedIdentity) == 24u), "The version-4 advertised identity must retain its fixed ABI representation.");
+static_assert((sizeof(SAdvertisedIdentity) == 24u), "The version-1 advertised identity must retain its fixed ABI representation.");
 static_assert(std::is_standard_layout_v<SCoreFunctions> && std::is_trivially_copyable_v<SCoreFunctions>);
 static_assert(std::is_standard_layout_v<SBootstrapFunctions> && std::is_trivially_copyable_v<SBootstrapFunctions>);
-static_assert((sizeof(SCoreFunctions) == (sizeof(void*) * 9u)), "Version-4 core functions must contain exactly nine ABI function pointers.");
+static_assert((sizeof(SCoreFunctions) == (sizeof(void*) * 9u)), "Version-1 core functions must contain exactly nine ABI function pointers.");
 static_assert(sizeof(SBootstrapFunctions) == (sizeof(void*) * 3u));
 
 }   //  namespace modules

@@ -50,6 +50,7 @@
     <ClInclude Include="..\host\entry\bootstrap_config.hpp"><Filter>Host\include\entry</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\worker_policy.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\client_record.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\module_endpoints.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\service_router.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\service_borrows.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\direct_connections.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
@@ -74,6 +75,7 @@
     <ClCompile Include="..\host\runtime\batch_pool.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\client_record.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\endpoint_runtime.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\service_router.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\service_borrows.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\direct_connections.cpp"><Filter>Host\src\runtime</Filter></ClCompile>

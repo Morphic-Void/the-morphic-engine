@@ -11,10 +11,12 @@
 #include "framework/threading/CThreadContext.hpp"
 #include "tests/support/thread_helpers.hpp"
 #include "framework/system/system_ids.hpp"
+#include "tests/support/endpoint_fixture.hpp"
 #include "debug/service.hpp"
 #include "framework/filesystem/filesystem_messages.hpp"
 #include "framework/module/module_messages.hpp"
 #include <atomic>
+#include <cstdio>
 #include "host/runtime/host.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "host/system/host_context.hpp"
@@ -29,11 +31,64 @@ namespace host
 
 struct SHostRuntimeTestAccess
 {
+    static std::uint32_t MV_STD_ABI_CALL stalled_worker(void* const data) noexcept
+    {
+        threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
+        context.startup();
+        context.mark_running();
+        // This worker deliberately retains live execution after stop is requested.
+        for (;;)
+        {
+            platform::threading::CWaitDeadline pause;
+            (void)pause.set_after_milliseconds(1u);
+            std::atomic<std::uint32_t> unchanged{ 0u };
+            (void)platform::threading::wait_until_not_equal(unchanged, 0u, pause);
+        }
+    }
+    static int fatal_probe(const unsigned mode)
+    {
+        struct SUnwindGuard
+        {
+            ~SUnwindGuard() { std::puts("FATAL PROBE UNWOUND"); std::fflush(stdout); }
+        } guard;
+        memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory, system_ids::host };
+        CHost runtime{ allocator };
+        runtime.m_phase = CHost::EPhase::complete;
+        runtime.m_test_clock_failure = mode;
+        if (!runtime.m_perf_count_conversion.init() || !runtime.m_thread_packages.initialise())
+        {
+            return 2;
+        }
+        const threading::ThreadConfig config{ thread_ids::bg_file_io, module_ids::executable,
+            platform::threading::EThreadPriority::Normal, &stalled_worker };
+        runtime.m_worker_count = 1u;
+        runtime.m_worker_slots[0] = runtime.m_thread_packages.emplace(config, runtime.m_perf_count_conversion);
+        threading::CThreadPackage* const package = runtime.worker_package(0u);
+        if (!package || !package->startup() || !wait([&] { return package->query_state() == threading::EThreadRunState::Running; }))
+        {
+            return 2;
+        }
+        package->request_exit();
+        std::puts("FATAL PROBE LIVE EXECUTION RETAINED");
+        std::puts("FATAL PROBE ARMED");
+        std::fflush(stdout);
+        runtime.begin_emergency_shutdown();
+        for (;;)
+        {
+            runtime.check_shutdown_deadline();
+            // Repeated failure observations must not extend the first deadline.
+            runtime.begin_emergency_shutdown();
+            platform::threading::CWaitDeadline pause;
+            (void)pause.set_after_milliseconds(1u);
+            std::atomic<std::uint32_t> unchanged{ 0u };
+            (void)platform::threading::wait_until_not_equal(unchanged, 0u, pause);
+        }
+    }
     struct SWorkers
     {
         std::atomic<bool> fail{false}, publish{false};
         CErasedOwner completion;
-        SClientRecord client{module_ids::executive, 1u};
+        tests::SEndpointFixture client{module_ids::executive, 1u};
         bool interleaved{false}, completed_before_cancel{false};
     };
 
@@ -87,8 +142,8 @@ struct SHostRuntimeTestAccess
     {
         auto& state = *static_cast<SWorkers*>(runtime.m_test_state);
         filesystem::FilesystemRefreshResult result;
-        state.completed_before_cancel = state.client.message_count == 1u &&
-            state.client.messages[0].copy_payload_to(result) && result.status == filesystem::EFilesystemStatus::scan_failed;
+        state.completed_before_cancel = state.client.pending() == 1u &&
+            state.client.received(0).copy_payload_to(result) && result.status == filesystem::EFilesystemStatus::scan_failed;
     }
 
     static void rejected_scan(tests::TTestContext& ctx)
@@ -198,42 +253,46 @@ struct SHostRuntimeTestAccess
 
         const auto client_index = module_ids::executive_index.raw_value();
         const auto provider_index = module_ids::ops::decode_id(module_ids::rendering).raw_value();
-        TEST_EXPECT(ctx, runtime.m_clients[client_index].emplace(module_ids::executive, 101u));
-        TEST_EXPECT(ctx, runtime.m_clients[provider_index].emplace(module_ids::rendering, 102u));
-        auto& client = *runtime.m_clients[client_index];
-        auto& provider = *runtime.m_clients[provider_index];
+        TEST_EXPECT(ctx, runtime.m_modules[client_index].emplace());
+        TEST_EXPECT(ctx, runtime.m_modules[provider_index].emplace());
+        auto& client_module = *runtime.m_modules[client_index];
+        auto& provider_module = *runtime.m_modules[provider_index];
+        TEST_EXPECT(ctx, client_module.coordinator.emplace(module_ids::executive, 101u, nullptr, modules::SModuleInstance{ 201u }));
+        TEST_EXPECT(ctx, provider_module.coordinator.emplace(module_ids::rendering, 102u, nullptr, modules::SModuleInstance{ 202u }));
+        auto& client = *client_module.coordinator;
+        auto& provider = *provider_module.coordinator;
+        TEST_EXPECT(ctx, (client.initialise() && provider.initialise()));
+        tests::CEndpointProbe client_probe{ client };
         client.phase = provider.phase = EClientPhase::ready;
-        client.execution = provider.execution = EClientExecution::pumped;
         const SServiceContract contract{ 1u, 1u };
-        runtime.m_providers[provider_index] = { &provider, &contract, 1u };
+        runtime.m_modules[provider_index]->provider = { &provider, &contract, 1u };
         auto& router = runtime.m_service_router;
         TEST_EXPECT(ctx, client.reserve_replies(1u));
-        router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &runtime.m_providers[provider_index]);
+        router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &runtime.m_modules[provider_index]->provider);
         OpenServiceResult opened;
-        TEST_EXPECT(ctx, client.messages[0].copy_payload_to(opened) && opened.status == EServiceStatus::success);
-        client.consume(1u);
+        TEST_EXPECT(ctx, client_probe.received(0).copy_payload_to(opened) && opened.status == EServiceStatus::success);
+        client_probe.discard(1u);
         ServiceRequest request;
         request.route = opened.route;
         request.request.value = 1u;
         request.opcode = 1u;
         TEST_EXPECT(ctx, client.reserve_replies(2u));
         router.request(request, 2, client);
-        client.consume(1u);
+        client_probe.discard(1u);
         SDispatchedCommand command;
-        TEST_EXPECT(ctx, router.prepare_batch(provider, &command, 1u) == 1u);
+        TEST_EXPECT(ctx, tests::receive_commands(router, provider, &command, 1u) == 1u);
         runtime.m_executive_request = CErasedOwner::create<modules::ModuleRequest>();
         auto* const dependency = runtime.m_executive_request.payload<modules::ModuleRequest>();
         TEST_EXPECT(ctx, dependency != nullptr);
         SServiceBorrow borrow;
         TEST_EXPECT(ctx, router.prepare_borrow(provider, { opened.route, { 1u }, { dependency, sizeof(*dependency), 1u } }, borrow) == EServiceStatus::success);
-        TEST_EXPECT(ctx, router.finish_batch(provider, &command, 1u, 1u));
         router.progress();
-        client.consume(client.message_count);
+        client_probe.discard(client_probe.pending());
         TEST_EXPECT(ctx, client.reserve_replies(1u));
         router.register_notification(client, { opened.route, borrow }, 3);
         ServiceNotificationRegistered registered;
-        TEST_EXPECT(ctx, client.messages[0].copy_payload_to(registered) && registered.status == EServiceStatus::success);
-        client.consume(1u);
+        TEST_EXPECT(ctx, client_probe.received(0).copy_payload_to(registered) && registered.status == EServiceStatus::success);
+        client_probe.discard(1u);
         threading::SNotificationEndpoint endpoint;
         TEST_EXPECT(ctx, router.bind_borrow_notification(provider, borrow, registered.registration, endpoint) == EServiceStatus::success);
         package->request_exit();
@@ -241,9 +300,9 @@ struct SHostRuntimeTestAccess
 
         TEST_EXPECT(ctx, !runtime.shutdown() && runtime.retains_state());
         TEST_EXPECT(ctx, runtime.worker_package(0u) == package && runtime.m_worker_count == 1u);
-        TEST_EXPECT(ctx, &*runtime.m_clients[client_index] == &client && &*runtime.m_clients[provider_index] == &provider);
+        TEST_EXPECT(ctx, &*runtime.m_modules[client_index]->coordinator == &client && &*runtime.m_modules[provider_index]->coordinator == &provider);
         TEST_EXPECT(ctx, runtime.m_executive_request.payload<modules::ModuleRequest>() == dependency);
-        TEST_EXPECT(ctx, runtime.m_providers[provider_index].client == &provider);
+        TEST_EXPECT(ctx, runtime.m_modules[provider_index]->provider.client == &provider);
         TEST_EXPECT(ctx, !router.client_idle(client) && router.provider_in_use(provider));
         TEST_EXPECT(ctx, endpoint.signal() && registered.reader.pending() && client.notifications_pending.load() == 1u);
         TEST_EXPECT(ctx, pinned.endpoint().signal()); //  Neither wait target was destroyed by refused teardown.
@@ -309,4 +368,9 @@ void run_host_runtime_tests(tests::TTestContext& ctx)
     host::SHostRuntimeTestAccess::clock_failures(ctx);
     host::SHostRuntimeTestAccess::notification_shutdown_retention(ctx);
     host::SHostRuntimeTestAccess::context_installation_failure(ctx);
+}
+
+int run_host_fatal_probe(const unsigned mode)
+{
+    return host::SHostRuntimeTestAccess::fatal_probe(mode);
 }

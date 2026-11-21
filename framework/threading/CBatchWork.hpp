@@ -103,6 +103,11 @@ public:
         m_shared{ &shared }, m_control{ &control }, m_wake{ &wake },
         m_module_id{ module_id }, m_binding{ binding } {}
 
+    CBatchClient(SBatchShared& shared, CThreadControlState& control, std::atomic<std::uint32_t>& pending,
+        const module_ids::id_type module_id, void* const binding) noexcept :
+        m_shared{ &shared }, m_control{ &control }, m_wake{ nullptr }, m_pending_wake{ &pending },
+        m_module_id{ module_id }, m_binding{ binding } {}
+
     CBatchClient(const CBatchClient&) = delete;
     CBatchClient& operator=(const CBatchClient&) = delete;
 
@@ -115,7 +120,7 @@ public:
         {
             return { EBatchSubmission::rejected, EBatchRejection::invalid_work };
         }
-        if (m_control->exit_requested())
+        if (m_admission_closed || m_control->exit_requested())
         {
             return { EBatchSubmission::rejected, EBatchRejection::requester_exiting };
         }
@@ -206,7 +211,12 @@ public:
                 *reserved = response;
                 if (reserved.publish())
                 {
-                    delivered = m_wake->poke_epoch_and_wake_one();
+                    if (m_wake) delivered = m_wake->poke_epoch_and_wake_one();
+                    else
+                    {
+                        m_pending_wake->store(1u, std::memory_order_release);
+                        delivered = true;
+                    }
                 }
             }
         }
@@ -216,6 +226,8 @@ public:
         (void)owner_wake.signal();
         return delivered;
     }
+
+    void close_admission() noexcept { m_admission_closed = true; }
 
     [[nodiscard]] bool exit_requested() const noexcept { return m_control->exit_requested(); }
     [[nodiscard]] bool has_runners() const noexcept { return m_shared->runner_count != 0u; }
@@ -241,10 +253,12 @@ private:
     SBatchShared* m_shared;
     CThreadControlState* m_control;
     CWaitPredicate* m_wake;
+    std::atomic<std::uint32_t>* m_pending_wake{ nullptr };
     module_ids::id_type m_module_id;
     void* m_binding;
     CBatchReturnChannel m_returns;
     SPending m_pending[k_batch_channel_capacity];
+    bool m_admission_closed{ false };
     std::atomic<std::uint32_t> m_outstanding{ 0u };
     std::atomic<std::uint32_t> m_return_publishers{ 0u };
 };

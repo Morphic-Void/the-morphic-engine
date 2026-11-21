@@ -10,6 +10,7 @@
 //  Deterministic publication failure and quiescence with production Host queues.
 
 #include "framework/system/system_ids.hpp"
+#include "tests/support/endpoint_fixture.hpp"
 #include "host/runtime/asset_service.hpp"
 #include "tests/support/direct_connection_fixture.hpp"
 #include "tests/support/test_allocator.hpp"
@@ -29,7 +30,7 @@ struct SFixture
     platform::system::CPerfCountConversion conversion;
     threading::CThreadPackage worker{ { thread_ids::bg_conditioning, module_ids::executable }, conversion };
     threading::CThreadPackage recipient{ { thread_ids::executive, module_ids::executive }, conversion };
-    host::SClientRecord client{ module_ids::executive, 19u, &recipient };
+    tests::SEndpointFixture client{ module_ids::executive, 19u, &recipient };
     modules::SHostExecutionContext worker_execution;
     threading::CThreadContext worker_context{ threading::SDirectConnectionTestAccess::resources(worker) };
     threading::CThreadContext recipient_context{ threading::SDirectConnectionTestAccess::resources(recipient) };
@@ -64,8 +65,8 @@ struct SFixture
     }
     ~SFixture()
     {
-        worker_context.mark_exited();
-        recipient_context.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(worker);
+        threading::SDirectConnectionTestAccess::end_execution(recipient);
         service.fail_pending();
         service.release_client_acquisitions(client);
         service.complete_disposals();
@@ -625,18 +626,18 @@ void process_transport_and_pins(TTestContext& ctx)
     compose.input_count = 1u;
     compose.types_source = compose.instances_source = 0;
     SProcessFixture::retained(compose.inputs.slots[0], declarations.asset);
-    host::SClientRecord consumer{ module_ids::executable, 55u };
+    tests::SEndpointFixture consumer{ module_ids::executable, 55u };
     consumer.phase = host::EClientPhase::ready;
     TEST_EXPECT(ctx, f.service.post_internal_process(internal, consumer));
-    TEST_EXPECT(ctx, (!internal.has_owner() && (consumer.message_count == 1u) &&
-        consumer.messages[0].is_payload_a<SchemaProcessAccepted>()));
+    TEST_EXPECT(ctx, (!internal.has_owner() && (consumer.pending() == 1u) &&
+        consumer.received(0).is_payload_a<SchemaProcessAccepted>()));
     f.service.request_disposal({ declarations.asset }, 7, f.client);
     f.service.complete_disposals();
     threading::CErasedPodMsg no_reply;
     TEST_EXPECT(ctx, !f.recipient_context.read(no_reply));
     (void)f.step();
     SchemaProcessResult result;
-    TEST_EXPECT(ctx, ((consumer.message_count == 2u) && consumer.messages[1].copy_payload_to(result) &&
+    TEST_EXPECT(ctx, ((consumer.pending() == 2u) && consumer.received(1).copy_payload_to(result) &&
         (result.status == Status::success) && !consumer.reserved_replies));
     f.service.complete_disposals();
     TEST_EXPECT(ctx, (f.read<AssetDisposeResult>().status == EAssetStatus::success));
@@ -658,7 +659,7 @@ void process_drain(TTestContext& ctx)
     // Dequeue and execute, then lose the worker completion. Actual production
     // shutdown supplies this proof only after all workers stop and queues drain.
     (void)f.step(false);
-    f.worker_context.mark_exited();
+    threading::SDirectConnectionTestAccess::end_execution(f.worker);
     f.service.fail_pending();
     (void)f.terminal(Status::delivery_failed);
     TEST_EXPECT(ctx, (historical.descriptor && historical.descriptor->bytes.is_ready()));
@@ -685,12 +686,12 @@ void process_worker_failure(TTestContext& ctx)
     f.service.complete_disposals();
     (void)f.step();
 
-    f.client.invocation_offered = true;
+    f.client.invocation_active = true;
     f.submit([](SchemaProcessRequest&) {});
     f.fill(f.worker);
     allocator_state.failed = false;
     allocator_state.fail_on = allocator_state.attempts + 1u;
-    f.client.invocation_offered = false;
+    f.client.invocation_active = false;
     f.service.complete_disposals();
     f.accepted();
     TEST_EXPECT(ctx, (f.worker.pod_delivery_poisoned() && allocator_state.failed && f.service.failed()));
@@ -706,7 +707,7 @@ void process_worker_failure(TTestContext& ctx)
         }
     }
     TEST_EXPECT(ctx, ((offered == 1u) && !f.recipient_context.read(message) && !f.service.work_idle()));
-    f.worker_context.mark_exited();
+    threading::SDirectConnectionTestAccess::end_execution(f.worker);
     f.service.fail_pending();
     (void)f.terminal(Status::delivery_failed);
     TEST_EXPECT(ctx, (f.service.is_idle() && !f.client.reserved_replies));
@@ -718,15 +719,15 @@ void process_departure(TTestContext& ctx)
     f.submit([](SchemaProcessRequest&) {});
     f.accepted();
     const auto late = f.step(false);
-    f.recipient_context.mark_exited();
-    host::SClientRecord replacement{ f.client.module, (f.client.identity.value + 1u) };
+    threading::SDirectConnectionTestAccess::end_execution(f.recipient);
+    tests::SEndpointFixture replacement{ f.client.module, (f.client.identity.value + 1u) };
     f.service.release_client_acquisitions(f.client);
     TEST_EXPECT(ctx, (!f.service.client_idle(f.client) && f.service.client_idle(replacement)));
     f.service.complete(threading::make_pod_message(late.query_async_slot(), SchemaProcessDone{}), f.worker);
     f.service.complete_disposals();
     (void)f.step();
     threading::CErasedPodMsg message;
-    TEST_EXPECT(ctx, (!f.recipient_context.read(message) && !replacement.message_count && f.service.is_idle()));
+    TEST_EXPECT(ctx, (!f.recipient_context.read(message) && !replacement.pending() && f.service.is_idle()));
 }
 
 void process_shared_budget(TTestContext& ctx)
@@ -773,15 +774,15 @@ void process_pressure(TTestContext& ctx)
 {
     SProcessFixture f{ ctx };
     const auto existing = [](SchemaProcessRequest&) {};
-    f.client.invocation_offered = true;
+    f.client.invocation_active = true;
     f.submit(existing);
     threading::CErasedPodMsg message;
     TEST_EXPECT(ctx, (!f.worker_context.read(message) && !f.recipient_context.read(message)));
-    f.client.invocation_offered = false;
+    f.client.invocation_active = false;
     f.service.complete_disposals();
     f.accepted();
     // A caller with early cancellation intent sends only after this receipt.
-    host::SClientRecord other{ module_ids::audio, 29u };
+    tests::SEndpointFixture other{ module_ids::audio, 29u };
     f.service.cancel_process({ { 1u } }, other);
     f.service.cancel_process({ { 1u }, 2u }, f.client);
     for (unsigned i = 0u; i < 3u; ++i)
@@ -868,16 +869,16 @@ void process_poison(TTestContext& ctx, const bool at_acceptance)
     memory::CMemoryContext memory{ allocator, system_ids::host };
     tests::TMemoryContextScope scope{ &memory };
     SProcessFixture f{ ctx };
-    f.client.invocation_offered = true;
+    f.client.invocation_active = true;
     f.submit([](SchemaProcessRequest&) {});
-    f.client.invocation_offered = false;
+    f.client.invocation_active = false;
     if (!at_acceptance)
     {
         f.service.complete_disposals();
         f.accepted();
-        f.client.invocation_offered = true;
+        f.client.invocation_active = true;
         (void)f.step();
-        f.client.invocation_offered = false;
+        f.client.invocation_active = false;
     }
     f.fill(f.recipient);
     allocation.fail_on = allocation.attempts + 1u;
@@ -904,7 +905,7 @@ void process_poison(TTestContext& ctx, const bool at_acceptance)
         f.service.complete_disposals();
         TEST_EXPECT(ctx, (exposed.success.descriptor && exposed.success.descriptor->bytes.is_ready()));
         TEST_EXPECT(ctx, !f.worker_context.read(message));
-        f.recipient_context.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(f.recipient);
         f.service.release_client_acquisitions(f.client);
         TEST_EXPECT(ctx, !f.service.client_idle(f.client));
         f.client.terminal_before_drain = f.client.incoming_drained = true;
@@ -971,7 +972,7 @@ void poison(TTestContext& ctx, const unsigned phase)
         TEST_EXPECT(ctx, !fixture.worker_context.read(message));
         TEST_EXPECT(ctx, schema::CPreparedSchemaView{ result.descriptor }.is_ready());
         TEST_EXPECT(ctx, !fixture.recipient_context.read(message));
-        fixture.recipient_context.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(fixture.recipient);
         fixture.service.release_client_acquisitions(fixture.client);
         fixture.service.complete_disposals();
         work = fixture.work();
@@ -994,10 +995,10 @@ void poison(TTestContext& ctx, const unsigned phase)
             }
         }
         TEST_EXPECT(ctx, (exposed == 1u));
-        fixture.worker_context.mark_exited();
+        threading::SDirectConnectionTestAccess::end_execution(fixture.worker);
         fixture.service.fail_pending();
     }
-    fixture.recipient_context.mark_exited();
+    threading::SDirectConnectionTestAccess::end_execution(fixture.recipient);
     fixture.service.release_client_acquisitions(fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.service.is_idle());
@@ -1009,7 +1010,7 @@ void vanished_recipient(TTestContext& ctx)
     fixture.request();
     const threading::CErasedPodMsg work = fixture.work();
     fixture.execute(work);
-    fixture.recipient_context.mark_exited();
+    threading::SDirectConnectionTestAccess::end_execution(fixture.recipient);
     fixture.complete(work);
     const threading::CErasedPodMsg retirement = fixture.work();
     fixture.execute(retirement);

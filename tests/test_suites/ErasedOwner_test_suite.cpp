@@ -163,7 +163,7 @@ static bool read_request(threading::CThreadPackage& package, threading::CErasedO
 }
 
 static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundModule& module,
-    const platform::threading::FThreadEntry entry, const platform::system::CPerfCountConversion& conversion)
+    const threading::FEndpointThreadEntry entry, const platform::system::CPerfCountConversion& conversion)
 {
     enum class ECase : std::uint8_t
     {
@@ -179,10 +179,10 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
     {
         const threading::ThreadConfig configuration{
             thread_ids::executive, module_ids::executive, platform::threading::EThreadPriority::Normal,
-            entry, &modules::CBoundModule::prepare_thread, &module };
+            nullptr, &modules::CBoundModule::prepare_thread, &module, entry };
         tests::SDirectHostFixture host;
         threading::CThreadPackage package(configuration, conversion);
-        host::SClientRecord worker{ module_ids::executive, 101u, &package };
+        host::SClientRecord worker{ module_ids::executive, 101u, &package, modules::SModuleInstance{ 1101u } };
         tests::SDirectPeerFixture rendering{ host, conversion, module_ids::rendering, 102u,
             modules::test_connections::policies, modules::test_connections::policy_count };
         tests::SDirectPeerFixture audio{ host, conversion, module_ids::audio, 103u,
@@ -347,7 +347,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             worker.incoming_drained = worker.terminal_before_drain;
             host.progress();
             const auto state = package.query_state();
-            return ((state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed)) &&
+            return package.execution_ended() && ((state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed)) &&
                 worker.execution_quiescent() && host.connections.empty();
         }));
         pump();
@@ -372,7 +372,8 @@ using tests::TModuleIdScope;
 struct SExecutiveSubmissionFailure
 {
     modules::CBoundModule* module{ nullptr };
-    platform::threading::FThreadEntry entry{ nullptr };
+    threading::FEndpointThreadEntry entry{ nullptr };
+    threading::CThreadResources* resources{ nullptr };
     threading::EThreadRunState final_state{ threading::EThreadRunState::Empty };
     std::uint32_t failure_code{ 0u };
     std::uint32_t exit_code{ 0u };
@@ -386,18 +387,19 @@ static bool MV_STD_ABI_CALL prepare_executive_without_outbound_queue(void* const
         return false;
     }
     SExecutiveSubmissionFailure& test = *static_cast<SExecutiveSubmissionFailure*>(context);
-    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(provisioning);
-    //  Fail the first post without changing the production Executive entry point.
+    threading::CThreadResources& resources = *test.resources;
+    //  Fail the first owning post without changing the production Executive entry point.
     resources.worker_to_host_owned_msgs.deallocate();
     return modules::CBoundModule::prepare_thread(test.module, thread_id, provisioning);
 }
 
-static std::uint32_t MV_STD_ABI_CALL capture_executive_submission_failure(void* const provisioning) noexcept
+static std::uint32_t MV_STD_ABI_CALL capture_executive_submission_failure(
+    threading::CThreadContext& context, void* const) noexcept
 {
-    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(provisioning);
     SExecutiveSubmissionFailure& test = tests::TThreadFixtureState<SExecutiveSubmissionFailure>::get();
-    test.exit_code = test.entry(provisioning);
-    //  Capture before the Host-side startup rejection cleans up the package.
+    threading::CThreadResources& resources = *test.resources;
+    test.exit_code = test.entry(context, nullptr);
+    //  Capture the failure before the Host joins and releases the package.
     test.final_state = resources.control_state.query_state();
     test.failure_code = resources.control_state.query_failure_code();
     return test.exit_code;
@@ -726,21 +728,24 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
             TEST_EXPECT(ctx, debug_service->start({ thread_ids::debug_service, "debug_service" }));
             SExecutiveSubmissionFailure failure;
             failure.module = &module;
-            failure.entry = reinterpret_cast<platform::threading::FThreadEntry>(function);
+            failure.entry = reinterpret_cast<threading::FEndpointThreadEntry>(function);
             threading::ThreadConfig config;
             config.thread_id = thread_ids::executive;
             config.worker_module_id = module_ids::executive;
-            config.entry_point = &capture_executive_submission_failure;
+            config.endpoint_entry = &capture_executive_submission_failure;
             config.prepare = &prepare_executive_without_outbound_queue;
             config.prepare_context = &failure;
             executive_startup_tests::SHostView execution;
             threading::CThreadPackage package(config, conversion);
+            failure.resources = &package.resources();
             TEST_EXPECT(ctx, execution.install(package));
-            //  The real Host-side package must reject the failed Executive startup.
-            TEST_EXPECT(ctx, !package.startup());
+            //  Native creation succeeds; initialization failure is observed asynchronously.
+            TEST_EXPECT(ctx, package.startup());
+            TEST_EXPECT(ctx, tests::wait_until(conversion, [&] { return package.execution_ended(); }));
             TEST_EXPECT(ctx, (failure.final_state == threading::EThreadRunState::Failed));
             TEST_EXPECT(ctx, (failure.failure_code != 0u));
             TEST_EXPECT(ctx, (failure.exit_code == failure.failure_code));
+            TEST_EXPECT(ctx, (package.retire_host_execution() && package.shutdown()));
             TEST_EXPECT(ctx, executive_context->is_attribution_empty());
             executive_startup_tests::check_rendering_notices(ctx, module, failure.entry, conversion);
             TEST_EXPECT(ctx, executive_context->is_attribution_empty());

@@ -22,64 +22,25 @@ namespace host
 
 static thread_local CPumpedClient* t_invocation{ nullptr };
 
-static bool system_message(const type_id identity) noexcept
-{
-    system_type_id system;
-    return identity.try_system_type_id(system) && (system_id_registry::find_type(system) != nullptr);
-}
-
 CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& binding,
-    const modules::SHostPumpV2& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept
-    : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }, m_maintenance{ maintenance }
+    const modules::SHostPumpV1& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept
+    : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }, m_maintenance{ maintenance }, m_endpoint{ *client.endpoint }
 {
-    static const modules::SHostPumpServices services{
-        sizeof(modules::SHostPumpServices), 2u, &post_pod, &post_owner, &complete,
-        &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement, &bind_borrow_notification,
-        &enter_restriction, &leave_restriction, &maintain_host, &commit_resource };
     m_context.instance = client.instance;
     m_context.client = client.identity;
     m_context.host_thread = thread_ids::host;
-    m_context.services = &services;
-    m_context.service_context = this;
+    m_context.endpoint = &m_endpoint;
+    client.host_execution.native_context = this;
+    client.host_execution.enter_restriction = &enter_restriction;
+    client.host_execution.leave_restriction = &leave_restriction;
+    client.host_execution.maintain_host = &maintain_host;
     m_context.execution = &client.host_execution;
     m_context.owner_wake = client.owner_wake;
-    client.delivery_owner = &maintenance;
 }
 
 bool CPumpedClient::initialise() noexcept
 {
-    return m_pods.initialise(256u) && m_controls.initialise(32u) && m_owners.initialise(64u) &&
-        m_client.install_host_execution(m_maintenance.restrictions().reader());
-}
-
-const threading::CErasedPodMsg* CPumpedClient::peek_pod(const bool control) noexcept
-{
-    auto& pending = control ? m_pending_control : m_pending_pod;
-    auto& ready = control ? m_has_pending_control : m_has_pending_pod;
-    if (!ready)
-    {
-        ready = (control ? m_controls : m_pods).read(pending);
-    }
-    return ready ? &pending : nullptr;
-}
-
-const threading::CErasedOwnerMsg* CPumpedClient::peek_owner() noexcept
-{
-    if (!m_has_pending_owner) m_has_pending_owner = m_owners.capture(m_pending_owner);
-    return m_has_pending_owner ? &m_pending_owner : nullptr;
-}
-
-bool CPumpedClient::capture(threading::CErasedOwnerMsg& message) noexcept
-{
-    if (!m_has_pending_owner) return m_owners.capture(message);
-    message = std::move(m_pending_owner);
-    m_has_pending_owner = false;
-    return true;
-}
-
-void CPumpedClient::consume_pod(const bool control) noexcept
-{
-    (control ? m_has_pending_control : m_has_pending_pod) = false;
+    return m_client.initialise() && m_client.install_host_execution(m_maintenance.restrictions().reader());
 }
 
 bool CPumpedClient::enter(const bool allow_restriction) noexcept
@@ -93,7 +54,7 @@ bool CPumpedClient::enter(const bool allow_restriction) noexcept
     }
     t_invocation = this;
     m_call_failed = false;
-    m_client.invocation_offered = true;
+    m_client.invocation_active = true;
     return true;
 }
 
@@ -111,7 +72,7 @@ void CPumpedClient::leave() noexcept
 
 void CPumpedClient::finish_frame() noexcept
 {
-    m_client.invocation_offered = false;
+    m_client.invocation_active = false;
     m_maintenance.replay();
     m_maintenance.fanout();
 }
@@ -140,16 +101,8 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
     m_native_stop = m_native_stop || (progress.stop_requested != 0u);
     if (progress.phase == EPumpPhase::stopped)
     {
-        if (!m_stop_begun) m_failed = true;
-        if (!m_router.provider_borrows_retired(m_client))
-        {
-            //  A stopped claim cannot release escaped views. Keep the complete
-            //  graph; Host still needs proof that live consumers have quiesced.
-            m_failed = true;
-            m_retained = true;
-        }
+        if (!m_stop_begun || !m_client.endpoint->sealed) m_failed = true;
         m_client.phase = EClientPhase::stopped;
-        m_router.stop_provider(m_client, true);
     }
     else if (progress.phase == EPumpPhase::ready)
     {
@@ -201,7 +154,6 @@ void CPumpedClient::request_stop(const modules::EStopReason reason) noexcept
     if (!m_client.stop_requested) m_stop_reason = reason;
     m_client.stop_requested = true;
     if (!stopped()) m_client.phase = EClientPhase::stopping;
-    m_router.stop_provider(m_client, stopped());
 }
 
 void CPumpedClient::pump() noexcept
@@ -221,7 +173,6 @@ void CPumpedClient::pump() noexcept
     }
     if (m_client.stop_requested && !m_stop_begun)
     {
-        m_router.stop_provider(m_client, false);
         if (!enter()) return;
         m_stop_begun = true;
         modules::SProgress progress;
@@ -231,42 +182,14 @@ void CPumpedClient::pump() noexcept
         finish_frame();
         if (stopped()) return;
     }
-    services::SDispatchedCommand commands[64];
-    threading::CErasedPodMsg messages[64];
-    std::uint32_t controls = 0u;
     modules::SPumpInput input;
-    input.command_count = (!m_client.stop_requested && ready()) ? m_router.prepare_batch(m_client, commands, 64u) : 0u;
-    input.commands = commands;
-    input.messages = messages;
-    input.message_count = m_protocol_failed ? 0u : m_client.copy_messages(messages, 64u, controls);
     if (!enter()) return;
     modules::SPumpResult result;
     input.notifications_pending = m_client.notifications_pending.exchange(0u, std::memory_order_acq_rel);
-    const auto status = m_capability.pump(m_runtime, &input, &result);
+    const modules::ECallStatus status = m_capability.pump(m_runtime, &input, &result);
     leave();
-    const bool valid = (result.consumed_messages <= input.message_count) &&
-        m_router.finish_batch(m_client, commands, input.command_count, result.consumed_commands);
-    if (valid)
-    {
-        m_client.consume_messages(result.consumed_messages, controls);
-    }
-    else
-    {
-        //  An invalid prefix cannot authorise dropping or replaying messages.
-        //  Keep their storage until the provider establishes stopped/quiescent.
-        m_protocol_failed = true;
-        m_client.prefix_failed = true;
-        m_failed = true;
-        request_stop(modules::EStopReason::pump_failure);
-    }
-    observe((valid ? status : modules::ECallStatus::failed), result.progress);
-    if (valid && (((result.consumed_messages != 0u) &&
-        ((result.consumed_messages < input.message_count) || (input.message_count == 64u))) ||
-        ((result.consumed_commands != 0u) &&
-        ((result.consumed_commands < input.command_count) || (input.command_count == 64u)))))
-    {
-        m_work_pending = true;
-    }
+    observe(status, result.progress);
+    if (m_client.endpoint->host_to_worker_msgs.refresh_readable_count()) m_work_pending = true;
     finish_frame();
 }
 
@@ -305,33 +228,6 @@ bool CPumpedClient::deactivate() noexcept
     return true;
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* const context, const threading::CErasedPodMsg* const message) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
-        !system_message(message->query_message_type_id()))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    if (self->m_client.terminal())
-    {
-        return services::EServiceStatus::closing;
-    }
-    platform::reports::PlatformReportCaptureFailed outcome;
-    const bool report = message->copy_payload_to(outcome);
-    auto& queue = (report || message->is_payload_a<SchemaProcessCancel>() || message->is_payload_a<AssetReleaseRequest>() ||
-        message->is_payload_a<services::ReleaseServiceBorrow>() || message->is_payload_a<services::ServiceBorrowQuiescent>() ||
-        message->is_payload_a<services::CancelServiceRequest>()) ?
-        self->m_controls : self->m_pods;
-    if ((&queue == &self->m_controls) && self->m_client.report_outcome_reserved && (queue.writable_count() <= 1u) &&
-        (!report || (outcome.capture.capture_id != self->m_client.report_outcome_reserved) ||
-            (outcome.capture.platform_instance.value != self->m_client.instance.value)))
-    {
-        return services::EServiceStatus::busy;
-    }
-    return queue.post(*message) ? services::EServiceStatus::success : services::EServiceStatus::busy;
-}
-
 modules::SRestrictionEnterResult MV_STD_ABI_CALL CPumpedClient::enter_restriction(void* const context, const modules::SRestrictionReason reason) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
@@ -363,103 +259,6 @@ modules::SHostMaintenanceResult MV_STD_ABI_CALL CPumpedClient::maintain_host(voi
         return {};
     }
     return self->m_maintenance.run();
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* const context, threading::CErasedOwnerMsg* const message) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
-        !system_message(message->query_message_type_id()) ||
-        (message->has_owner() && !system_message(message->query_owner_type_id())))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    if (self->m_client.terminal())
-    {
-        return services::EServiceStatus::closing;
-    }
-    if (self->m_client.report_outcome_reserved && (self->m_owners.writable_count() <= 1u))
-    {
-        const auto* const report = message->owner().payload<platform::reports::PlatformReportCaptured>();
-        if (!message->is_message_a<platform::reports::PlatformReportCaptured>() || !report ||
-            (report->capture.capture_id != self->m_client.report_outcome_reserved) ||
-            (report->capture.platform_instance.value != self->m_client.instance.value))
-        {
-            return services::EServiceStatus::busy;
-        }
-    }
-    if ((message->is_message_a<platform::reports::PlatformReportCaptured>() || message->is_message_a<SchemaProcessRequest>()) &&
-        !message->owner().can_reattribute_to(self->m_owners.memory_context()))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_owners.post(std::move(*message)) ? services::EServiceStatus::success : services::EServiceStatus::busy;
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::commit_resource(void* const context,
-    const services::ServiceReply* const reply) noexcept
-{
-    CPumpedClient* const self = static_cast<CPumpedClient*>(context);
-    if (!self || (t_invocation != self) || !reply)
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_router.commit_resource(self->m_client, *reply);
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::complete(void* const context, const services::ServiceReply* const reply) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self) || (reply == nullptr))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_router.complete(self->m_client, *reply);
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::prepare_borrow(void* const context,
-    const services::SServiceBorrowOffer* const offer, services::SServiceBorrow* const borrow) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if (borrow != nullptr) *borrow = {};
-    if ((self == nullptr) || (t_invocation != self) || (offer == nullptr) || (borrow == nullptr))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_router.prepare_borrow(self->m_client, *offer, *borrow);
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::begin_borrow_retirement(void* const context, const services::SServiceBorrow borrow) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_router.begin_borrow_retirement(self->m_client, borrow);
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::finish_borrow_retirement(void* const context, const services::SServiceBorrow borrow) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self))
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_router.finish_borrow_retirement(self->m_client, borrow);
-}
-
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::bind_borrow_notification(void* const context,
-    const services::SServiceBorrow borrow, const services::SNotificationRegistration registration,
-    threading::SNotificationEndpoint* const endpoint) noexcept
-{
-    auto* const self = static_cast<CPumpedClient*>(context);
-    if (endpoint) *endpoint = {};
-    if (!self || (t_invocation != self) || !endpoint)
-    {
-        return services::EServiceStatus::invalid_request;
-    }
-    return self->m_router.bind_borrow_notification(self->m_client, borrow, registration, *endpoint);
 }
 
 }   //  namespace host

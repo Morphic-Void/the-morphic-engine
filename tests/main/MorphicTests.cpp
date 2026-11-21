@@ -15,12 +15,15 @@
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/ShaderReflection_test_suite.hpp"
 #include "tests/test_suites/TBulkTransport_test_suite.hpp"
+#include "tests/test_suites/HostPump_test_suite.hpp"
+#include "tests/test_suites/ErasedOwner_test_suite.hpp"
 #include "tests/test_suites/SchemaReference_test_cases.hpp"
 #include "tests/test_suites/Schema_test_suite.hpp"
 #include "tests/test_suites/SchemaModel_test_cases.hpp"
 #include "tests/test_suites/SchemaTraversal_test_cases.hpp"
 
 int run_schema_process_focused();
+int run_host_fatal_probe(const unsigned mode);
 int run_platform_window_focused();
 int run_platform_report_focused();
 int run_platform_input_focused();
@@ -98,6 +101,26 @@ int main(const int argc, char** const argv)
         {
             const int result = run_platform_report_focused();
             return test_environment::is_clean() ? result : 1;
+        }
+        if (std::strcmp(argv[i], "--host-fatal-start-clock") == 0)
+        {
+            return run_host_fatal_probe(3u);
+        }
+        if (std::strcmp(argv[i], "--host-fatal-read-clock") == 0)
+        {
+            return run_host_fatal_probe(4u);
+        }
+        if (std::strcmp(argv[i], "--host-fatal-deadline") == 0)
+        {
+            return run_host_fatal_probe(0u);
+        }
+        if (std::strcmp(argv[i], "--erased-owner") == 0)
+        {
+            return run_erased_owner_tests();
+        }
+        if (std::strcmp(argv[i], "--host-endpoints") == 0)
+        {
+            return run_host_pump_tests();
         }
         if (std::strcmp(argv[i], "--platform-window") == 0) return run_platform_window_focused();
         if (std::strcmp(argv[i], "--platform-input") == 0)

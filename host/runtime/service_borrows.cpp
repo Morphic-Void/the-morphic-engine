@@ -138,19 +138,11 @@ services::ServiceNotificationRegistered CServiceBorrows::register_notification(S
     if (record->registration.value == 0u)
     {
         if (m_next_registration == 0u) { result.status = EServiceStatus::busy; return result; }
-        if ((client.execution == EClientExecution::threaded) && client.thread)
+        if (!client.endpoint->pin_notification(record->notification))
         {
-            if (!client.thread->pin_notification(record->notification)) return result;
-            record->pinned_thread = client.thread;
+            return result;
         }
-        else if (client.execution == EClientExecution::pumped)
-        {
-            if (!record->notification.initialise(client.notifications_pending, client.owner_wake))
-            {
-                return result;
-            }
-        }
-        else { result.status = EServiceStatus::unsupported; return result; }
+        record->pinned_endpoint = client.endpoint;
         record->registration.value = m_next_registration++;
     }
     result.registration = record->registration;
@@ -245,6 +237,13 @@ void CServiceBorrows::progress() noexcept
             {
                 record.settled = record.published = true;
             }
+            else if ((result == EReplyPublication::busy) && record.client->endpoint->host_to_worker_msgs.posting_poisoned())
+            {
+                //  Publication is uncertain. Never report never_published or retry;
+                //  the consumer must relinquish the view or finish execution.
+                record.client->cancel_reservation(1u);
+                record.settled = record.published = record.closing = true;
+            }
             else if (result == EReplyPublication::cancelled)
             {
                 record.settled = true;
@@ -271,7 +270,7 @@ void CServiceBorrows::progress() noexcept
             {
                 //  Consumer quiescence and provider-finished proof cover every
                 //  reader and publisher, including final signals after thread exit.
-                if (record.pinned_thread) record.pinned_thread->unpin_notification();
+                if (record.pinned_endpoint) record.pinned_endpoint->unpin_notification();
                 (void)m_records.erase(slot);
                 --m_count;
             }

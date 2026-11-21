@@ -26,7 +26,7 @@
 #include "runtime/asset_service.hpp"
 #include "runtime/batch_pool.hpp"
 #include "runtime/module_service.hpp"
-#include "runtime/pumped_client.hpp"
+#include "runtime/module_endpoints.hpp"
 #include "runtime/host_maintenance.hpp"
 #include "runtime/direct_connections.hpp"
 #include "runtime/host_cadence.hpp"
@@ -77,24 +77,32 @@ private:
     [[nodiscard]] bool initialise_runtime(const char* const executive_file) noexcept;
     [[nodiscard]] bool start_threads() noexcept;
     [[nodiscard]] bool workers_failed() noexcept;
-    [[nodiscard]] bool start_executive() noexcept;
-    [[nodiscard]] bool start_module_thread() noexcept;
-    [[nodiscard]] bool register_module_client() noexcept;
-    void receive_startup_message(SClientRecord& client) noexcept;
+    [[nodiscard]] std::uint64_t allocate_identity() noexcept;
+    void create_thread(SClientRecord& requester, const threading::CreateThreadRequest& request, const std::int32_t slot) noexcept;
+    void progress_threads(SModuleEndpoints& module) noexcept;
+    void stop_module(SModuleEndpoints& module, const modules::EStopReason reason) noexcept;
+    [[nodiscard]] bool retire_endpoint(SClientRecord& client) noexcept;
+    [[nodiscard]] SClientRecord* first_client() noexcept;
+    [[nodiscard]] SClientRecord* next_client(const SClientRecord& previous) noexcept;
+    [[nodiscard]] SClientRecord* direct_client(const module_ids::id_type module) noexcept;
+    [[nodiscard]] SModuleEndpoints* module_endpoints(const module_ids::id_type module) noexcept;
     void start_pending_module() noexcept;
     void pump_clients() noexcept;
-    void drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noexcept;
+    void drain_client(SClientRecord& client) noexcept;
     [[nodiscard]] SClientRecord* client_for(const threading::CThreadPackage& package) noexcept;
     [[nodiscard]] SClientRecord* module_client(const module_ids::id_type module) noexcept;
     [[nodiscard]] bool stop_module_thread(const mount_point_ids::id_type mount) noexcept;
+    [[nodiscard]] bool defer_startup_module_request(const threading::CErasedOwnerMsg& message,
+        const SClientRecord& client) const noexcept;
     void receive_request(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept;
     void receive_message(const threading::CErasedPodMsg& message, SClientRecord& client) noexcept;
+    [[nodiscard]] bool receive_endpoint_message(const threading::CErasedPodMsg& message, SClientRecord& client) noexcept;
     void request_refresh(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept;
     void dispatch_refresh() noexcept;
     void complete_scan(threading::CErasedOwnerMsg& message) noexcept;
     void reply_refresh(SClientRecord& client, const std::int32_t slot, const filesystem::EFilesystemStatus status) noexcept;
     [[nodiscard]] bool filesystem_idle() const noexcept { return !m_initial_scan && (m_refresh_count == 0u); }
-    void advance_lifecycle(const threading::EThreadRunState executive_state) noexcept;
+    void advance_lifecycle() noexcept;
     void executive_failure(const modules::EModuleStatus status) noexcept;
     void run() noexcept;
     void run_turn() noexcept;
@@ -148,19 +156,11 @@ private:
     CModuleService m_module_service;
     CErasedOwner m_executive_request;
     EPhase m_phase{ EPhase::starting };
-    struct SModuleThread
-    {
-        std::int32_t slot{ -1 };
-        threading::EThreadRunState observed_state{ threading::EThreadRunState::Empty };
-    };
-    SModuleThread m_module_threads[module_ids::k_count];
-    TInstance<SClientRecord> m_clients[module_ids::k_count];
-    SServiceProvider m_providers[module_ids::k_count];
-    TInstance<CPumpedClient> m_pumps[module_ids::k_count];
+    TInstance<SModuleEndpoints> m_modules[module_ids::k_count];
     CServiceRouter m_service_router;
     CHostMaintenance m_maintenance;
     CDirectConnections m_direct_connections;
-    std::uint64_t m_next_client{ 1u };
+    std::uint64_t m_next_identity{ 1u };
     bool m_retain_runtime{ false };
     bool m_emergency_shutdown{ false };
     bool m_host_stop_applied{ false };
@@ -170,6 +170,9 @@ private:
     threading::CWaitDeadline m_shutdown_deadline;
     bool m_shutdown_timed{ false };
     bool m_shutdown_reported{ false };
+    threading::CWaitDeadline m_fatal_deadline;
+    bool m_fatal_timed{ false };
+    [[noreturn]] void terminate_runtime() noexcept;
 #if defined(MV_HOST_RUNTIME_TESTS)
     friend struct SHostRuntimeTestAccess;
     friend struct SHostMaintenanceTestAccess;

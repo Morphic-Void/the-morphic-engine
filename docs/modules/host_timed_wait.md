@@ -21,8 +21,9 @@ an asynchronous result or a deadline does not by itself prevent sleeping.
 Native-event ownership is a separate registration, retained through stopping
 until native resources and callbacks have relinquished it.
 
-The coordinated pump ABI is `SHostPumpV2`, exported as
-`morphic_module_host_pump_v2`. Legacy V1 exports are rejected. The
+The current pump ABI is `SHostPumpV1`, exported as
+`morphic_module_host_pump_v1`. Historical layouts are unsupported; every consumer
+is rebuilt against the current version-1 contract. The
 `k_host_pump_native_events` capability reserves exclusive thread-queue ownership
 before activation; a second owner is rejected before invoking its callbacks.
 `SProgress::native_events_active` enables native waiting while that owner can
