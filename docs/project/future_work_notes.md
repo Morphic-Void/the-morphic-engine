@@ -85,7 +85,9 @@ is a separate architectural decision, not unfinished sandwich-refactor work.
 
 ## Cross-Platform Validation
 
-Resume thread provisioning, TLS, formal threading stress tests, and
-sanitizer-backed validation when the Linux build path makes that work
-practical. Additional MPMC stress in that environment is validation expansion,
-not a completion condition for the existing transport family.
+Common endpoint/thread provisioning is complete in `ca8770d`, and direct endpoint
+messaging is complete in `84506a7`. Further TLS requirements, formal threading
+stress and sanitizer-backed validation can be selected as consumers require;
+Linux GCC/Clang build paths already exist. Additional MPMC stress is validation
+expansion, not a completion condition for the existing transport family. Remaining
+Host work is consolidated in the [endpoint backlog](../backlog/host_endpoint_follow_on.md).

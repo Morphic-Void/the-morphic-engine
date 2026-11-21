@@ -221,11 +221,12 @@ and independently reviewed [generic Host schema services](../schema/host-schema-
 remain available prerequisites. Platform-report prerequisite acceptance remains open.
 
 On 19 November the user [paused the revised Platform report handoff](../modules/pso_creation_stage1.md#platform-report-handoff-paused-for-host-communications-review)
-pending independent Host communications review and refactoring in other chats.
-The concern is increasing Host knowledge of module workflow and execution-dependent
-communication. The user will return to the Platform chat to re-evaluate options
-against the resulting interfaces; neither handoff integration nor a replacement
-orchestration contract is selected by this pause.
+for independent Host communications review and refactoring. Those communication
+increments are complete in `ca8770d` and `84506a7`; the report handoff remains paused.
+The concern about Host knowledge of module workflow still requires re-evaluation
+against the implemented interfaces. Generic provider/report boundary work is tracked
+in the [Host backlog](host_endpoint_follow_on.md#generic-provider-registration-for-input-and-reports).
+Neither handoff integration nor a replacement orchestration contract is selected.
 
 Before the pause, the proposed revised capture handoff used the agreed compact
 report layout and generic Host schema services. The proposed flow was

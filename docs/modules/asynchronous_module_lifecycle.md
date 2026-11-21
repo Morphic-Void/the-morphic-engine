@@ -230,7 +230,7 @@ the [first-window reference](platform_first_window.md).
 
 ## Module test conversations
 
-Executive runs Rendering and Audio tests through negotiated
+Executive runs Rendering and Audio tests through explicitly established
 [direct POD connections](direct_pod_connections.md). The Framework contract in
 `framework/communications/module_tests.hpp` defines `RunTestsRequest` and
 `RunTestsResult`; each module validates its own destination, correlation, status
@@ -246,8 +246,9 @@ Host proves an abandoned participant's final queue drain and native join.
 
 Lifecycle fixtures exercise Rendering as caller and Executive as worker, final
 replies, worker exit without a reply, and caller unload during a conversation.
-Platform remains a pumped service and uses service commands rather than this
-service-thread test contract. Its shell fixtures check repeated unsupported
+Platform's window/input protocols continue to use service commands. Direct POD
+transport itself supports pumps and service threads; this test conversation's
+participants are an application choice. Its shell fixtures check repeated unsupported
 commands and orderly unload; native acceptance uses explicit external harnesses.
 
 ## Ownership, dependencies and shutdown

@@ -14,7 +14,9 @@ validated this implementation.
 
 ## Implemented boundary
 
-`MorphicAudio` is a bootstrap-v3 module with one service thread. Loading it leaves
+`MorphicAudio` uses the current version-1 bootstrap and lifecycle pump, which
+requests its service thread through the common endpoint contract (`ca8770d`).
+Direct test traffic uses the common receiver (`84506a7`). Loading it leaves
 the device closed. A `RunTestsRequest` on the Executive/Audio direct connection
 opens the default real output and
 plays middle C as float stereo: two seconds fading up, one second at peak 0.1,

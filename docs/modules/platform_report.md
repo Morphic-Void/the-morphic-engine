@@ -1,8 +1,11 @@
 # Host-owned Platform report
 
-**Revised handoff paused, 19 November 2026.** The user will undertake independent
-Host communications review and refactoring in other chats before returning here
-to re-evaluate the handoff. The concern is growing Host knowledge of module-specific
+**Revised handoff remains paused; status reconciled 21 November 2026.** The
+independent Host communication refactor is complete in `ca8770d` and `84506a7`.
+The report handoff still needs explicit resumption and re-evaluation against those
+interfaces; it was not implemented by that refactor. The remaining boundary work is
+tracked in the [Host backlog](../backlog/host_endpoint_follow_on.md#generic-provider-registration-for-input-and-reports).
+The concern is growing Host knowledge of module-specific
 workflow and execution-dependent communication. Host-coordinated declaration setup
 and report processing remain proposals; Platform-led orchestration through generic
 services will be reassessed against the resulting interfaces. The operational

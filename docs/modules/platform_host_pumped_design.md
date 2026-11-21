@@ -18,6 +18,10 @@ optional execution advertisements, pump service callbacks and consumed-prefix
 mechanics. Earlier decisions and validation below remain a historical record;
 they do not define an additional communication path.
 
+The two communication increments are complete in `ca8770d` and `84506a7`.
+Remaining Host work is consolidated in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md);
+historical deferrals below are not a current to-do list.
+
 The [controller acquisition contract](controller_input.md), accepted 9 November,
 adds portable discovery, explicit assignment, four independent pipes and Windows
 GameInput integration. Input service/endpoint version 4 supersedes the earlier
@@ -42,8 +46,10 @@ describe their delivered implementations and supersede historical deferrals belo
 
 6 November update: the [Host timed-wait contract](host_timed_wait.md) supersedes
 the historical wait deferral below. Initial Windows/native-queue and Linux/engine
-waiting are implemented with pump ABI V2. Android/macOS native drivers remain
-future work; earlier V1 references describe the original foundation.
+waiting were delivered with the then-current pump ABI V2. The common endpoint
+refactor subsequently replaced it with the current version-1 pump contract;
+neither historical layout is a supported compatibility path. Android/macOS native
+drivers remain future work.
 
 This document records the agreed Platform direction and historical design reviews
 against `f00b2eb` and `07064fc`. As of 4 November 2026, implementation is committed
@@ -70,18 +76,19 @@ retirement replaces duplicate domain release opcodes, and durable window state
 with notifications replaces the proposed window event messages. All components
 use matching headers; the pre-release layouts are not a compatibility promise.
 
-The 4 November connection decision separates allocation ownership: general direct
-service-thread messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging),
+The connection decision separates allocation ownership: general direct
+endpoint messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging),
 while input/HID keeps [Platform-owned producer streams](#platform-owned-desktop-and-controller-connections).
 Each direct connection groups two growable SPSC queues under one identity and
-coordinated lifetime. Either participant can request it; both must be ready before
-Host authorises activation. Ordinary POD traffic and wake signals then pass directly.
+coordinated lifetime. Any endpoint can request a pair; both participants explicitly
+consent and install before Host authorises activation. Ordinary POD traffic and
+wake signals then pass directly.
 The implemented [direct POD contract](direct_pod_connections.md) supersedes the
 earlier producer-owned and fixed-capacity proposals for general direct messages.
 
-The transitional [Framework project](#shared-framework-contracts) (`MorphicFramework`)
-now contains public window, input and direct-connection contracts. Direct
-connections reuse existing role identities and `CErasedPodMsg`, with concrete
+The [Framework layer](#shared-framework-contracts) contains public window, input and
+direct-connection contracts. Direct POD connections use system-ID endpoint addresses
+and `CErasedPodMsg`, with concrete
 establishment, admission and retirement defined in the linked implementation.
 A broader threaded routed-service provider adapter remains outside this increment.
 Owning transfers stay via Host; input readiness/generation barriers remain domain
@@ -229,17 +236,17 @@ newer implementation, so use Git history for the exact assessed baseline.
 
 | Area | Existing implementation | Consequence for this work |
 | --- | --- | --- |
-| Optional capability | [module_binding.hpp](../../core/module/module_binding.hpp) and [bound_module.cpp](../../core/module/bound_module.cpp), `query_service_thread` | Follow its optional, independently versioned export pattern. Discover a descriptor on the worker; execute host-pumped lifecycle calls on Host. |
-| Binding installation | [module_binding_context.cpp](../../core/module/module_binding_context.cpp) | Module installation and thread-local provisioning are separate. A host-pumped call needs valid module-local TLS on the Host thread. |
+| Optional capability | [module_binding.hpp](../../framework/module/module_binding.hpp) and [bound_module.cpp](../../host/module/bound_module.cpp), `query_service_thread` | Follow its optional, independently versioned export pattern. Discover a descriptor on the worker; execute host-pumped lifecycle calls on Host. |
+| Binding installation | [module_binding_context.cpp](../../framework/module/module_binding_context.cpp) | Module installation and thread-local provisioning are separate. A host-pumped call needs valid module-local TLS on the Host thread. |
 | Worker authority | [host_worker_thread.cpp](../../host/runtime/host_worker_thread.cpp), `perform_module_work` | Loading, binding, installation and unbinding belong to the I/O worker. Native window creation and destruction must not be added there. |
 | Module availability | [module_service.cpp](../../host/runtime/module_service.cpp), `complete`, `complete_thread_start`, `finish` | Readiness currently distinguishes passive bindings from service threads. Add host activation and cleanup states before returning completion. |
 | Request admission | [host.cpp](../../host/runtime/host.cpp), `receive_request` and `run` | Executive owns the current module-request route; other registered services send owning requests to the asset service. Rendering cannot yet request Platform through this route. |
 | Client lifetime | [module_service.hpp](../../host/runtime/module_service.hpp), `m_client` | A pending operation borrows a `CThreadPackage*`. General routing needs explicit requester-lifetime protection through completion or cancellation. |
 | Main loop | [host.cpp](../../host/runtime/host.cpp), `run` | Host drains queues and advances lifecycle, ending in `processor_relax()`. This is a spin hint, not a sleep or OS event wait. Existing queue drains are not budgeted. |
-| Thread resources | [CThreadPackage.hpp](../../core/threading/CThreadPackage.hpp) | Transport, parking and native thread state are currently bundled. A pumped module must not pretend to own a native thread just to get an endpoint. |
+| Thread resources | [CThreadPackage.hpp](../../host/threading/CThreadPackage.hpp) | Transport, parking and native thread state are currently bundled. A pumped module must not pretend to own a native thread just to get an endpoint. |
 | Tests | [host.cpp](../../host/runtime/host.cpp), `request_tests`, `complete_tests` | Generic test messages currently resolve only to service-thread packages. A pumped destination requires endpoint-based routing and termination handling. |
-| Existing transports | [TRingTransport.hpp](../../core/threading/transports/TRingTransport.hpp), [TQueueTransport.hpp](../../core/threading/transports/TQueueTransport.hpp) | Reuse established transport semantics; an input pipe is not an existing Platform abstraction. Fixed rings reject full writes and require quiescence before deallocation. |
-| Type admission | [erased_transport_admission.hpp](../../core/system/erased_transport_admission.hpp) and concrete erased transports | LOCAL identities do not become cross-module messages merely by forwarding them. Choose an explicit shared contract/transport boundary. |
+| Existing transports | [TRingTransport.hpp](../../foundation/threading/transports/TRingTransport.hpp), [TQueueTransport.hpp](../../foundation/threading/transports/TQueueTransport.hpp) | Reuse established transport semantics; an input pipe is not an existing Platform abstraction. Fixed rings reject full writes and require quiescence before deallocation. |
+| Type admission | [erased_transport_admission.hpp](../../foundation/system/erased_transport_admission.hpp) and concrete erased transports | LOCAL identities do not become cross-module messages merely by forwarding them. Choose an explicit shared contract/transport boundary. |
 | Unload protection | [asset_service.cpp](../../host/runtime/asset_service.cpp), `CBoundModule::unbind` | Asset acquisitions, dependency bits and allocation attribution do not account for arbitrary window uses or callbacks into another DLL. |
 | Shutdown | `CModuleService::request_shutdown` and `CHost::shutdown` | Record-order unload and emergency thread joining need additional dependency-aware quiescence. Platform must remain callable while clients release presentation resources. |
 
@@ -313,15 +320,15 @@ remain Host-directed, and direct intermodule messages remain POD-only.
 
 Registration review distinguishes identity plumbing from operations that need
 concrete payload definitions. The existing opaque
-[SYSTEM identity catalogue](../../core/system/system_type_ids.def) and Core registry
+[SYSTEM identity catalogue](../../framework/system/system_type_ids.def) and Core registry
 API can remain, with [Host generating the canonical name registrations](../../host/system/system_id_definitions.cpp).
 `MV_REGISTER_SYSTEM_TYPE` C++ bindings can accompany public payload definitions in
 Framework without making Core include them. No second global catalogue or new
 registration API is selected.
 
-Core's [erased-owner operation generation](../../core/system/erased_owner_operations.cpp)
+Core's [erased-owner operation generation](../../foundation/system/erased_owner_operations.cpp)
 does require concrete asset/module/filesystem payloads through
-[transported_types.hpp](../../core/system/transported_types.hpp) and the owner
+[transported_types.hpp](../../framework/system/transported_types.hpp) and the owner
 catalogue fragments. Those headers stay in Core initially. The existing service
 protocol also stays because Core's pumped/provider and borrow interfaces consume
 it. Platform's [window contract](../../framework/platform/window.hpp) and
@@ -671,7 +678,7 @@ from their predecessors.
 #### Direct POD records and admission
 
 General direct pipes carry the existing
-[`threading::CErasedPodMsg`](../../core/threading/messages/CErasedPodMsg.hpp), as used
+[`threading::CErasedPodMsg`](../../framework/threading/messages/CErasedPodMsg.hpp), as used
 for POD communication with Host: a 64-byte carrier with a 16-byte header and 48-byte
 inline payload. Its header supplies the message type identity and `async_slot`.
 Payloads retain the carrier's standard-layout, trivially-copyable, size and alignment

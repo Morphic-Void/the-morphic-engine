@@ -25,9 +25,11 @@ coordinator validates it.
 
 On 19 November 2026 this chat's continuing scope became Platform features;
 Rendering/Vulkan work is deferred to a later coordinator-created design chat.
-The user has now [paused the revised Platform report handoff](#platform-report-handoff-paused-for-host-communications-review)
-pending independent Host communications review and refactoring in other chats.
-The user will return here to re-evaluate the handoff after that work is complete.
+The user [paused the revised Platform report handoff](#platform-report-handoff-paused-for-host-communications-review)
+for independent Host communications work. That refactor is complete in `ca8770d`
+and `84506a7`; this handoff remains paused until explicitly resumed and re-evaluated.
+Remaining generic provider/report boundary work is in the
+[Host backlog](../backlog/host_endpoint_follow_on.md#generic-provider-registration-for-input-and-reports).
 
 Coordinator review, 17 November 2026: no blocking findings in the schema-extension
 or Host-owned Platform-report prerequisites. Both are design-approved for separately
@@ -3168,6 +3170,11 @@ This acceptance does not authorise a commit or push. Compact Platform integratio
 native placement/deadline qualification and Rendering remain follow-up work.
 
 ### Platform report handoff paused for Host communications review
+
+21 November status: the common Host endpoint and direct POD refactors are complete
+in `ca8770d` and `84506a7`. This does not resume or approve the report proposal.
+The dated pause below retains its original rationale; the
+[Host backlog](../backlog/host_endpoint_follow_on.md) records the remaining boundary work.
 
 On 19 November 2026 the user explicitly paused the revised Platform report handoff.
 They will arrange an independent Host communications review and refactoring in

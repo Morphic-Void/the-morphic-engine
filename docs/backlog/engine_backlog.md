@@ -8,7 +8,8 @@ Date:   12 Sep 2026
 
 # Remaining engine backlog
 
-Updated 13 October 2026. This consolidates unresolved scope from the interim
+Original consolidation, 13 October 2026; Host/endpoint status reconciled
+21 November 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
@@ -25,6 +26,18 @@ The sections below are deferred scope, not an implementation schedule.
 Platform/input status was reconciled on 10 November 2026 through `89ec227`.
 HID/Input work is parked at the user's request pending target-platform setup and
 a separately selected next step. Other sections retain their own checkpoint context.
+
+## Host and endpoint follow-ons
+
+The Host communication refactor is complete through `ca8770d` and `84506a7`, with
+common pump/thread endpoints, requested service threads and explicit direct POD
+connections between arbitrary participating endpoints. See the
+[completion record](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections).
+The [Host and endpoint backlog](host_endpoint_follow_on.md) owns the remaining
+scope: generic provider registration and HID/report migration, availability and
+atomic topology observation, receipt-free orphan asset-result cleanup, long-running
+work placement, capacity policy and optional authority/bulk extensions. No next
+Host implementation is selected; these are independent increments.
 
 ## Diagnostics and developer tooling
 
@@ -65,9 +78,10 @@ a separately selected next step. Other sections retain their own checkpoint cont
   source and use native `.so` module filenames. Extend platform coverage as
   consumers require; final deployment bindings remain separate work. See
   [Linux CI](../project/linux_ci.md) for the implemented build boundary.
-- Extend the existing thread packages/context and identity/name registry for
-  remaining provisioning and per-thread service requirements. Audit role/sub-role
-  identity and TLS needs against existing code before adding layers.
+- Module-owned thread requests, common per-endpoint service access and exact
+  identities are implemented. Additional identity/TLS requirements should be
+  justified by a concrete consumer; broader provider registration belongs to the
+  [Host follow-ons](host_endpoint_follow_on.md).
 - Resume formal Windows/Linux primitive and lifecycle smoke/stress tests when
   both platforms are practical: hardware count, mutexes, single/all wait-wake,
   semaphore, parking gate, native create/start/exit, repeated initialisation,
@@ -114,8 +128,8 @@ surfaces and extensions remain separate work. Multiple simultaneously live windo
 for rendering across multiple monitors are a confirmed future requirement; see the
 [follow-up context](../project/future_work_notes.md#multiple-windows-across-monitors).
 A broader threaded routed-service provider adapter is not selected. Native thread
-primitives and thread creation remain below these modules; Host thread provisioning
-and TLS remain separate.
+primitives remain below these modules; Host now provisions module-requested threads
+and common endpoints. Additional TLS/provider requirements remain separate.
 Host ownership and worker authority are documented in the
 [asset](../assets/asynchronous_asset_services.md) and
 [module](../modules/asynchronous_module_lifecycle.md) references.

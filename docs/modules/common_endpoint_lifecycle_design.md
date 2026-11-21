@@ -1,19 +1,23 @@
 # Common endpoints and module lifecycle
 
-Agreed design direction, updated 21 November 2026. The
-[first-pass refactor](common_endpoint_first_pass.md) defines the initial scope,
-retained behaviour, failure policy and selected implementation decisions. This broader
-record also contains follow-on contracts; they are not all prerequisites for the
-first pass. Neither document authorises implementation. Existing system
-references continue to describe the running engine.
+Design and delivery status reconciled 21 November 2026. The
+[first pass](common_endpoint_first_pass.md) and consolidation are complete in
+`ca8770d`; the [direct POD endpoint increment](direct_endpoint_increment.md) is
+complete in `84506a7`. No implementation item remains open in either increment.
 
-The first pass and its consolidation are implemented in `ca8770d`. The implemented follow-on
-scope is the [direct POD endpoint increment](direct_endpoint_increment.md), which
-selects a bounded subset of the follow-on design below. Its common receiving
-contract, establishment handshake and helper/module responsibilities during closing
-and quiescence are implemented; the increment records implementation and validation details.
-Implementation of that bounded increment is authorised; the remaining broader
-design is not part of that authorisation.
+This broader record also retains agreed but unimplemented contracts. The
+[Host and endpoint backlog](../backlog/host_endpoint_follow_on.md) is the single
+entry point for remaining work; no next increment is selected. Current APIs and
+validation belong to the [Host foundation](host_pump_foundation.md) and
+[direct POD reference](direct_pod_connections.md).
+
+| Area | Delivery status |
+| --- | --- |
+| Common Host queues, module pumps/requested threads, lifecycle, sealing and failure policy | Implemented in `ca8770d`. |
+| System-ID direct addressing, acknowledged readiness, common receiving, explicit consent/install/activation and guarded retirement | Implemented in `84506a7`. |
+| Revision-qualified availability queries and atomic topology observation | Agreed design; deferred implementation. |
+| Receipt-free cleanup of undelivered newly created asset IDs | Agreed policy; deferred implementation. |
+| Generic provider registration, long-running work, finite-capacity alternatives and richer authority/recovery | Separate backlog/design choices. |
 
 Every module has a pump and can request zero or more service threads. Pumps and
 service threads use the same Host communication contract. Host provides common
@@ -36,18 +40,16 @@ permits reclaiming storage or unloading code still in use.
 
 The sections on identity, common Host connections, submission, pump execution,
 thread lifecycle, draining, sealing and final deactivation provide the behavioural
-foundation for that pass. The first-pass specification selects their common API,
-service mapping, closure mechanisms and failure handling; concrete declarations
-remain implementation work. References to new direct-connection controls,
-topology queries or asset-result cleanup apply when those follow-on features are
-implemented; they do not require those features in the first pass.
+foundation for that pass. Its common API, service mapping, closure mechanisms and
+failure handling are implemented. Direct-connection controls and the common
+receiver were delivered in the second increment. Topology queries and the new
+asset-result cleanup policy remain deferred.
 
 The generic exit and abandonment facts remain necessary now. The new policy for
 disposing of undelivered asset IDs, its request flag and result metadata are
-separate work. Likewise, internal endpoint identity is required now, while public
-availability queries, direct endpoint addressing/readiness and generalised direct
-POD connections form separate subsets. Existing connection and resource lifetime
-protections remain required wherever the refactor affects their users.
+separate work. Internal endpoint identity and direct endpoint addressing/readiness
+are implemented; public availability queries remain separate. Existing connection
+and resource lifetime protections continue to apply.
 
 Bounded transport progress, generic HID/report registration and richer recovery
 are longer-term concerns. In particular, no additional control pipe or physical
@@ -239,6 +241,10 @@ reports retirement to the lifecycle coordinator. Identities cannot be reused to
 receive stale work. Unexpected exit follows the same lifetime protections.
 
 ## Abandonment and undelivered asset results
+
+Execution-ending and endpoint retirement facts are implemented. The newly created
+asset-ID cleanup policy in this section remains deferred; see the
+[asset-result backlog](../backlog/host_endpoint_follow_on.md#undelivered-newly-created-asset-ids).
 
 Execution ending can bypass cooperative draining and sealing. Host explicitly
 marks the exact endpoint as no longer able to receive results or produce new
@@ -657,6 +663,9 @@ in that process, not a prerequisite that waits for overall module readiness.
 
 ## Availability queries and topology notifications
 
+This section records agreed design, not an implemented discovery API. Delivery is
+tracked in the [availability backlog](../backlog/host_endpoint_follow_on.md#availability-queries-and-topology-observation).
+
 Availability observation is separate from connection establishment. A request to
 establish a connection either begins against an eligible current endpoint or
 returns an immediate outcome such as `unavailable`; Host does not retain it as a
@@ -809,7 +818,8 @@ accidentally publish into a later establishment.
 Active-queue capacity and transport failures have separate outcomes. Successfully
 queued means queued, not processed. A notification failure after publication must
 not be reported as if the message had never escaped and were safe to retransmit.
-The detailed result enumeration remains to be specified.
+The implemented result enumeration and failure distinctions are documented in
+the [direct POD reference](direct_pod_connections.md#receiving-and-sending).
 
 Thread recipients wake their thread. Pump recipients become runnable and wake
 Host when needed; publication never invokes a receiving pump inline. Consumer
@@ -902,6 +912,10 @@ an extra lifetime reference, or authority to close or revoke it on others' behal
 
 ## Closing and permission to connect
 
+Normal connection close and lifecycle revocation are implemented. Arbitrary
+non-lifecycle pair prohibitions/removal below describe a future policy boundary;
+their authority and API remain in the [backlog](../backlog/host_endpoint_follow_on.md#optional-authority-readiness-and-transport-extensions).
+
 Closing one connection and prohibiting future establishment are distinct:
 
 | Operation | Effect |
@@ -937,12 +951,14 @@ Host atomically closes admission; previously admitted operations finish and
 release their guards. Admission checking and acquisition must be coordinated,
 not a separate unchecked load followed by an increment. The guard covers queue
 access and subsequent notification signalling. Exact atomic representation,
-memory ordering and counter limits remain implementation-design work.
+memory ordering and counter limits are specified by the implemented
+[admission contract](direct_pod_connections.md#closing-admission-and-lifetime).
 
 Revocation applies to the entire bidirectional connection. Host closes admission,
 signals both participants and sends closing notifications with the reason through
-their Host connections. New direct reads and writes return `no_pipe`; operations
-admitted before closure may finish. Once admitted publications finish, no further
+their Host connections. New direct sends return `no_pipe`, and closed queues are
+ineligible for common receiving; operations admitted before closure may finish.
+Once admitted publications finish, no further
 messages can appear. Notification and descriptor storage remain retained.
 
 Graceful application conversations finish while active. Closure cancels further
@@ -1005,97 +1021,44 @@ settlement can continue under the previously defined sealing rules.
 
 ## Open design work
 
-The execution model, Host/direct SPSC topology, system ID addressing, endpoint
-connection readiness, explicit direct establishment, pair uniqueness, closure and
-revocation, revision-qualified availability queries with a shared atomic topology
-revision, draining accepted provider work before sealing, receipt-free
-cleanup of undelivered new asset IDs, and final settlement/deactivation are settled
-at the behavioural level. The
-[first-pass specification](common_endpoint_first_pass.md#selected-first-pass-specification)
-selects the initial API/resource model, service mapping, closure and failure
-handling. The remaining questions below concern follow-on work or concrete
-implementation details; they do not require one combined redesign.
+Remaining work is consolidated in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md).
+It separates agreed contracts awaiting implementation from optional future policy:
 
-### Remaining contract decisions
+- Generic provider registration, with separate input/HID and Platform report migrations.
+- Revision-qualified availability queries and coalesced atomic topology observation.
+- Receipt-free disposal of undeliverable newly created asset IDs and the explicit
+  retain-if-undeliverable exception.
+- Long-running pump/Host work, including schema/report placement, and separately
+  selected recovery or watchdog requirements.
+- Backpressure alternatives beyond current growable transports and bounded records.
+- Optional pair-prohibition authority, lifecycle delegation, service readiness,
+  bulk extensions and relaxation of seal acknowledgement timing.
 
-- **Lifecycle coordination and authority.** The first pass binds the lifecycle
-  destination to the module pump, permits same-module thread management from any
-  endpoint and treats coordinator failure as application failure. Future delegation,
-  cross-module thread authority and permission to impose/remove non-lifecycle
-  connection prohibitions remain separate decisions.
-- **Admission and progress under capacity pressure.** The first pass uses current
-  service-thread transports for every endpoint, with retry/refusal where safe and logged shutdown
-  or termination for unrecoverable failures. Later work may select fixed rings,
-  bounded outstanding operations, local pending-publication storage or a secondary
-  pipe whose permitted traffic has a proven bound. No physical response-slot
-  reservation scheme is selected. Topology uses shared atomic state and consumes
-  no notification slots. A published owning message must never be reported as
-  safely retained by its sender; poisoning and uncertain publication must map to
-  the first-pass failure policy.
-- **Module and service readiness.** The first pass retains pump progress phases
-  and makes existing advertised services available when the pump reports ready.
-  Thread launch remains separate. Individual service publication and richer
-  readiness coordination can be designed later; direct endpoint readiness belongs
-  to the separate direct-connection subset.
-- **Host facilities on every endpoint.** The first-pass mapping uses common
-  messages for services, per-endpoint batch clients and asynchronous provider borrow
-  operations. Existing advertised providers bind to the pump. Generic registration
-  and provider selection beyond that initial mapping remain follow-on work.
-- **Shutdown dependencies and failures.** The first pass refuses new dependency
-  opening during draining and defines logged emergency shutdown with fatal
-  escalation. Safe retention remains required. Recovery, coordinator replacement,
-  shutdown dependency exceptions and independent native-loop watchdogs are later
-  work.
+Common/direct message layouts, exact endpoint identities, direct admission guards,
+receive fairness, closure integration and migration of existing consumers are
+implemented. Their completed validation is recorded in the
+[first pass](common_endpoint_first_pass.md#completion-record) and
+[direct increment](direct_endpoint_increment.md#implementation-and-validation-record);
+they are not outstanding design or migration tasks.
 
-### Interface and implementation specification
+Current sealing waits for direct connection retirement. The earlier publication-stop
+acknowledgement described as permissible above is a future relaxation, not current
+behaviour. Arbitrary non-lifecycle pair prohibitions and their removal also require
+separate authority/API design; ordinary close and lifecycle revocation are delivered.
 
-- Exact instance identities, request/result/control layouts and public helper
-  signatures; generic status names and precise transport-failure outcomes. Map the
-  agreed post-seal settlement categories to concrete message types and obligation
-  checks, and specify incoming closure boundaries across the selected queue lanes.
-- Atomic representation and memory ordering of direct-operation admission guards,
-  publication accounting and notification waits, including supported platforms.
-- Revision, token and per-lane sequence widths, comparison and exhaustion rules;
-  no silent reuse that would allow stale state to identify a new lifetime.
-- Asset-result cleanup metadata, request-flag representation and safe queue
-  consumer takeover after exit. The policy is settled: consumption defines
-  receipt, no receipt exchange or mandatory tentative-asset ledger, default
-  cleanup of unread newly created IDs, and the retain-if-undeliverable exception.
-  Integrate this with existing IDs/cache hits, Host staging and publication failure
-  without treating a possibly published result as definitely unreceived.
-- Concrete resource limits, pump/drain fairness budgets, establishment and startup
-  deadlines, and bounded accounting for pending publications and lifecycle results.
-- Race-focused validation of seal boundaries, partial connection installation,
-  revocation during data access, requester exit, topology observation and wake/sleep
-  races under queue pressure, stale query/result interleavings, and new asset results completed
-  before publication, queued unread or completed after requester exit. These
-  checks follow each subset's final contract rather than authorising implementation
-  now or requiring all subsets to be validated in the first pass.
+A public topology registry, per-target subscriptions, automatic dependency graph and
+identity-exchange protocol are not required for the agreed starting point. The
+Platform report handoff remains paused until separately resumed against the now
+implemented communication interfaces. No backlog item is authorised by this record.
 
-### Related design and migration scope
-
-- The [current direct POD contract](direct_pod_connections.md) and
-  [bulk connection contract](direct_bulk_connections.md) share implementation.
-  Effects on bulk connections require explicit consideration, not an implicit
-  expansion of this POD discussion.
-- Input and platform-report registration/publication remain module-specific
-  follow-on discussions. The common endpoint contract must support their needs
-  without importing their operation semantics into Host.
-- Executive startup/replacement, service-thread consumers and native modal-loop
-  integration require a migration plan against the final common contract.
-- A public topology registry, per-target subscriptions and an identity-exchange
-  protocol are not required for the agreed starting point.
-
-Any later implementation changing engine-owned contracts must follow AGENTS.md:
-remove legacy/transition paths in scope, retain version checks, reset affected
-contract markers to version 1, rebuild affected consumers, regenerate affected
-maintained data and validate the final code and artifacts. This design record
-does not authorise those implementation changes.
+Any selected future contract change must follow AGENTS.md, including removal of
+replaced paths, explicit version checks, final pre-release version-1 contracts,
+affected consumer/data regeneration and validation within that task's scope.
 
 ## Existing implementation references
 
-- [Host pump foundation](host_pump_foundation.md) describes the current separate
-  execution paths and client records.
+- [Host pump foundation](host_pump_foundation.md) describes common endpoint traffic,
+  execution-specific scheduling and current lifecycle records.
 - [Asynchronous module lifecycle](asynchronous_module_lifecycle.md) describes
   current loading, startup, replacement and shutdown.
 - [Borrowed services](service_borrow_lifetimes.md) and
@@ -1103,4 +1066,5 @@ does not authorise those implementation changes.
 - [Host restriction and maintenance](host_restriction_maintenance.md) and
   [timed waiting](host_timed_wait.md) describe native-loop and wake constraints.
 - [Platform report](platform_report.md) records the implemented report checkpoint
-  and the paused handoff pending Host communications review.
+  and its paused handoff; the Host communication refactor is complete, but report
+  redesign has not been resumed.

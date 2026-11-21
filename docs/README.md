@@ -47,6 +47,8 @@ ordering are unchanged by this source-layout reconfiguration.
   Executive bootstrap, service startup, replacement, shutdown and lifecycle tests.
 - [Host pump foundation](modules/host_pump_foundation.md): common pump/thread
   endpoints, module lifecycle coordination, service routing and safe retirement.
+- [Common endpoint first pass](modules/common_endpoint_first_pass.md): completed
+  scope record for `ca8770d`; current APIs are in the Host foundation.
 - [Borrowed services](modules/service_borrow_lifetimes.md) and
   [notifications](modules/service_notifications.md): publication, cancellation,
   exact-instance lifetime protection and two-sided retirement.
@@ -72,8 +74,8 @@ ordering are unchanged by this source-layout reconfiguration.
   on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of
   coarse module work, return channels and requester lifetime rules.
-- [Direct POD connections](modules/direct_pod_connections.md): ordered module
-  conversations, exact-instance establishment and two-sided retirement.
+- [Direct POD connections](modules/direct_pod_connections.md): explicit pump/thread
+  endpoint pairs, authenticated common receiving and two-sided retirement.
 - [Direct POD endpoint increment](modules/direct_endpoint_increment.md): implemented
   scope and validation for endpoint pairs, common receiving and safe quiescence.
 - [Opaque bulk connections](modules/direct_bulk_connections.md): Host-owned aligned
@@ -104,26 +106,20 @@ ordering are unchanged by this source-layout reconfiguration.
 
 ## Direction and future design
 
-- [Common endpoint first pass](modules/common_endpoint_first_pass.md): scoped
-  refactor for one pump per module, requested service threads, common Host
-  endpoints and safe shutdown/retirement. Selects the existing service-thread
-  traffic path for all endpoints, asynchronous provider operations, closure and
-  failure handling; retains current asset policy and records completion criteria.
 - [Common endpoints and module lifecycle](modules/common_endpoint_lifecycle_design.md):
-  broader agreed direction, with the first pass separated from follow-on direct
-  connections, revision-qualified availability and atomic topology observation,
-  receipt-free cleanup of undelivered asset results, bounded-capacity progress
-  and generic service registration. These design records do not authorise
-  implementation.
+  broader design with implemented common/direct endpoints distinguished from
+  deferred contracts. The [Host and endpoint backlog](backlog/host_endpoint_follow_on.md)
+  consolidates remaining registration, availability/topology, asset-abandonment,
+  execution and capacity work. No next Host increment is selected.
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)
   and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
 - [Platform module and host-pumped lifecycle](modules/platform_host_pumped_design.md):
-  agreed direction and historical decisions, with completed foundation/window
-  stages distinguished from remaining input connections, direct POD transports,
-  configuration, mapping, modes and later backends/extensions.
+  historical decisions and current references for delivered foundation/window,
+  input, configuration, mapping and direct messaging; modes and later native
+  backends/extensions remain separate work.
 - [Audio module: one requested tone test](modules/audio_module_design.md):
   a single Executive test request, miniaudio containment, finite tone/fade,
   callback and shutdown ownership; see also the

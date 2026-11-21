@@ -1,12 +1,13 @@
 # Direct POD endpoint increment
 
-Agreed scope, 21 November 2026. Extend explicit direct POD connections to any two
-distinct participating module endpoints, using the common Host endpoint foundation
-implemented in `ca8770d`. This is a self-contained Host refactor increment.
-Implementation authorised on 21 November 2026 in a separate implementation chat.
-The common receiving contract, establishment handshake and helper/module closing
-responsibilities are agreed. The selected defaults and implementation review
-requirements are listed below.
+**Completed, coordinator-reviewed, user-accepted and committed in `84506a7` on
+21 November 2026.** Explicit direct POD connections now connect any two distinct
+participating module endpoints, using the common Host endpoint foundation in
+`ca8770d`. Implementation, migration, review corrections and validation are complete.
+This document retains the delivered scope and evidence, not an open task list.
+
+Remaining work is consolidated in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md).
+No next Host increment is selected.
 
 The [broader endpoint design](common_endpoint_lifecycle_design.md#direct-pod-addressing-and-use)
 records the agreed behavioural contract. The current
@@ -123,7 +124,8 @@ The caller supplies its overall count/time budget. A service thread uses its usu
 wait loop; a pump yields. Notifications are hints to recheck durable state and
 queues, not evidence that a message or state transition has been consumed.
 
-Concrete C++ names and record layout remain implementation details to settle.
+The implemented C++ interface and record layout are documented in the
+[direct POD reference](direct_pod_connections.md#receiving-and-sending).
 
 ## Closure and lifetime
 
@@ -192,29 +194,6 @@ Retain growable POD transports, the current 32 overall/eight-per-participant
 connection limits shared with bulk, and the five-second eligible establishment
 deadline. This increment does not introduce fixed-ring policy, new global capacity
 guarantees or reserved response slots.
-
-## Migration and validation
-
-Migrate existing POD users to the common endpoint interface and remove the replaced
-POD execution-selection and role-contract paths. Preserve version/layout checks,
-apply the repository's pre-release version-1 policy to changed contracts, and rebuild
-affected consumers. Do not retain a parallel legacy POD implementation.
-
-Validation must cover:
-
-- All execution-context pairings and distinct endpoints within one module.
-- Explicit enablement, unavailable participants, third-party and reciprocal
-  requests, separate requester/participant departure, and pair uniqueness through
-  retirement.
-- Authenticated source metadata, FIFO per queue and bounded progress across Host
-  and direct inputs, including sleeping-thread and pump scheduling races.
-- Partial installation, departure/replacement at the same address, delayed controls
-  and stale-token rejection.
-- Revocation and sealing during queue access and notification, followed by safe
-  quiescence, retention and retirement under pressure or abandonment.
-- Delayed module cleanup, pending quiescence publication and independent request
-  results that outlive connection retirement; no premature storage reclamation.
-- Existing POD consumers and bulk behaviour after shared implementation changes.
 
 ## Implementation and validation record
 
@@ -286,43 +265,24 @@ Release matrix was repeated for this increment. The build policy validator repor
 zero errors and warnings; its one existing negative-test suppression remained.
 
 `tools/check_line_endings.ps1` and `git diff --check` passed. No Visual Studio item
-or filter files changed. No commit or push is included in this increment.
+or filter files changed. Coordinator acceptance preceded the user-authorised
+commit `84506a7`, including implementation, tests and documentation.
 
-## Implementation decisions and review
+## Retained policy and deferred work
 
 The behavioural contract is settled. Allow eight requester correlations attached
 to one pending establishment, with at most one pending request per requester for that
 pair and `busy` for excess requests. This is independent of participant connection
 limits and does not add ownership or change offer/installation behaviour.
 
-The implementation specifies and reviews these concrete details against
-the agreed contract, rather than introduce another design layer:
-
-- Public types and helper signatures, exact-token validation, bounded local
-  records and distinct outcomes for unavailable pipes, temporary pressure and
-  uncertain publication. Reuse existing result/failure conventions where practical.
-- The atomic admission/operation-guard representation, memory ordering and wake
-  lifetime proof. Revocation must race safely with both queue access and signalling;
-  zero active operations does not replace module quiescence.
-- Fair receiving and wait integration, including pending control progress and
-  pump scheduling. Module dispatch must use authenticated immediate-source metadata.
-- Migration of existing POD consumers and shared internals while preserving bulk
-  semantics, and the final version-1 contract/build/validation checks above.
-
 Current Host sealing waits for direct connections to retire before acknowledging
 the seal. Retain that stronger ordering in this increment. The
 broader design permits an earlier acknowledgement after publication stops, but
 implementing that relaxation is unnecessary for endpoint generalisation.
 
-The separate implementing chat works against this scope and the broader design,
-with review coordinated by chat `01a1f426-8548-7c40-912c-4fe77908a67a`. Design changes affecting
-behaviour or scope return to the coordinator. Commit requires separate explicit
-user instruction and coordinator review; the user performs pushes.
-
-## Separate work
-
-Availability queries, topology revisions/notifications, public registries, automatic
-dependency management, generic HID/report registration, asynchronous asset-ID
-abandonment policy, schema-work placement and high-rate Debug performance remain
-separate increments. None is a prerequisite for explicitly connecting two known
-ready endpoints.
+Availability/topology, generic HID/report registration, asynchronous asset-ID
+abandonment, long-running work and capacity alternatives remain in the
+[Host and endpoint backlog](../backlog/host_endpoint_follow_on.md). Public registries,
+automatic dependency management and richer authority/bulk extensions are optional
+future choices. None is a prerequisite for explicitly connecting two known ready
+endpoints, and none remains as an uncompleted item in this increment.

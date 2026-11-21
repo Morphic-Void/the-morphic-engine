@@ -1,5 +1,21 @@
 # Current scope
 
+## Host communication refactor: complete
+
+Closed out 21 November 2026. Common Host endpoints and lifecycle are committed in
+`ca8770d`; direct POD connections between arbitrary participating pump/thread
+endpoints are committed in `84506a7`. Coordinator review, consumer migration and
+validation are complete. The [milestone record](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections)
+links the delivered contracts and evidence.
+
+No further Host increment is selected. The [Host and endpoint backlog](host_endpoint_follow_on.md)
+captures generic provider registration for HID/reports, revision-qualified
+availability/topology observation, undelivered new asset IDs, long-running work,
+capacity policy and optional authority/transport extensions. These remain separate
+scopes; the Platform report handoff and input work keep their existing pauses.
+
+## Earlier scope checkpoints
+
 Platform/input status updated 10 November 2026. The current input stage is complete
 through `89ec227`, including Windows acquisition and real Host/consumer acceptance.
 HID/Input work is parked at the user's request pending further target-platform
@@ -66,9 +82,10 @@ by this closeout. The [observation cleanup review](../modules/input_host_integra
 belongs at that integration milestone, with the current regression support retained.
 
 Window modes/shortcuts, rendering presentation, multiple windows/output selection
-and extensions remain separate Platform work. Framework contracts are implemented;
-wider Core decomposition and a broader threaded routed-service provider adapter
-remain separate decisions. See the [design status](../modules/platform_host_pumped_design.md).
+and extensions remain separate Platform work. The Foundation/Framework/Host split
+and common endpoints are implemented. Generic provider registration and any broader
+threaded routed-service provider adapter remain [deferred](host_endpoint_follow_on.md#generic-provider-registration-for-input-and-reports).
+See the [design status](../modules/platform_host_pumped_design.md).
 
 ## Bundle review and closeout
 

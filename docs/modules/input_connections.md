@@ -142,10 +142,11 @@ instead of wrapping identities or allowing ABA.
    Late prepared or registration replies stay under `CServiceBorrowClient`'s
    existing closing rules. No ring drain is required for retirement.
 
-The Host-pump context is version 2 and includes the non-owning `owner_wake` used
-for capacity returns. The pump capability remains `SHostPumpV2`; its callbacks
-are unchanged. The complete context size/version is checked and Host/modules
-require coordinated rebuilds. No platform-native type enters the input contract.
+The current version-1 `SHostPumpContext` includes the common endpoint and the
+non-owning `owner_wake` used for capacity returns. The mandatory `SHostPumpV1`
+capability and ordinary endpoint queues replaced the earlier version-2 pump
+communication form in `ca8770d`. Complete context size/version checks and coordinated
+Host/module rebuilds remain required. No platform-native type enters the input contract.
 
 ## Wakes and retirement
 

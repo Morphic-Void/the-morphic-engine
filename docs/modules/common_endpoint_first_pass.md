@@ -1,12 +1,15 @@
 # Common endpoint first pass refactor
 
-Scope and selected design decisions, 20 November 2026. The remaining first-pass
-choices use current service-thread traffic as their baseline, under the agreed
-direction to standardise communication. This document defines the first
-refactoring subset; it does not authorise implementation. The
-[full endpoint design](common_endpoint_lifecycle_design.md) retains the broader
-direction and follow-on contracts. Completing that entire design is not a
-prerequisite for this subset.
+**Completed and committed in `ca8770d`, including consolidation.** This is the
+scope and decision record for the first pass, originally selected 20 November
+2026; it is not an outstanding implementation plan. The retained specification
+below describes that checkpoint. The [Host foundation](host_pump_foundation.md)
+defines current behaviour, and the subsequent [direct POD increment](direct_endpoint_increment.md)
+was completed in `84506a7`.
+
+See [completed milestones](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections)
+for delivery status and the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md)
+for remaining work. No next increment is selected.
 
 ## Purpose and boundary
 
@@ -122,24 +125,14 @@ succeed or diagnostics to be perfectly deliverable after a runtime failure.
 
 ## Deliberately separate work
 
-The [direct POD endpoint increment](direct_endpoint_increment.md) implements the agreed follow-on
-scope after this first pass. Its current API supersedes the original designated-thread
-POD and registration-dependent readiness details below. The other subsets below remain
-separate work.
+The [direct POD endpoint increment](direct_endpoint_increment.md) is complete in
+`84506a7`. Its API supersedes the first-pass designated-thread POD selection and
+registration-dependent child-readiness details retained below as checkpoint history.
 
-| Follow-on subset | Boundary from the first pass |
-| --- | --- |
-| Direct endpoint connections | Generalise explicit POD establishment to any endpoint pair, readiness, pair uniqueness, permission revocation and two-sided quiescence. Preserve existing supported connections and their safety during the first pass. |
-| Availability and topology | Add revision-qualified system-ID queries and a shared atomic topology revision with local observation and service-thread waking. Public discovery is not needed to establish internal endpoint identity. |
-| Bounded transport pressure | Decide fixed-ring use, outstanding-work limits, pending-publication storage, capacity wakeups and any bounded lifecycle signalling. Do not claim finite-capacity progress has been solved by the first pass. |
-| Undelivered new asset IDs | Add receipt-free cleanup, drain-both-directions result accounting and the retain-if-undeliverable request flag. Preserve existing asset policy in the first pass while providing reliable endpoint-exit facts. |
-| Generic registered services | Move HID pipe and platform-report semantics behind generic Host mechanisms. Their current integration may need endpoint adaptation, but their domain redesign is separate. |
-| Richer readiness and recovery | Additional module/service readiness coordination, dependency policies and recovery from failed coordinators or stalled endpoints beyond the coarse failure policy above. |
-
-These are independent scopes, not an instruction to implement them all or a fixed
-delivery order. Existing behaviour still needs safe integration where it is
-affected by the endpoint refactor. Preserving it within this pass does not require
-retaining obsolete pump-only communication paths for the contract being replaced.
+Availability/topology, bounded-capacity alternatives, undelivered new asset IDs,
+generic provider registration and richer readiness/recovery are tracked only in
+the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md). They are
+independent scopes, not remaining first-pass completion requirements.
 
 ## Selected first pass specification
 
@@ -217,9 +210,10 @@ sealing under the documented draining rules.
 
 Submit a typed POD create-and-start request on the ordinary endpoint-to-Host lane.
 It carries an async correlation, requested thread ID and priority, module entry
-function, module-owned context pointer and an optional nomination for the existing
-module-addressed direct-service role described below. Only one live or retiring
-thread may occupy that role per module; duplicate nomination is rejected.
+function, module-owned context pointer and an optional designated-service
+nomination. Only one live or retiring thread may occupy that role per module;
+duplicate nomination is rejected. The role originally selected direct traffic;
+since `84506a7` it serves bulk and the existing Executive stop lookup only.
 Host derives the module instance from
 the authenticated sending endpoint. The entry receives its endpoint/thread context
 and the supplied module context. The function and context are protected by the
@@ -243,13 +237,14 @@ joined before reclaiming partial setup.
 
 The minimal service-thread pump additionally waits for `EndpointReady` from the
 matching child before reporting module readiness. The child publishes after local
-initialization and its required direct-service Register. Host authenticates the
-exact child, accounts for the earlier registration from the same FIFO (including
-maintenance replay), and forwards readiness only after successful validation.
+initialization. Host authenticates the exact child and forwards readiness after
+validation. The first-pass registration prerequisite was removed by `84506a7`:
+direct enablement now has its own correlated acknowledgement and is independent
+of native launch, child readiness and overall module readiness.
 Creation success and readiness remain separate facts; either arrival order is
 handled without reversing stop, failure or retirement. No-child pumps may be ready
-immediately. This is one module-coordination message, not public discovery or a
-separate registration/readiness acknowledgement protocol. The wrapper records return/failure even
+immediately. `EndpointReady` is a module-coordination message, not public discovery.
+The wrapper records return/failure even
 if module code omits a final progress-state update.
 
 Requester results use the existing async-slot convention. Coordinator messages
@@ -274,15 +269,13 @@ exclusion from the replaced contract; do not keep both launch mechanisms.
 | Borrow preparation, commit and retirement | Replace synchronous pump callbacks with typed requests/results through the same endpoint. Preserve existing borrow and quiescence rules. |
 | Notification registration and binding | Keep existing registration/pin objects. Return preparation/binding results asynchronously and retain publisher/reader protection through retirement. |
 | HID and platform reports | Adapt existing traffic to the common endpoint without inventing a generic registry or changing the domain protocol. Preserve current staged report ownership/accounting where needed. |
-| Direct POD and bulk connections | Preserve existing supported service-thread uses and their lifetime proofs. Resolve their current target thread explicitly within the module record; never select an arbitrary thread from a multi-thread module. Pump connections and general endpoint discovery remain deferred. |
+| Direct POD and bulk connections | The first pass preserved designated-thread uses. `84506a7` subsequently generalised POD addressing to pump/thread endpoint pairs; bulk retains explicit designated-thread selection. Public availability queries remain deferred. |
 
-For current module-addressed direct connections, each participating module
-nominates the service thread that fulfils its existing direct-connection role.
-Host binds that role to the exact thread instance when it is created. Missing or
-retiring targets return unavailable; another thread never silently inherits the
-role. This preserves the existing module-addressed service without allowing
-multiple threads to compete for the same address. Public endpoint-pair addressing
-remains the separate direct-connection change.
+The first pass bound the nominated direct-service role to an exact thread
+instance, with unavailable results for missing/retiring targets. The completed
+direct endpoint increment replaced that POD lookup with explicit system-ID pairs.
+Only bulk and the existing Executive stop lookup retain the designated-service
+selector; another thread never silently inherits that role.
 
 `SDispatchedCommand` includes more metadata than the erased POD payload holds.
 Publish a small typed POD notice containing an exact operation token and a pointer
@@ -349,9 +342,9 @@ thread/module cleanup. Preparation of a new borrow, new service work or a new th
 must precede sealing. Host validates the relevant existing identity/obligation;
 there is no caller-supplied flag that makes arbitrary traffic cleanup.
 
-Already supported direct connections must stop publication and retire using their
-existing protocol as part of closure. This adapts their lifecycle integration but
-does not enable new endpoint pairings. Continue Host settlement traffic until
+Direct connections stop publication and retire as part of closure. The first pass
+integrated the then-supported pairings; `84506a7` generalised the endpoint pairs
+and guarded publication boundary. Continue Host settlement traffic until
 execution ends. Observe terminal execution before final queue drain, as in the
 current service-thread handling; a previously observed empty queue is insufficient.
 Host takes over module-side queue consumption only after execution quiescence.
@@ -412,48 +405,18 @@ The Host loop enforces the fatal deadline while it can execute; this pass adds n
 watchdog capable of interrupting a pump stuck indefinitely in native/module code.
 That case still requires external process termination.
 
-## Implementation boundaries
+## Completion record
 
-The first-pass design choices above are selected. Concrete declarations, message
-type IDs and layout checks are implementation work within these decisions; they
-must fit the existing message conventions and version/reset requirements below.
-There is no pending choice of communication architecture, coordinator destination,
-queue topology or normal failure response for this subset.
+The first pass and consolidation delivered the selected API, service mapping,
+creation outcomes, closure and failure handling. The replaced pump-array/callback
+paths and advertised-thread launch path were removed. Final common endpoint,
+bootstrap and pump layouts use version 1 with explicit checks, and affected
+consumers and fixtures were rebuilt against those layouts.
 
-Future bounded-capacity work may revisit transport sizes, admission limits or a
-secondary pipe with provably bounded traffic. It is not required to implement the
-common endpoint path. New public topology/discovery, generic provider registration
-and the new asset abandonment policy remain separate as listed above.
-
-## Current code used as the baseline
-
-- [Thread resources](../../framework/threading/CThreadResources.hpp),
-  [thread context](../../framework/threading/CThreadContext.hpp) and
-  [native package](../../host/threading/CThreadPackage.cpp): transport provisioning,
-  read/post/wake behaviour and execution lifetime.
-- [Client record](../../host/runtime/client_record.cpp) and
-  [pump interface](../../framework/module/host_pump.hpp): the current branch between
-  threaded delivery and pumped arrays, callbacks and reply capacities to remove.
-- [Service router](../../host/runtime/service_router.cpp),
-  [borrow contract](../../framework/services/service_borrow.hpp) and
-  [service protocol](../../framework/services/service_protocol.hpp): retained
-  operations, cancellation, identity and correlation semantics to preserve.
-- [Host runtime](../../host/runtime/host.cpp) and
-  [Host pump foundation](host_pump_foundation.md#retirement): existing emergency
-  shutdown, diagnostic grace and retained process-state handling.
-
-## Completion criteria
-
-The implementation must demonstrate a pumped-only module, a module requesting
-multiple service threads, common asynchronous service access, creation outcomes
-when the requester exits, and complete module shutdown with outstanding work.
-Validation must cover both submission lanes, rejected/partially failed creation,
-execution ending before retirement, stale instance protection and the selected
-failure/escalation paths. It must not rely on generalising direct connections or
-adding topology discovery to exercise the common endpoint lifecycle.
-
-Before implementation is complete, follow repository contract-change rules:
-remove replaced implementations and transition paths in scope, retain explicit
-version checks, reset affected contract markers to version 1, rebuild affected
-consumers, regenerate affected maintained artifacts and validate the final code
-and data. No unrelated contract or asset-data migration is implied.
+Validation covered pump-only modules, multiple requested threads, common service
+access, requester departure, partially failed creation, both submission lanes,
+execution ending before retirement, stale instances and safe failure escalation.
+Checkpoint-specific configurations and limits are retained in the
+[Host foundation validation record](host_pump_foundation.md). Subsequent direct
+endpoint coverage belongs to its own [increment record](direct_endpoint_increment.md).
+No first-pass implementation or validation item remains open.

@@ -2,9 +2,11 @@
 
 Host gives every module one lifecycle pump and zero or more explicitly requested
 service threads. All of those execution contexts use the same asynchronous
-endpoint protocol. The selected scope is recorded in
-[the first-pass specification](common_endpoint_first_pass.md); later topology,
-generic provider registration and bounded-capacity work remain separate.
+endpoint protocol. The completed scope is recorded in
+[the first-pass record](common_endpoint_first_pass.md) (`ca8770d`) and the
+[direct POD endpoint increment](direct_endpoint_increment.md) (`84506a7`).
+Remaining topology, registration, asset-result and capacity work is tracked in
+the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md).
 
 ## Execution and identity
 

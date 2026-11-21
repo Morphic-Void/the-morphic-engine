@@ -18,6 +18,39 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Common Host endpoints and direct POD connections
+
+Completed, coordinator-reviewed, user-accepted and committed through `84506a7`
+on 21 November 2026. The selected refactor is closed; no next Host increment is
+selected.
+
+| Commit | Delivered scope |
+| --- | --- |
+| `ca8770d` | One lifecycle pump per module, zero or more requested service threads, common asynchronous Host endpoints, independent request/execution/resource lifetimes, safe sealing and retirement, plus consolidation of the former pump-specific communication paths. |
+| `84506a7` | Explicit direct POD connections between any two participating endpoints, separate third-party requester/results and participant consent/install/activation, one connection per exact pair, authenticated common receiving, pressure-aware receive selection and guarded two-sided retirement. |
+
+The [Host foundation](../modules/host_pump_foundation.md) and
+[direct POD reference](../modules/direct_pod_connections.md) define current behaviour.
+The [first-pass record](../modules/common_endpoint_first_pass.md) and
+[direct increment record](../modules/direct_endpoint_increment.md#implementation-and-validation-record)
+retain their scope and checkpoint-specific validation. Existing bulk policy and
+held-view lifetimes are preserved; common/direct controls use final version-1
+contracts and all affected consumers were rebuilt.
+
+The direct increment passed all four Windows Debug/Release x64/Win32 solution and
+fixture builds and ordinary suites, 64,974 focused Host endpoint assertions,
+44 Release x64 lifecycle cases and 52 pump cases. The strengthened replacement
+case verifies unread copied records are discarded before reconnecting. Linux GCC
+Debug rebuilt all consumers and passed all 29 headless CTest entries. Native
+interactive/physical/audible qualification and Linux Clang/Release were not part
+of this increment's acceptance.
+
+Review corrected common-receiver result consumption, activation/result ordering,
+direct-failure escalation and fixture reconnect cleanup. No review findings remain
+open. Deferred work is consolidated in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md);
+it includes generic registration, topology observation and new asset-ID abandonment
+policy, not unfinished communication implementation.
+
 ## Opaque Host bulk distribution
 
 The [direct bulk connection contract](../modules/direct_bulk_connections.md) records
