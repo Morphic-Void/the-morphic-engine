@@ -382,11 +382,15 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     }
     if (message.copy_payload_to(direct_register))
     {
-        if (direct_client(client.module) == &client) m_direct_connections.register_client(client, direct_register);
+        m_direct_connections.register_client(client, direct_register, slot);
     }
     else if (message.copy_payload_to(direct_request))
     {
-        m_direct_connections.request(client, direct_client(direct_request.peer), direct_request, slot, m_maintenance.restrictions().reader());
+        SClientRecord* const first = direct_request.bulk.is_bulk() ?
+            ((designated_client(client.module) == &client) ? &client : nullptr) : endpoint_client(direct_request.first);
+        SClientRecord* const second = direct_request.bulk.is_bulk() ?
+            designated_client(direct_request.bulk_peer) : endpoint_client(direct_request.second);
+        m_direct_connections.request(client, first, second, direct_request, slot, m_maintenance.restrictions().reader());
     }
     else if (message.copy_payload_to(direct_decision))
     {

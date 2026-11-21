@@ -65,6 +65,7 @@ public:
     [[nodiscard]] bool sealed() const noexcept { return m_endpoint.sealed; }
     [[nodiscard]] bool sealing() const noexcept { return m_endpoint.sealing; }
     [[nodiscard]] bool pod_submission_poisoned() const noexcept { return m_endpoint.worker_to_host_msgs.posting_poisoned(); }
+    [[nodiscard]] bool has_data() noexcept { return m_endpoint.host_to_worker_msgs.refresh_readable_count() != 0u; }
 
 private:
     [[nodiscard]] SEndpointPost publish(const CErasedPodMsg& message) noexcept;

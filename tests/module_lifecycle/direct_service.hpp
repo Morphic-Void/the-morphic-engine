@@ -14,28 +14,18 @@
 #include "framework/system/system_ids.hpp"
 #include "framework/communications/direct_client.hpp"
 #include "framework/communications/module_tests.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include "platform/threading/processor_relax.hpp"
 
 namespace module_lifecycle_tests
 {
 
-//  Reverse conversations and conditioning are fixture contracts only.
-static const connections::SMessageRule rendering_rules[]{
-    { system_type_ids::run_tests_request, module_ids::executive },
-    { system_type_ids::run_tests_result, module_ids::rendering },
-    { system_type_ids::run_tests_request, module_ids::rendering },
-    { system_type_ids::run_tests_result, module_ids::executive }
-};
-static const connections::SMessageRule service_rules[]{
-    { system_type_ids::run_tests_request, module_ids::executive },
-    { system_type_ids::run_tests_result, module_ids::conditioning_general }
-};
-static const connections::SContractPolicy direct_policies[]{
-    { connections::contract(module_ids::executive, module_ids::rendering, 1u), rendering_rules, 4u },
-    { connections::contract(module_ids::executive, module_ids::conditioning_general, 1u), service_rules, 2u },
-    { connections::contract(module_ids::executive, module_ids::audio, 1u), modules::test_connections::audio_rules, 2u }
-};
-
+//  Fixture service addresses are application knowledge, not transport role selection.
+static system_ids::id_type direct_address(const module_ids::id_type role) noexcept
+{
+    return (role == module_ids::conditioning_general) ? system_ids::ops::make_system_id(role, thread_ids::simulation) :
+        modules::test_connections::address(role);
+}
 class SDirectService;
 static thread_local SDirectService* s_direct{ nullptr };
 
@@ -46,8 +36,8 @@ public:
     connections::CClient client;
     bool ready;
 
-    SDirectService(threading::CThreadContext& context, const module_ids::id_type role, const bool enabled = true) noexcept
-        : context{ context }, client{ context, role, direct_policies, 3u }, ready{ client.register_service() },
+    SDirectService(threading::CThreadContext& context, const module_ids::id_type, const bool enabled = true) noexcept
+        : context{ context }, client{ context }, ready{ !enabled || client.enable() },
           m_previous{ s_direct }, m_enabled{ enabled }
     {
         if (enabled) s_direct = this;
@@ -64,12 +54,27 @@ public:
     {
         if (!m_enabled) return true;
         client.clear_notifications();
-        threading::CErasedPodMsg message;
-        for (unsigned count = 0u; (count < 32u) && (m_count < 16u) && context.read(message); ++count)
+        connections::SReceived received;
+        for (unsigned count = 0u; (count < 32u) && (m_count < 16u) && client.receive(received, (m_direct_count < 16u)); ++count)
         {
-            if (!client.handle(message))
+            connections::Offer offer;
+            if (!received.source.is_host())
             {
-                m_messages[m_count++] = message;
+                m_direct[m_direct_count++] = received;
+            }
+            else if (received.message.copy_payload_to(offer))
+            {
+                m_connection = offer.token;
+                (void)client.decide(offer.token, connections::EStatus::success);
+            }
+            else if (received.message.is_payload_a<connections::Result>())
+            {
+                m_result = received.message;
+                m_result_pending = true;
+            }
+            else if (!connections::is_control(received.message))
+            {
+                m_messages[m_count++] = received.message;
             }
         }
         client.progress();
@@ -113,17 +118,18 @@ public:
     bool open(const module_ids::id_type peer, const std::int32_t correlation,
         const connections::EStatus expected, connections::SToken& token) noexcept
     {
-        if (!client.open(peer, 1u, correlation))
+        if (!client.open(direct_address(peer), correlation))
         {
             return false;
         }
         connections::Result result;
-        std::int32_t slot = -1;
-        if (!wait([&] { return client.take_result(result, slot); }) || (slot != correlation) ||
-            (result.peer_role != peer) || (result.status != expected))
+        if (!wait([&] { return m_result_pending; }) || !m_result.copy_payload_to(result) ||
+            (m_result.query_async_slot() != correlation) ||
+            (result.status != expected))
         {
             return false;
         }
+        m_result_pending = false;
         token = result.token;
         return true;
     }
@@ -140,28 +146,57 @@ public:
     bool receive(const module_ids::id_type peer, connections::SToken& token, threading::CErasedPodMsg& message) noexcept
     {
         return wait([&] {
-            token = client.active(peer);
-            return token.value && connections::was_read(client.read(token, message));
+            token = client.active(direct_address(peer));
+            for (unsigned index = 0u; index < m_direct_count; ++index)
+            {
+                if ((m_direct[index].source.connection.value != token.value) ||
+                    (m_direct[index].source.address != direct_address(peer)))
+                {
+                    continue;
+                }
+                message = m_direct[index].message;
+                --m_direct_count;
+                for (unsigned next = index; next < m_direct_count; ++next) m_direct[next] = m_direct[next + 1u];
+                return true;
+            }
+            return false;
         });
     }
     bool quiesce() noexcept
     {
-        for (auto token = client.next_closing(); token.value; token = client.next_closing())
+        for (connections::SToken token = client.next_closing(); token.value; token = client.next_closing())
         {
+            unsigned retained = 0u;
+            for (unsigned index = 0u; index < m_direct_count; ++index)
+            {
+                if (m_direct[index].source.connection.value != token.value)
+                {
+                    m_direct[retained++] = m_direct[index];
+                }
+            }
+            m_direct_count = retained;
             if (!client.quiesce(token)) return false;
         }
         return true;
     }
+    unsigned buffered_direct() const noexcept { return m_direct_count; }
     bool retire() noexcept
     {
-        client.close_all();
+        //  Fixtures run one conversation at a time and may establish another
+        //  after replacement. Retire that token without shutting the helper down.
+        client.close(m_connection);
         return wait([&] { return quiesce() && client.idle(); });
     }
 private:
     SDirectService* m_previous;
     bool m_enabled;
     threading::CErasedPodMsg m_messages[16];
+    connections::SReceived m_direct[16];
     unsigned m_count{ 0u };
+    unsigned m_direct_count{ 0u };
+    threading::CErasedPodMsg m_result;
+    bool m_result_pending{ false };
+    connections::SToken m_connection;
 };
 
 static bool read_service_host(threading::CThreadContext& context, threading::CErasedPodMsg& message) noexcept

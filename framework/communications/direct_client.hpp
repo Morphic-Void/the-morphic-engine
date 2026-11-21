@@ -6,124 +6,132 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    05 Nov 26
 //
-//  Service-thread-local connection state. Deferred work retains only SToken.
+//  Endpoint-local connections and bounded, authenticated common POD receiving.
 
 #pragma once
 
 #include "direct_connection.hpp"
-#include "framework/threading/CThreadContext.hpp"
-#include "framework/threading/messages/message_helpers.hpp"
+#include "framework/threading/CEndpointContext.hpp"
 
 namespace connections
 {
 
+[[nodiscard]] inline bool is_control(const threading::CErasedPodMsg& message) noexcept
+{
+    return message.is_payload_a<Registered>() || message.is_payload_a<Offer>() || message.is_payload_a<Install>() ||
+        message.is_payload_a<Activate>() || message.is_payload_a<Closing>() || message.is_payload_a<Retired>() ||
+        message.is_payload_a<Result>();
+}
+
+//  One helper belongs to one endpoint execution context. Module work may retain
+//  tokens and copied PODs, never descriptors. The endpoint serializes helper use.
 class CClient
 {
 public:
     static constexpr std::uint32_t k_capacity = 16u;
-    CClient(threading::CThreadContext& context, const module_ids::id_type role,
-        const SContractPolicy* const policies, const std::uint32_t policy_count) noexcept
-        : m_context{ context }, m_role{ role }, m_policies{ policies }, m_policy_count{ policy_count } {}
+    explicit CClient(threading::CEndpointContext& context,
+        const SBulkPolicy* const policies = nullptr, const std::uint32_t policy_count = 0u) noexcept
+        : m_context{ context }, m_policies{ policies }, m_policy_count{ policy_count } {}
     CClient(const CClient&) = delete;
     CClient& operator=(const CClient&) = delete;
 
-    //  Must be the first startup POD, before publishing Running.
-    [[nodiscard]] bool register_service() noexcept { return send(Register{}); }
-    [[nodiscard]] bool open(const module_ids::id_type peer, const std::uint32_t version, const std::int32_t slot,
-        const SBulkConfiguration bulk = {}) noexcept;
-    [[nodiscard]] bool open_bulk(const module_ids::id_type peer, const std::uint32_t version, const std::int32_t slot,
-        const std::uint64_t capacity, const bool producer) noexcept
+    [[nodiscard]] bool enable(const std::int32_t slot = 0) noexcept
     {
-        if (!threading::transports::CBulkBufferTransport::valid_capacity(capacity))
+        if (failed() || m_closing || m_context.sealing() || (slot < 0))
         {
             return false;
         }
-        return open(peer, version, slot, { capacity, (producer ? m_role : peer) });
+        return m_context.post(threading::make_pod_message(slot, Register{}));
     }
-    [[nodiscard]] bool handle(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool enabled() const noexcept { return m_enabled && !m_closing && !m_context.sealing(); }
+    [[nodiscard]] bool open(const system_ids::id_type first, const system_ids::id_type second,
+        const std::int32_t slot) noexcept;
+    [[nodiscard]] bool open(const system_ids::id_type peer, const std::int32_t slot) noexcept
+    {
+        return open(address(), peer, slot);
+    }
+    [[nodiscard]] bool open_bulk(const module_ids::id_type peer, const std::uint32_t version, const std::int32_t slot,
+        const std::uint64_t capacity, const bool producer) noexcept;
+    [[nodiscard]] bool decide(const SToken token, const EStatus status) noexcept;
+    //  At most one traversal and one returned record. Host mechanics run only
+    //  for the Host queue; no module callback or hidden control drain occurs.
+    [[nodiscard]] bool receive(SReceived& received, const bool direct_data = true) noexcept;
     void progress() noexcept;
     void close(const SToken token, const EStatus reason = EStatus::cancelled) noexcept;
     void close_all() noexcept;
-    //  Call only after connection-dependent local cleanup and all endpoint users unwind.
     [[nodiscard]] bool quiesce(const SToken token) noexcept;
-    [[nodiscard]] bool take_result(Result& result, std::int32_t& slot) noexcept;
-    [[nodiscard]] SToken active(const module_ids::id_type peer, const bool bulk = false) const noexcept;
+    [[nodiscard]] SToken active(const system_ids::id_type peer) const noexcept;
+    [[nodiscard]] SToken active_bulk(const module_ids::id_type peer) const noexcept;
     [[nodiscard]] bool active(const SToken token) const noexcept;
     [[nodiscard]] bool closing(const SToken token) const noexcept;
     [[nodiscard]] SToken next_closing() const noexcept;
     [[nodiscard]] bool idle() const noexcept;
-    [[nodiscard]] bool failed() const noexcept { return m_failed; }
+    [[nodiscard]] bool failed() const noexcept { return m_failed || m_data_failed; }
     [[nodiscard]] bool needs_progress() const noexcept;
-    [[nodiscard]] bool has_data() noexcept;
+    [[nodiscard]] bool has_data(const bool direct_data = true) noexcept;
     void clear_notifications() noexcept;
+    [[nodiscard]] EPost post(const system_ids::id_type peer, const threading::CErasedPodMsg& message,
+        const SToken expected = {}) noexcept;
     [[nodiscard]] EPost post(const SToken token, const threading::CErasedPodMsg& message) noexcept;
-    [[nodiscard]] ERead read(const SToken token, threading::CErasedPodMsg& message) noexcept;
-    //  Views expire at publish (producer), discard/acquire (consumer), or quiescence.
-    //  Stop local use before closing; finish all dependent users before quiesce().
     [[nodiscard]] memory::CMemoryView producer_data(const SToken token) noexcept;
     [[nodiscard]] EBulkPublish publish_bulk(const SToken token) noexcept;
-    //  Even an empty acquisition relinquishes the previous consumer view.
     [[nodiscard]] bool discard_and_acquire(const SToken token) noexcept;
     [[nodiscard]] memory::CMemoryConstView consumer_data(const SToken token) noexcept;
+    [[nodiscard]] system_ids::id_type address() const noexcept
+    {
+        return system_ids::ops::make_system_id(m_context.module_id(), m_context.thread_id());
+    }
 
 private:
-    enum class EPhase : std::uint8_t { empty, requesting, offered, installed, active, closing, retired };
+    enum class EPhase : std::uint8_t { empty, offered, accepted, installed, active, closing };
     struct SRecord
     {
         SToken token;
-        module_ids::id_type peer{};
-        modules::SModuleInstance peer_instance;
-        std::uint32_t version{ 0u };
+        system_ids::id_type peer{};
+        services::SClientToken peer_instance;
+        std::uint32_t version{ 1u };
         SBulkConfiguration bulk;
-        const SContractPolicy* policy{ nullptr };
         const SEndpointDescriptor* endpoint{ nullptr };
         EPhase phase{ EPhase::empty };
-        EStatus reason{ EStatus::cancelled };
+        EStatus reason{ EStatus::cancelled }, decision{ EStatus::rejected };
         bool decision_pending{ false }, ready_pending{ false }, close_pending{ false };
         bool closing_seen{ false }, quiescence_pending{ false }, quiescent{ false };
     };
-    //  A reciprocal request may still be in Host's inbox after an independently
-    //  offered connection retires. Its correlation has a separate local lifetime.
     struct SRequest
     {
-        module_ids::id_type peer{};
-        std::uint32_t version{ 0u };
-        SBulkConfiguration bulk;
         std::int32_t slot{ -1 };
-        bool pending{ false }, completed{ false }, cancelled{ false };
-        Result result;
+        bool pending{ false };
     };
     template<typename T> bool send(const T& value) noexcept
     {
         if (m_failed) return false;
-        if (m_context.post(threading::make_pod_message(-1, value)))
-        {
-            return true;
-        }
-        if (m_context.pod_submission_poisoned())
-        {
-            m_failed = true;
-        }
+        const threading::SEndpointPost posted = m_context.post(threading::make_pod_message(-1, value));
+        if (posted) return true;
+        if (posted.status != threading::EEndpointPost::busy) m_failed = true;
         return false;
     }
+    [[nodiscard]] bool request(const Request& request, const std::int32_t slot) noexcept;
+    void handle_host(const threading::CErasedPodMsg& message) noexcept;
+    void data_failure(const SToken token, const EStatus reason) noexcept;
+    [[nodiscard]] ERead read(SRecord& record, threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] SRecord* find(const SToken token) noexcept;
     [[nodiscard]] const SRecord* find(const SToken token) const noexcept;
     [[nodiscard]] SRecord* vacant() noexcept;
-    [[nodiscard]] const SContractPolicy* policy(const module_ids::id_type peer, const std::uint32_t version,
+    [[nodiscard]] bool bulk_policy(const module_ids::id_type peer, const std::uint32_t version,
         const SBulkConfiguration bulk) const noexcept;
-    threading::CThreadContext& m_context;
-    module_ids::id_type m_role;
-    const SContractPolicy* m_policies;
+    threading::CEndpointContext& m_context;
+    const SBulkPolicy* m_policies;
     std::uint32_t m_policy_count;
     SRecord m_records[k_capacity];
     SRequest m_requests[k_capacity];
-    bool m_failed{ false };
+    std::uint32_t m_cursor{ 0u };
+    bool m_failed{ false }, m_data_failed{ false }, m_enabled{ false }, m_closing{ false };
 };
 
 inline CClient::SRecord* CClient::find(const SToken token) noexcept
 {
     if (!token.value) return nullptr;
-    for (auto& record : m_records)
+    for (SRecord& record : m_records)
     {
         if ((record.phase != EPhase::empty) && (record.token.value == token.value))
         {
@@ -135,7 +143,7 @@ inline CClient::SRecord* CClient::find(const SToken token) noexcept
 inline const CClient::SRecord* CClient::find(const SToken token) const noexcept
 {
     if (!token.value) return nullptr;
-    for (const auto& record : m_records)
+    for (const SRecord& record : m_records)
     {
         if ((record.phase != EPhase::empty) && (record.token.value == token.value))
         {
@@ -146,249 +154,242 @@ inline const CClient::SRecord* CClient::find(const SToken token) const noexcept
 }
 inline CClient::SRecord* CClient::vacant() noexcept
 {
-    for (auto& record : m_records)
+    for (SRecord& record : m_records)
     {
-        if (record.phase == EPhase::empty)
-        {
-            return &record;
-        }
+        if (record.phase == EPhase::empty) return &record;
     }
     return nullptr;
 }
-inline const SContractPolicy* CClient::policy(const module_ids::id_type peer, const std::uint32_t version,
+inline bool CClient::bulk_policy(const module_ids::id_type peer, const std::uint32_t version,
     const SBulkConfiguration bulk) const noexcept
 {
-    const SContract expected = contract(m_role, peer, version);
+    const SContract expected = contract(m_context.module_id(), peer, version);
     for (std::uint32_t index = 0u; index < m_policy_count; ++index)
     {
-        const SContract& candidate = m_policies[index].identity;
-        if ((candidate.first == expected.first) && (candidate.second == expected.second) && (candidate.version == version) &&
-            m_policies[index].bulk.matches(bulk))
+        const SBulkPolicy& candidate = m_policies[index];
+        if ((candidate.identity.first == expected.first) && (candidate.identity.second == expected.second) &&
+            (candidate.identity.version == version) && candidate.bulk.matches(bulk))
         {
-            return &m_policies[index];
+            return true;
         }
     }
-    return nullptr;
+    return false;
 }
-inline bool CClient::open(const module_ids::id_type peer, const std::uint32_t version, const std::int32_t slot,
-    const SBulkConfiguration bulk) noexcept
+inline bool CClient::request(const Request& value, const std::int32_t slot) noexcept
 {
-    if (m_failed || (slot < 0) || !version || !policy(peer, version, bulk) || m_context.exit_requested())
+    if (m_failed || m_closing || (slot < 0) || m_context.sealing() || m_context.exit_requested())
     {
         return false;
     }
-    SRequest* vacant = nullptr;
-    for (auto& request : m_requests)
+    SRequest* available = nullptr;
+    for (SRequest& candidate : m_requests)
     {
-        if (!request.pending && !request.completed)
+        if (!candidate.pending)
         {
-            if (!vacant) vacant = &request;
-            continue;
+            if (!available) available = &candidate;
         }
-        if (((request.peer == peer) && (request.bulk.is_bulk() == bulk.is_bulk())) || (request.slot == slot))
-        {
-            return false;
-        }
+        else if (candidate.slot == slot) return false;
     }
-    if (!vacant) return false;
-    *vacant = { peer, version, bulk, slot, true, false, false, {} };
-    if (m_context.post(threading::make_pod_message(slot, Request{ peer, version, bulk })))
-    {
-        return true;
-    }
-    if (m_context.pod_submission_poisoned())
-    {
-        m_failed = true;
-    }
-    else
-    {
-        *vacant = {};
-    } // Only an ordinary rejection proves no publication.
+    if (!available) return false;
+    *available = { slot, true };
+    const threading::SEndpointPost posted = m_context.post(threading::make_pod_message(slot, value));
+    if (posted) return true;
+    if (posted.status == threading::EEndpointPost::transport_failed) m_failed = true;
+    else *available = {};
     return false;
 }
-
-inline bool CClient::handle(const threading::CErasedPodMsg& message) noexcept
+inline bool CClient::open(const system_ids::id_type first, const system_ids::id_type second,
+    const std::int32_t slot) noexcept
 {
+    return request({ first, second }, slot);
+}
+inline bool CClient::open_bulk(const module_ids::id_type peer, const std::uint32_t version, const std::int32_t slot,
+    const std::uint64_t capacity, const bool producer) noexcept
+{
+    const SBulkConfiguration bulk{ capacity, (producer ? m_context.module_id() : peer) };
+    if (!threading::transports::CBulkBufferTransport::valid_capacity(capacity) || !bulk_policy(peer, version, bulk))
+    {
+        return false;
+    }
+    return request({ {}, {}, peer, version, bulk }, slot);
+}
+inline bool CClient::decide(const SToken token, const EStatus status) noexcept
+{
+    SRecord* const record = find(token);
+    if (!record || (record->phase != EPhase::offered) || record->decision_pending)
+    {
+        return false;
+    }
+    record->decision = (m_closing || m_context.sealing() || m_context.exit_requested()) ? EStatus::cancelled : status;
+    record->phase = (record->decision == EStatus::success) ? EPhase::accepted : EPhase::closing;
+    record->decision_pending = true;
+    progress();
+    return true;
+}
+
+inline void CClient::handle_host(const threading::CErasedPodMsg& message) noexcept
+{
+    Registered registered;
     Offer offer;
     Install install;
     Activate activate;
     Closing closing;
     Retired retired;
     Result result;
-    if (message.copy_payload_to(offer))
+    if (message.copy_payload_to(registered))
     {
-        auto* record = find(offer.token);
-        if (record) return true;
-        const SContractPolicy* const accepted_policy = policy(offer.peer_role, offer.version, offer.bulk);
-        if (!accepted_policy || m_context.exit_requested())
-        {
-            (void)send(Decision{ offer.token, EStatus::unsupported });
-            return true;
-        }
-        record = vacant();
+        m_enabled = (registered.status == EStatus::success) && !m_closing && !m_context.sealing();
+    }
+    else if (message.copy_payload_to(offer))
+    {
+        if (find(offer.token)) return;
+        SRecord* const record = vacant();
         if (!record)
         {
+            //  No descriptor exists. A safely refused decision can time out.
             (void)send(Decision{ offer.token, EStatus::busy });
-            return true;
+            return;
         }
         record->token = offer.token;
-        record->peer = offer.peer_role;
+        record->peer = offer.peer_address;
         record->peer_instance = offer.peer;
         record->version = offer.version;
         record->bulk = offer.bulk;
-        record->policy = accepted_policy;
         record->phase = EPhase::offered;
-        for (const auto& request : m_requests)
+        if (!enabled() || m_context.exit_requested()) (void)decide(offer.token, EStatus::cancelled);
+        else if (offer.bulk.is_bulk())
         {
-            if (request.pending && request.cancelled && (request.peer == offer.peer_role) && (request.version == offer.version) &&
-                request.bulk.matches(offer.bulk))
-            {
-                record->phase = EPhase::closing;
-                record->close_pending = true;
-            }
+            (void)decide(offer.token, bulk_policy(system_ids::ops::get_module_id(offer.peer_address),
+                offer.version, offer.bulk) ? EStatus::success : EStatus::unsupported);
         }
-        record->decision_pending = true;
     }
     else if (message.copy_payload_to(install))
     {
-        //  Host's FIFO publication obligation protects the descriptor until our
-        //  closing-boundary acknowledgement, including a locally cancelled open.
-        const auto* const endpoint = install.descriptor;
-        const auto* const execution = m_context.host_execution();
-        if (!endpoint || !execution || (endpoint->token.value != install.token.value) ||
-            (endpoint->local.value != execution->instance.value) || (endpoint->local_role != m_role))
+        //  Find the exact live obligation before touching the borrowed descriptor.
+        //  Host FIFO ordering protects it until this side acknowledges Closing.
+        SRecord* const record = find(install.token);
+        if (!record || (record->phase != EPhase::accepted))
         {
-            (void)send(Close{ install.token, EStatus::invalid_request });
-            return true;
+            return;
         }
-        auto* record = find(install.token);
-        if (!record)
-        {
-            for (const auto& request : m_requests)
-            {
-                if (!request.pending || (request.peer != endpoint->peer_role) || (request.version != endpoint->version) ||
-                    !request.bulk.matches(endpoint->bulk))
-                {
-                    continue;
-                }
-                record = vacant();
-                if (!record) break;
-                record->peer = request.peer;
-                record->version = request.version;
-                record->bulk = request.bulk;
-                record->policy = policy(request.peer, request.version, request.bulk);
-                record->phase = request.cancelled ? EPhase::closing : EPhase::requesting;
-                break;
-            }
-        }
-        if (!record)
-        {
-            (void)send(Close{ install.token, EStatus::invalid_request });
-            return true;
-        }
-        record->token = install.token;
-        const bool valid_endpoints = endpoint->bulk.is_bulk() ?
-            (!endpoint->outgoing && !endpoint->incoming &&
-                ((endpoint->bulk.producer == m_role) ?
-                    (endpoint->bulk_producer && !endpoint->bulk_consumer) :
-                    (!endpoint->bulk_producer && endpoint->bulk_consumer))) :
-            (endpoint->outgoing && endpoint->incoming && !endpoint->bulk_producer && !endpoint->bulk_consumer);
-        if ((endpoint->peer_role != record->peer) || (endpoint->version != record->version) ||
-            !endpoint->bulk.matches(record->bulk) || !valid_endpoints ||
-            !endpoint->peer.value || (record->peer_instance.value && (record->peer_instance.value != endpoint->peer.value)) ||
+        const SEndpointDescriptor* const endpoint = install.descriptor;
+        if (!endpoint || (endpoint->size != sizeof(SEndpointDescriptor)) ||
+            (endpoint->token.value != install.token.value) || (endpoint->local.value != m_context.identity().value) ||
+            (endpoint->local_address != address()) || (endpoint->peer.value != record->peer_instance.value) ||
+            (endpoint->peer_address != record->peer) || (endpoint->version != record->version) ||
+            !endpoint->bulk.matches(record->bulk) || !endpoint->admission ||
             !endpoint->notification.is_valid() || !endpoint->peer_notification.is_valid())
         {
             close(install.token, EStatus::invalid_request);
-            return true;
+            return;
         }
-        record->peer_instance = endpoint->peer;
-        if ((record->phase == EPhase::closing) || record->quiescent || !record->policy)
+        const bool valid = endpoint->bulk.is_bulk() ?
+            (!endpoint->outgoing && !endpoint->incoming &&
+                ((endpoint->bulk.producer == m_context.module_id()) ?
+                    (endpoint->bulk_producer && !endpoint->bulk_consumer) :
+                    (!endpoint->bulk_producer && endpoint->bulk_consumer))) :
+            ((endpoint->version == 1u) && endpoint->outgoing && endpoint->incoming &&
+                !endpoint->bulk_producer && !endpoint->bulk_consumer);
+        if (!valid || m_closing || m_context.sealing())
         {
-            record->close_pending = true;
-            return true;
+            close(install.token, EStatus::invalid_request);
+            return;
         }
-        if (record->endpoint) return true;
         record->endpoint = endpoint;
         record->phase = EPhase::installed;
         record->ready_pending = true;
     }
     else if (message.copy_payload_to(activate))
     {
-        if (auto* const record = find(activate.token))
+        SRecord* const record = find(activate.token);
+        if (record && (record->phase == EPhase::installed) && record->endpoint && !m_closing && !m_context.sealing())
         {
-            if ((record->phase == EPhase::installed) && record->endpoint)
-            {
-                record->phase = EPhase::active;
-            }
+            record->phase = EPhase::active;
         }
     }
     else if (message.copy_payload_to(closing))
     {
-        if (auto* const record = find(closing.token))
+        SRecord* const record = find(closing.token);
+        if (record)
         {
             record->phase = EPhase::closing;
             record->reason = closing.reason;
             record->closing_seen = true;
             record->decision_pending = record->ready_pending = record->close_pending = false;
         }
-        else
-        {
-            (void)send(Quiescent{ closing.token });
-        } // No local endpoint was installed.
     }
     else if (message.copy_payload_to(retired))
     {
-        if (auto* const record = find(retired.token))
-        {
-            record->endpoint = nullptr;
-            *record = {};
-        }
+        SRecord* const record = find(retired.token);
+        if (record) *record = {};
     }
     else if (message.copy_payload_to(result))
     {
-        for (auto& request : m_requests)
+        for (SRequest& request : m_requests)
         {
-            if (!request.pending || (request.slot != message.query_async_slot()))
+            if (request.pending && (request.slot == message.query_async_slot()))
             {
-                continue;
+                request = {};
+                break;
             }
-            request.pending = false;
-            request.completed = true;
-            request.result = result;
-            if (request.cancelled && result.token.value)
-            {
-                close(result.token);
-            }
-            break;
         }
     }
-    else return false;
-    progress();
-    return true;
 }
 
+inline bool CClient::receive(SReceived& received, const bool direct_data) noexcept
+{
+    progress();
+    if (!direct_data)
+    {
+        if (!m_context.read(received.message)) return false;
+        received.source = {};
+        handle_host(received.message);
+        progress();
+        return true;
+    }
+    for (std::uint32_t visited = 0u; visited <= k_capacity; ++visited)
+    {
+        const std::uint32_t selected = m_cursor;
+        m_cursor = (m_cursor == k_capacity) ? 0u : (m_cursor + 1u);
+        if (!selected)
+        {
+            if (!m_context.read(received.message)) continue;
+            received.source = {};
+            handle_host(received.message);
+            progress();
+            return true;
+        }
+        SRecord& record = m_records[selected - 1u];
+        const ERead result = read(record, received.message);
+        if (was_read(result))
+        {
+            received.source = { SSource::EKind::direct, record.peer, record.peer_instance, record.token };
+            return true;
+        }
+    }
+    return false;
+}
 inline void CClient::progress() noexcept
 {
     if (m_failed) return;
-    for (auto& record : m_records)
+    if (m_context.sealing() && !m_closing) close_all();
+    for (SRecord& record : m_records)
     {
-        if (record.endpoint && record.endpoint->notification.failed())
+        if (record.endpoint)
         {
-            close(record.token, EStatus::notification_failed);
+            if (record.bulk.is_bulk())
+            {
+                if (record.endpoint->notification.failed()) close(record.token, EStatus::notification_failed);
+            }
+            else
+            {
+                const COperation operation{ record.endpoint->admission };
+                if (operation && record.endpoint->notification.failed()) data_failure(record.token, EStatus::notification_failed);
+            }
         }
-        if (record.decision_pending && send(Decision{ record.token,
-            ((record.phase == EPhase::closing) ? EStatus::cancelled : EStatus::success) }))
-        {
-            record.decision_pending = false;
-        }
-        if (record.ready_pending && send(Ready{ record.token }))
-        {
-            record.ready_pending = false;
-        }
-        if (record.close_pending && record.token.value && send(Close{ record.token, record.reason }))
-        {
-            record.close_pending = false;
-        }
+        if (record.decision_pending && send(Decision{ record.token, record.decision })) record.decision_pending = false;
+        if (record.ready_pending && send(Ready{ record.token })) record.ready_pending = false;
+        if (record.close_pending && send(Close{ record.token, record.reason })) record.close_pending = false;
         if (record.quiescence_pending && send(Quiescent{ record.token }))
         {
             record.quiescence_pending = false;
@@ -396,74 +397,69 @@ inline void CClient::progress() noexcept
         }
     }
 }
-
 inline void CClient::close(const SToken token, const EStatus reason) noexcept
 {
-    auto* const record = find(token);
-    if (!record || (record->phase == EPhase::retired) || (record->phase == EPhase::closing))
+    SRecord* const record = find(token);
+    if (!record || (record->phase == EPhase::closing))
     {
         return;
     }
     record->phase = EPhase::closing;
     record->reason = reason;
-    record->ready_pending = false;
+    record->decision_pending = record->ready_pending = false;
     record->close_pending = true;
 }
 inline void CClient::close_all() noexcept
 {
-    for (auto& request : m_requests)
+    m_closing = true;
+    for (SRecord& record : m_records)
     {
-        if (request.pending)
-        {
-            request.cancelled = true;
-        }
+        if (record.phase != EPhase::empty) close(record.token);
     }
-    for (auto& record : m_records)
-    {
-        if ((record.phase == EPhase::empty) || (record.phase == EPhase::retired))
-        {
-            continue;
-        }
-        if (record.token.value) close(record.token);
-        else
-        {
-            record.phase = EPhase::closing;
-            record.close_pending = true;
-        }
-    }
+}
+inline void CClient::data_failure(const SToken token, const EStatus reason) noexcept
+{
+    //  Uncertain publication must not be retried. Fail the endpoint while
+    //  retaining Host control progress and every explicit quiescence obligation.
+    close(token, reason);
+    m_data_failed = true;
+    close_all();
+    m_context.fail((reason == EStatus::transport_failed) ? threading::EEndpointFailure::direct_transport_poisoned :
+        threading::EEndpointFailure::wake_failed);
 }
 inline bool CClient::quiesce(const SToken token) noexcept
 {
-    auto* const record = find(token);
+    SRecord* const record = find(token);
     if (!record || !record->closing_seen)
     {
         return false;
     }
     if (!record->quiescent && !record->quiescence_pending)
     {
+        //  Helper calls are serial; every local operation guard has unwound.
+        //  Peer operations do not delay this acknowledgement or need a wait.
         record->endpoint = nullptr;
         record->quiescence_pending = true;
     }
     progress();
     return record->quiescent;
 }
-inline bool CClient::take_result(Result& result, std::int32_t& slot) noexcept
+inline SToken CClient::active(const system_ids::id_type peer) const noexcept
 {
-    for (auto& request : m_requests)
+    for (const SRecord& record : m_records)
     {
-        if (!request.completed) continue;
-        result = request.result;
-        slot = request.slot;
-        request = {};
-        return true;
+        if ((record.peer == peer) && !record.bulk.is_bulk() && active(record.token))
+        {
+            return record.token;
+        }
     }
-    return false;
+    return {};
 }
-inline SToken CClient::active(const module_ids::id_type peer, const bool bulk) const noexcept
+inline SToken CClient::active_bulk(const module_ids::id_type peer) const noexcept
 {
-    for (const auto& record : m_records)
+    for (const SRecord& record : m_records)
     {
-        if ((record.phase == EPhase::active) && (record.peer == peer) && (record.bulk.is_bulk() == bulk))
+        if ((system_ids::ops::get_module_id(record.peer) == peer) && record.bulk.is_bulk() && active(record.token))
         {
             return record.token;
         }
@@ -472,17 +468,18 @@ inline SToken CClient::active(const module_ids::id_type peer, const bool bulk) c
 }
 inline bool CClient::active(const SToken token) const noexcept
 {
-    const auto* const record = find(token);
-    return record && (record->phase == EPhase::active);
+    const SRecord* const record = find(token);
+    return !m_failed && !m_closing && !m_context.sealing() && record && (record->phase == EPhase::active) &&
+        record->endpoint && (record->bulk.is_bulk() || record->endpoint->admission->available());
 }
 inline bool CClient::closing(const SToken token) const noexcept
 {
-    const auto* const record = find(token);
-    return !record || (record->phase == EPhase::closing) || (record->phase == EPhase::retired);
+    const SRecord* const record = find(token);
+    return !record || (record->phase == EPhase::closing);
 }
 inline SToken CClient::next_closing() const noexcept
 {
-    for (const auto& record : m_records)
+    for (const SRecord& record : m_records)
     {
         if ((record.phase == EPhase::closing) && record.closing_seen && !record.quiescent)
         {
@@ -493,16 +490,13 @@ inline SToken CClient::next_closing() const noexcept
 }
 inline bool CClient::idle() const noexcept
 {
-    for (const auto& record : m_records)
+    for (const SRecord& record : m_records)
     {
-        if (record.phase != EPhase::empty)
-        {
-            return false;
-        }
+        if (record.phase != EPhase::empty) return false;
     }
-    for (const auto& request : m_requests)
+    for (const SRequest& request : m_requests)
     {
-        if (request.pending || request.completed)
+        if (request.pending)
         {
             return false;
         }
@@ -512,22 +506,39 @@ inline bool CClient::idle() const noexcept
 inline bool CClient::needs_progress() const noexcept
 {
     if (m_failed) return false;
-    for (const auto& record : m_records)
+    for (const SRecord& record : m_records)
     {
-        if (record.decision_pending || record.ready_pending || (record.close_pending && record.token.value) || record.quiescence_pending)
+        if (record.decision_pending || record.ready_pending || record.close_pending || record.quiescence_pending)
         {
             return true;
         }
     }
     return false;
 }
-inline bool CClient::has_data() noexcept
+inline bool CClient::has_data(const bool direct_data) noexcept
 {
-    for (auto& record : m_records)
+    if (m_context.has_data()) return true;
+    if (!direct_data || m_closing || m_failed || m_context.sealing())
     {
-        if ((record.phase == EPhase::active) && record.endpoint &&
-            ((record.endpoint->incoming && record.endpoint->incoming->refresh_readable_count()) ||
-                (record.endpoint->bulk_consumer && record.endpoint->bulk_consumer->has_staged_data())))
+        return false;
+    }
+    for (SRecord& record : m_records)
+    {
+        if ((record.phase != EPhase::active) || !record.endpoint)
+        {
+            continue;
+        }
+        if (record.bulk.is_bulk())
+        {
+            if (record.endpoint->bulk_consumer && record.endpoint->bulk_consumer->has_staged_data())
+            {
+                return true;
+            }
+            continue;
+        }
+        const COperation operation{ record.endpoint->admission };
+        if (!operation) continue;
+        if (record.endpoint->incoming && record.endpoint->incoming->refresh_readable_count())
         {
             return true;
         }
@@ -536,82 +547,91 @@ inline bool CClient::has_data() noexcept
 }
 inline void CClient::clear_notifications() noexcept
 {
-    for (auto& record : m_records)
+    for (SRecord& record : m_records)
     {
-        if (record.endpoint)
+        if (!record.endpoint) continue;
+        if (record.bulk.is_bulk())
         {
             record.endpoint->notification.clear_pending();
+            continue;
         }
+        const COperation operation{ record.endpoint->admission };
+        if (operation) record.endpoint->notification.clear_pending();
     }
 }
-
+inline EPost CClient::post(const system_ids::id_type peer, const threading::CErasedPodMsg& message,
+    const SToken expected) noexcept
+{
+    const SToken token = active(peer);
+    if (!token.value || (expected.value && (expected.value != token.value)))
+    {
+        return EPost::no_pipe;
+    }
+    return post(token, message);
+}
 inline EPost CClient::post(const SToken token, const threading::CErasedPodMsg& message) noexcept
 {
-    auto* const record = find(token);
-    if (m_failed || !record || (record->phase != EPhase::active) || !record->endpoint || !record->endpoint->outgoing)
+    SRecord* const record = find(token);
+    if (!active(token) || !record->endpoint->outgoing)
     {
-        return EPost::inactive;
+        return EPost::no_pipe;
     }
-    if (!record->policy->admits(message, m_role))
+    system_type_id type;
+    if (!message.query_message_type_id().try_system_type_id(type))
     {
         return EPost::invalid_message;
     }
-    auto& endpoint = *record->endpoint;
+    const SEndpointDescriptor& endpoint = *record->endpoint;
+    const COperation operation{ endpoint.admission };
+    if (!operation) return EPost::no_pipe;
     if (!endpoint.outgoing->post(message))
     {
         if (!endpoint.outgoing->posting_poisoned())
         {
             return EPost::full;
         }
-        //  Publication may have happened before allocation failed. Never retry.
         (void)endpoint.peer_notification.signal();
-        close(token, EStatus::transport_failed);
+        data_failure(token, EStatus::transport_failed);
         return EPost::transport_failed;
     }
     if (endpoint.peer_notification.signal())
     {
         return EPost::queued;
     }
-    close(token, EStatus::notification_failed);
+    data_failure(token, EStatus::notification_failed);
     return EPost::queued_wake_failed;
 }
-inline ERead CClient::read(const SToken token, threading::CErasedPodMsg& message) noexcept
+inline ERead CClient::read(SRecord& record, threading::CErasedPodMsg& message) noexcept
 {
-    auto* const record = find(token);
-    if (m_failed || !record || (record->phase != EPhase::active) || !record->endpoint || !record->endpoint->incoming)
+    if (!active(record.token) || !record.endpoint->incoming)
     {
         return ERead::inactive;
     }
-    auto& endpoint = *record->endpoint;
+    const SEndpointDescriptor& endpoint = *record.endpoint;
+    const COperation operation{ endpoint.admission };
+    if (!operation) return ERead::inactive;
     if (!endpoint.incoming->read(message))
     {
         return ERead::empty;
     }
     const bool signalled = endpoint.peer_notification.signal();
-    if (!record->policy->admits(message, record->peer))
-    {
-        close(token, EStatus::invalid_request);
-        return ERead::invalid_message;
-    }
     if (signalled) return ERead::record;
-    close(token, EStatus::notification_failed);
+    data_failure(record.token, EStatus::notification_failed);
     return ERead::record_wake_failed;
 }
-
 inline memory::CMemoryView CClient::producer_data(const SToken token) noexcept
 {
     SRecord* const record = find(token);
-    if (m_failed || !record || (record->phase != EPhase::active) || !record->endpoint || !record->endpoint->bulk_producer)
+    if (!active(token) || !record->endpoint->bulk_producer)
     {
         return {};
     }
     return record->endpoint->bulk_producer->producer_data();
 }
-
 inline EBulkPublish CClient::publish_bulk(const SToken token) noexcept
 {
     SRecord* const record = find(token);
-    if (m_failed || !record || (record->phase != EPhase::active) || !record->endpoint || !record->endpoint->bulk_producer)
+    if (!active(token) || !record->endpoint->bulk_producer)
     {
         return EBulkPublish::inactive;
     }
@@ -623,21 +643,19 @@ inline EBulkPublish CClient::publish_bulk(const SToken token) noexcept
     close(token, EStatus::notification_failed);
     return EBulkPublish::published_wake_failed;
 }
-
 inline bool CClient::discard_and_acquire(const SToken token) noexcept
 {
     SRecord* const record = find(token);
-    if (m_failed || !record || (record->phase != EPhase::active) || !record->endpoint || !record->endpoint->bulk_consumer)
+    if (!active(token) || !record->endpoint->bulk_consumer)
     {
         return false;
     }
     return record->endpoint->bulk_consumer->discard_and_acquire();
 }
-
 inline memory::CMemoryConstView CClient::consumer_data(const SToken token) noexcept
 {
     SRecord* const record = find(token);
-    if (m_failed || !record || (record->phase != EPhase::active) || !record->endpoint || !record->endpoint->bulk_consumer)
+    if (!active(token) || !record->endpoint->bulk_consumer)
     {
         return {};
     }

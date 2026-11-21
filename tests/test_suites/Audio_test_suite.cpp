@@ -386,8 +386,7 @@ void service_tests(TTestContext& ctx)
     threading::ThreadConfig config{ thread_ids::audio, module_ids::audio, EThreadPriority::Normal, &fake_service, &tests::TThreadFixtureState<FakeOutput>::prepare, &output };
     threading::CThreadPackage package{ config, conversion };
     host::SClientRecord worker{ module_ids::audio, 101u, &package, modules::SModuleInstance{ 1101u } };
-    tests::SDirectPeerFixture executive{ host, conversion, module_ids::executive, 102u,
-        modules::test_connections::policies, modules::test_connections::policy_count };
+    tests::SDirectPeerFixture executive{ host, conversion, module_ids::executive, 102u };
     TEST_EXPECT(ctx, (executive.ready && host.attach(worker) && worker.install_host_execution(host.restrictions.reader())));
     const bool started = package.startup();
     TEST_EXPECT(ctx, started);
@@ -409,13 +408,13 @@ void service_tests(TTestContext& ctx)
     }));
     connections::SToken token;
     auto connect = [&](const std::int32_t correlation) {
-        TEST_EXPECT(ctx, executive.client.open(module_ids::audio, modules::test_connections::version, correlation));
+        TEST_EXPECT(ctx, executive.client.open(modules::test_connections::address(module_ids::audio), correlation));
         connections::Result result;
         std::int32_t slot = -1;
         TEST_EXPECT(ctx, await([&]
         {
             pump();
-            return executive.client.take_result(result, slot);
+            return executive.results.read(result, slot);
         }));
         TEST_EXPECT(ctx, ((result.status == connections::EStatus::success) && (slot == correlation)));
         token = result.token;
@@ -438,7 +437,7 @@ void service_tests(TTestContext& ctx)
         const bool got = await([&]
         {
             pump();
-            return connections::was_read(executive.client.read(token, message));
+            return executive.read(token, message);
         });
         TEST_EXPECT(ctx, got);
         modules::RunTestsResult result;

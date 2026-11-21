@@ -43,7 +43,9 @@ posts do not execute services inline or reenter another module.
 ## Requested threads and readiness
 
 `CreateThreadRequest` supplies an entry function, module-owned context, thread
-address, priority and optional existing direct-service role. Host authenticates
+address, priority and optional `designated_service` nomination. That selector
+serves existing module-addressed bulk and the Executive stop lookup; POD participation
+does not depend on it, and stopping does not depend on bulk readiness. Host authenticates
 the submitting endpoint's module instance, checks stopping and duplicate roles,
 and retains an attempt before provisioning. Creation success means native launch
 and preparation succeeded. Host does not spin waiting for module initialization.
@@ -55,11 +57,11 @@ its entry context must be owned by the module, not by that requester's stack.
 Partial preparation failure is joined and cleaned before its failure settles.
 
 The minimal `TServiceThreadPump` waits for both successful creation and an
-`EndpointReady` notice naming the exact child. The child publishes readiness only
-after local initialization and successful publication of its direct registration,
-when nominated for that role. Host validates and accounts for Register before the
-later readiness POD from that FIFO, including maintenance replay, and forwards
-readiness to the owning coordinator. Invalid registration cannot advertise ready.
+`EndpointReady` notice naming the exact child. The child publishes readiness after
+local initialization. Host authenticates the child and forwards readiness to the
+owning coordinator independently of direct participation. Direct enablement uses
+its own correlated `Register`/`Registered` exchange, before any resulting offers;
+see [direct POD connections](direct_pod_connections.md).
 Readiness cannot reverse stopping, failure or retirement. No-child pumps can
 report ready immediately. This narrow module-coordination message does not add
 public discovery or a general readiness subscription.
@@ -127,8 +129,8 @@ Host graph, binding, callbacks and allocator context until process exit. Live
 execution instead requires process termination; neither timeout nor a stop request
 proves quiescence.
 
-Validated child readiness takes effect while Host drains that child's FIFO, so a
-following direct-connection request sees the accepted initialization boundary.
+Validated child readiness and direct enablement each take effect while Host drains
+the child's FIFO. Neither declaration substitutes for the other or for per-connection consent.
 Native preparation records the creation outcome only. Individual stop, sealing,
 closed admission or module stopping cannot be reversed by a delayed readiness
 message; the module coordinator still determines overall module readiness.

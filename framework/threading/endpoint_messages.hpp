@@ -26,7 +26,7 @@ struct CreateThreadRequest
     void* context{ nullptr };
     thread_ids::id_type thread{};
     platform::threading::EThreadPriority priority{ platform::threading::EThreadPriority::Normal };
-    std::uint32_t direct_service{ 0u };
+    std::uint32_t designated_service{ 0u };
 };
 
 struct CreateThreadResult

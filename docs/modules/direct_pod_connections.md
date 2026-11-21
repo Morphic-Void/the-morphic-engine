@@ -1,86 +1,138 @@
-# Direct POD connections
+# Direct POD endpoint connections
 
-Implementation work authorised 5 November 2026, starting from `5ff920e`.
-This contract supersedes the fixed-ring proposal for general direct messages.
-It does not change Platform-owned input streams.
+The [21 November endpoint increment](direct_endpoint_increment.md) replaces the
+original designated-thread POD path. Host owns each connection, both growable
+SPSC queues, descriptors, atomic admission and pinned notification targets.
+Registered module pumps and service threads can participate within or across
+modules. A pump's address combines its module ID and `thread_ids::host`.
+Host workers and unregistered native threads are not participants. Owning messages
+continue to travel only towards Host.
 
-[Opaque bulk connections](direct_bulk_connections.md) now share this lifecycle
-and its coordinator, with separate fixed-capacity backing and role endpoints.
+## Enablement and establishment
 
-## Contract
+Construct one `connections::CClient` with the endpoint's `CEndpointContext`;
+`CThreadContext` supplies the same interface for a service thread. After installing
+receiving and consent handling, call `enable(correlation)`. The ordinary Host FIFO
+returns `Registered` at that correlation before any resulting offers. Its status
+is explicit. Enablement is independent of native launch, `EndpointReady`, and
+module readiness; sealing or retirement cannot be undone by another declaration.
 
-Host owns each connection and its two growable `CErasedPodMsgTransport` queues.
-Their storage uses the Host memory context even when a service thread grows a
-queue. Discard is disabled. The public endpoint API does not expose queue capacity
-mechanics, so a future fixed transport can preserve the lifecycle contract.
-Exactly one designated service thread produces and consumes on each side.
+`open(first_system_id, second_system_id, correlation)` requests two participants.
+`open(peer_system_id, correlation)` uses the caller as the first participant.
+Host authenticates the requester separately, resolves both addresses once to exact
+endpoint identities, and does not load or wait for missing participants. A
+third-party requester receives results and has no close authority over the pair.
 
-The logical key is the unordered exact-instance pair and canonical pair of
-existing module roles (`module_ids`). Version is checked, not part of the key.
-Every establishment receives a process-unique, nonreused token. Reciprocal
-requests share the connection, retaining one initiating correlation per side;
-further requests while pending receive busy. Active requests return the existing
-token, and closing requests return closing. There is no implicit module load,
-replacement substitution, or successor queue.
+An unordered exact endpoint pair has at most one pending, active or closing POD
+connection. Each establishment has a fresh, nonreused token. Reciprocal and other
+concurrent requests merge into one handshake, with at most eight requester
+correlations and one pending request per requester for that pair. Excess or
+redundant requests return `busy`; an active pair returns `already_connected` and
+its token, and a closing pair returns `closing`.
 
-A service installs its Framework control handler and posts registration as its
-first startup POD before publishing Running. Host consumes that first record
-before reporting successful startup; legacy services need not register.
-Registration establishes only control support. Each new offer requires explicit
-acceptance of its exact peer, role contract and version. Host then publishes
-endpoint descriptors, waits for both installation/readiness replies, and sends
-activation. An installed side holds data until it observes activation.
+Both participants receive `Offer`, even if they requested the connection. Module
+code calls `decide(token, status)` to accept or reject the exact offer. The helper
+then validates `Install`, integrates the descriptor and submits `Ready`. After
+both readiness acknowledgements and an admission recheck, Host activates the gate
+and publishes `Activate`. A participant's successful result follows its own
+activation in the Host FIFO. A result records establishment, not continuing
+availability; it may arrive after the connection has retired.
 
-Routine controls and busy replies use the existing regular Host pipes. Normal
-control latency is allowed. Connection capacity must never stop unrelated Host
-queue drains or cleanup. Restricted maintenance keeps its existing capture,
-deferred replay and no-growth publication rules.
+Request correlations have independent Host and helper records. A third-party
+requester's departure settles its undeliverable result without closing the pair.
+Participant departure closes the connection. Transport retirement does not erase
+an outstanding requester result or retain participant pointers on its behalf.
 
-Direct messages retain `CErasedPodMsg`'s 64-byte record and 48-byte payload.
-Framework admission requires SYSTEM identity and the agreed contract, version
-and direction. POD pointers convey no ownership or independent resource access;
-owning transfers continue through Host. Successful posting means queued, not
-processed. Notification failure is separate from enqueue/read success. Queue
-allocation poisoning is terminal and may follow publication; it must never cause
-automatic retransmission as though the record had not escaped.
+## Receiving and sending
 
-One pinned notification targets each participant. Publication precedes signalling;
-consumer progress also wakes a sender waiting for capacity. Waiters sample the
-thread epoch, clear the latch, drain/check durable data and retry retained output,
-then wait using the original epoch. Every potentially coalesced hint is followed
-by those durable checks. Lifecycle controls are checked between bounded batches.
+`receive(SReceived&, direct_data = true)` returns at most one original POD record,
+including its asynchronous slot, plus authenticated immediate-source metadata.
+`SSource` distinguishes Host from a direct sender; direct sources include the
+sender's system ID, exact endpoint identity and connection token. Dispatch checks
+this source before interpreting the payload. A peer's Host-control or service-result
+payload cannot enter generic Host handling.
 
-Closing is durable in Host and local state. A local close request stops new local
-work immediately; the peer stops when it observes Host's closing control. Every
-installation publication, including retries, precedes that closing boundary.
-Nothing can install or reactivate afterward. Participants cancel known dependent
-operations and validate tokens before deferred continuations. Background work
-retains tokens, never unprotected endpoint pointers. Graceful conversations finish
-while active; retirement does not require processing unread data.
+The helper applies bounded mechanical handling only to records from the Host
+queue, then exposes the original record. Offers, results, installation and lifecycle
+controls remain visible to the module and count towards its receive budget. A Host
+`Result` releases its pending local correlation before being returned; module code
+handles that original record directly. There is no separate result-drain interface. There
+is no hidden drain loop or inline module callback. `is_control(message)` is useful
+only after checking that the authenticated source is Host.
 
-Beginning participant retirement also closes its Host-local admission, even when
-it has no connection records yet. Late registration cannot reopen that instance.
-A replacement starts with fresh unregistered state.
+Selection is persistent round-robin over Host and active direct inboxes, bounded
+by one traversal per call. Each queue remains FIFO; there is no cross-queue order.
+A caller may set `direct_data = false` while it cannot accept any direct data,
+including replies. Host remains eligible, direct queues remain untouched, and the
+cursor is retained for resumption. Recompute this flag each call, including within
+a batch. `has_data(direct_data)` uses the same eligibility, so unread paused data
+alone does not keep a thread or pump runnable. This is local receive selection,
+not connection admission or a new pause protocol.
 
-Quiescence acknowledges completed relinquishment of both pipe roles, notification
-readers and outgoing signals after consuming the closing boundary. Host retains
-all exposed descriptors, transport storage, participant bindings and notification
-targets until both sides are quiescent. Never-exposed sides need no endpoint
-acknowledgement. Abandonment instead requires successful native join plus final
-queue/deferred-record/batch checks. Native join must remain reachable while direct
-notification pins exist. Failed joins and timeouts never authorise reclamation.
+`post(peer_system_id, message)` uses the current active local mapping. Deferred
+work uses `post(peer_system_id, message, saved_token)` or `post(saved_token, message)`.
+An absent, establishing, closed or stale pipe returns `no_pipe`; sending never
+creates a connection or retains a message for later. Admission requires a SYSTEM
+message, with no module-role or direction policy for POD payload semantics.
 
-Initial connection limits are 32 overall and eight per participant, including
-pending and closing records. Establishment has a five-second eligible deadline;
-declared Host restriction intervals are excluded. Data queues initially use the
-existing growable Host policy, not a 64-record fixed limit. Ordinary capacity
-pressure is not an emergency. Existing failure and exit mechanisms are reused.
+`queued` means published, not processed. `full` is a safe refusal that permits
+retaining and retrying the original message. `queued_wake_failed` means publication
+succeeded but notification failed. `transport_failed` may follow publication and
+must never cause automatic retransmission. Direct poisoning and unrecoverable wake
+failure mark the endpoint failed and trigger existing Host shutdown handling. The
+unaffected Host control queue remains usable for safe cleanup. Logged shutdown/termination
+policy handles uncertainty; it never permits unsafe reclamation.
 
-New public controls, descriptors and helpers live in Framework; the coordinator
-and owned storage live in Host. Core provides generic primitives and opaque
-identity plumbing without depending on Framework.
+Publication and consumption signal the peer to support wake and capacity progress.
+A thread samples its epoch, clears notification latches, checks eligible durable
+work and pending controls, then waits against the sampled epoch. A pump clears
+latches, consumes its bounded budget and returns work availability consistently
+with direct-data eligibility. Notification callbacks never execute module code.
 
-## Implementation and validation
+## Closing, admission and lifetime
+
+`close(token)` immediately disables local use and queues a Host close request.
+Host closes the shared admission gate and publishes `Closing` to both participants.
+Before exposing that record, the helper disables receiving and obsolete decision,
+installation and activation work. Delayed controls cannot reopen the token.
+
+The admission word is a lock-free 32-bit atomic: the high bit closes admission and
+the remaining bits count acquired operations. Acquisition uses an acquire-release
+CAS on that same word, refusing closed or saturated state; Host closes it with an
+acquire-release `fetch_or`. An RAII guard covers queue access and notification
+signalling, including failure paths. Release decrements with release ordering;
+Host observes the closed, zero-count word with acquire ordering. Admission opens
+only once after the two-sided readiness check.
+
+Module code cancels connection-dependent conversations and finishes users before
+calling `quiesce(token)`. It need not consume unread PODs or finish unrelated Host
+work. Helper calls are confined to the endpoint's serialized execution; deferred
+work retains tokens and independent copies, not borrowed descriptor pointers.
+Quiescence detaches transport and notification access and submits the acknowledgement.
+Safe temporary Host publication pressure leaves it pending for `progress()`;
+there is no blocking wait or dependence on peer acknowledgement.
+
+Host retains exposed resources until both participants discharge access obligations
+and all admitted operations, including signals, have finished. Zero operations alone
+is not module quiescence. Abandonment requires the existing final-drain/execution
+proof and successful native join for threads; timeout alone never reclaims storage.
+Never-exposed sides need no descriptor acknowledgement. `Retired` clears remaining
+helper bookkeeping before being returned. Normal close permits later explicit
+establishment; `close_all()` is permanent helper shutdown, and sealing permanently
+prohibits that exact endpoint. Host retains the
+stronger existing ordering: seal acknowledgement follows direct retirement.
+
+The limits remain 32 total connections and eight per participant, shared with
+[opaque bulk](direct_bulk_connections.md), and a five-second eligible establishment
+deadline. Bulk retains designated-service role/capacity policies and held-view
+semantics. POD and bulk connections remain independent. The common protocol and
+POD descriptor version are 1, with explicit descriptor-size and version checks;
+Host and all consumers must be rebuilt together. These controls have no stored
+wire-data artifacts to convert.
+
+The history below describes the original implementation and its validation, not
+the current API. Current validation evidence belongs to the endpoint increment.
+## Historical implementation and validation, 5 November 2026
 
 The generic coordinator and Framework participant are implemented, and Executive's
 Rendering/Audio conversations now use them. Test payloads live in

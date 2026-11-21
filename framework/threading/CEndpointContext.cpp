@@ -47,8 +47,11 @@ bool endpoint_settlement(const CErasedOwnerMsg& message) noexcept
 
 SEndpointPost CEndpointContext::publish(const CErasedPodMsg& message) noexcept
 {
+    //  A direct queue failure is fatal to the endpoint, but does not poison this
+    //  independent Host lane or prevent safe cleanup and seal publication.
     const EEndpointFailure failure = m_endpoint.failure.load(std::memory_order_acquire);
-    if ((failure != EEndpointFailure::none) && (failure != EEndpointFailure::wake_failed))
+    if ((failure != EEndpointFailure::none) && (failure != EEndpointFailure::wake_failed) &&
+        (failure != EEndpointFailure::direct_transport_poisoned))
     {
         return { EEndpointPost::transport_failed };
     }
@@ -101,7 +104,8 @@ SEndpointPost CEndpointContext::post(const CErasedPodMsg& message) noexcept
 SEndpointPost CEndpointContext::post(CErasedOwnerMsg&& message) noexcept
 {
     const EEndpointFailure failure = m_endpoint.failure.load(std::memory_order_acquire);
-    if ((failure != EEndpointFailure::none) && (failure != EEndpointFailure::wake_failed))
+    if ((failure != EEndpointFailure::none) && (failure != EEndpointFailure::wake_failed) &&
+        (failure != EEndpointFailure::direct_transport_poisoned))
     {
         return { EEndpointPost::transport_failed };
     }

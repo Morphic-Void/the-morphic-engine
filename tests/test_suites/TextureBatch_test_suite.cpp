@@ -109,8 +109,7 @@ struct SRealFixture
         config.endpoint_entry = entry;
         if (!package.emplace(config, conversion) || !client.emplace(module_ids::rendering, 101u, &*package, modules::SModuleInstance{ 1101u }) ||
             !direct.attach(*client) || !client->install_host_execution(direct.restrictions.reader()) ||
-            !executive.emplace(direct, conversion, module_ids::executive, 102u,
-                modules::test_connections::policies, modules::test_connections::policy_count) || !executive->ready ||
+            !executive.emplace(direct, conversion, module_ids::executive, 102u) || !executive->ready ||
             !package->install_batch_client(shared, module_ids::rendering, (&module)) || !package->startup())
         {
             return false;
@@ -123,7 +122,7 @@ struct SRealFixture
         {
             return false;
         }
-        if (!executive->client.open(module_ids::rendering, modules::test_connections::version, 100))
+        if (!executive->client.open(modules::test_connections::address(module_ids::rendering), 100))
         {
             return false;
         }
@@ -132,7 +131,7 @@ struct SRealFixture
         if (!tests::wait_until(conversion, [&]
         {
             pump();
-            return executive->client.take_result(result, slot);
+            return executive->results.read(result, slot);
         }) ||
             (result.status != connections::EStatus::success) || (slot != 100))
         {
@@ -275,7 +274,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     {
         return tests::wait_until(fixture.conversion, [&]() noexcept {
             fixture.pump();
-            return connections::was_read(fixture.executive->client.read(fixture.connection, message));
+            return fixture.executive->read(fixture.connection, message);
         });
     };
     threading::CErasedPodMsg reply;
@@ -343,7 +342,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
         fixture.pump();
         return (fixture.package->query_state() == threading::EThreadRunState::Exited) && fixture.direct.connections.empty();
     }));
-    TEST_EXPECT(ctx, !connections::was_read(fixture.executive->client.read(fixture.connection, premature)));
+    TEST_EXPECT(ctx, !fixture.executive->read(fixture.connection, premature));
     TEST_EXPECT(ctx, fixture.stop());
     TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
 }

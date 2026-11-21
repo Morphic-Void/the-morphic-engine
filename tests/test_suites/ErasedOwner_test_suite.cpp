@@ -183,10 +183,8 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         tests::SDirectHostFixture host;
         threading::CThreadPackage package(configuration, conversion);
         host::SClientRecord worker{ module_ids::executive, 101u, &package, modules::SModuleInstance{ 1101u } };
-        tests::SDirectPeerFixture rendering{ host, conversion, module_ids::rendering, 102u,
-            modules::test_connections::policies, modules::test_connections::policy_count };
-        tests::SDirectPeerFixture audio{ host, conversion, module_ids::audio, 103u,
-            modules::test_connections::policies, modules::test_connections::policy_count };
+        tests::SDirectPeerFixture rendering{ host, conversion, module_ids::rendering, 102u };
+        tests::SDirectPeerFixture audio{ host, conversion, module_ids::audio, 103u };
         TEST_EXPECT(ctx, (rendering.ready && audio.ready && host.attach(worker) && worker.install_host_execution(host.restrictions.reader())));
         auto pump = [&]
         {
@@ -206,7 +204,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         auto read_test = [&](tests::SDirectPeerFixture& peer, threading::CErasedPodMsg& message) {
             return tests::wait_until(conversion, [&] {
                 pump();
-                return connections::was_read(peer.client.read(peer.client.active(module_ids::executive), message));
+                return peer.read(peer.client.active(system_ids::executive), message);
             });
         };
         const bool started = package.startup();
@@ -272,7 +270,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             completed.passed = 7u;
             reply.set_async_slot(slot + 1);
             reply.assign_payload(completed);
-            TEST_EXPECT(ctx, (rendering.client.post(rendering.client.active(module_ids::executive), reply) == connections::EPost::queued));
+            TEST_EXPECT(ctx, (rendering.client.post(rendering.client.active(system_ids::executive), reply) == connections::EPost::queued));
             TEST_EXPECT(ctx, read_owned(request));
             const modules::ModuleRequest* audio_load = request.owner().payload<modules::ModuleRequest>();
             TEST_EXPECT(ctx, (audio_load && (audio_load->module == module_ids::audio) && (audio_load->action == modules::EModuleAction::load) &&
@@ -319,7 +317,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
                 }
                 reply.set_async_slot(slot + ((scenario == ECase::audio_wrong_correlation) ? 4 : 3));
                 reply.assign_payload(completed);
-                TEST_EXPECT(ctx, (audio.client.post(audio.client.active(module_ids::executive), reply) == connections::EPost::queued));
+                TEST_EXPECT(ctx, (audio.client.post(audio.client.active(system_ids::executive), reply) == connections::EPost::queued));
             }
             if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded) || (scenario == ECase::audio_unavailable))
             {

@@ -21,7 +21,8 @@ namespace threading
 
 enum class EEndpointFailure : std::uint32_t
 {
-    none, transport_poisoned, publication_overflow, accounting_failure, execution_failed, lifecycle_failure, wake_failed
+    none, transport_poisoned, publication_overflow, accounting_failure, execution_failed, lifecycle_failure, wake_failed,
+    direct_transport_poisoned
 };
 
 struct SModuleEndpointState

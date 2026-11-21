@@ -2,7 +2,7 @@
 
 Host distributes fixed-capacity, opaque byte-buffer endpoints using the
 [direct POD connection lifecycle](direct_pod_connections.md). The same coordinator,
-startup registration, ordinary Host controls, eligible establishment deadline,
+acknowledged endpoint enablement, ordinary Host controls, eligible establishment deadline,
 notification pins and retirement barriers serve both transport kinds.
 
 ## Configuration and ownership
@@ -10,7 +10,7 @@ notification pins and retirement barriers serve both transport kinds.
 `connections::SBulkConfiguration` declares the usable bytes per buffer and the
 producer's module role. The connection has one producer and one consumer, each
 confined to its designated service thread. Either participant may initiate it.
-Both participants' `SContractPolicy` entries must explicitly accept the capacity,
+Both participants' `SBulkPolicy` entries must explicitly accept the capacity,
 producer and contract version. Host interprets no payload schema or domain data.
 
 There is one bulk connection and one independent POD connection per unordered
@@ -30,27 +30,27 @@ or allocation during publication or acquisition.
 
 Bulk and POD records share the existing limits: 32 connections overall and eight
 per participant, including pending and closing records. Their control protocol
-registration version is now 2; rebuild Host and participating modules together.
-Existing source calls that omit bulk configuration continue to request POD pipes.
+registration version is 1; rebuild Host and participating modules together.
+POD uses explicit system-ID addressing; bulk retains designated-service addressing.
 
 ## Establishment and use
 
-Register `connections::CClient` as the first startup POD, as for POD connections.
+Enable `connections::CClient` through its common endpoint before opening bulk connections.
 Add a bulk policy such as:
 
 ```cpp
-const connections::SContractPolicy policy{
+const connections::SBulkPolicy policy{
     connections::contract(module_ids::executive, module_ids::rendering, 1u),
-    nullptr, 0u, { 4096u, module_ids::executive }
+    { 4096u, module_ids::executive }
 };
 ```
 
 The producer calls `open_bulk(peer, version, async_slot, capacity, true)`; the
 consumer can initiate with the same arguments and `false`. Each uses its peer's
-module role. Read the correlated `Result` through `take_result()`. To find the
-active bulk token, use `active(peer, true)`; `active(peer)` retains its POD meaning.
+module role. Handle the correlated Host `Result` returned by `receive()`. To find the
+active bulk token, use `active_bulk(peer)`; POD `active(system_id)` uses an exact endpoint address mapping.
 
-Host offers the exact configuration, prepares backing and complementary
+Host offers the exact configuration to both participants; the helper applies the configured bulk policy. Host then prepares backing and complementary
 descriptors, waits for both `Ready` controls and publishes `Activate`. The client
 helper exposes no data before local activation. No buffer is initially published.
 
@@ -74,7 +74,7 @@ as if nothing escaped. The helper begins local closure in that case. Foundation'
 underlying `TBulk::publish()` boolean describes acquisition of the previous staged
 publication; it is not a publication-success result.
 
-Publication precedes the pinned peer notification. `has_data()` includes staged
+Publication precedes the pinned peer notification. `has_data()` includes eligible Host records, staged
 bulk data and POD messages. Follow the existing sample-epoch, clear-notifications,
 check-durable-data, wait protocol; notification latches alone do not prove data
 availability. Bulk publication never waits for consumer capacity.

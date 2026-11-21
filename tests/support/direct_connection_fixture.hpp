@@ -17,6 +17,8 @@
 
 #include "framework/system/system_ids.hpp"
 #include "framework/communications/direct_client.hpp"
+#include "framework/communications/module_tests.hpp"
+#include "framework/threading/CThreadContext.hpp"
 #include "host/runtime/direct_connections.hpp"
 #include "host/runtime/host_restrictions.hpp"
 
@@ -53,6 +55,17 @@ namespace host
 {
 struct SDirectConnectionTestAccess
 {
+    static const connections::SEndpointDescriptor* descriptor(CDirectConnections& connections,
+        const connections::SToken token, const std::uint32_t side)
+    {
+        CDirectConnections::SRecord* const record = connections.find(token);
+        return (record && (side < 2u)) ? &record->sides[side].descriptor : nullptr;
+    }
+    static bool contains(CDirectConnections& connections, const connections::SToken token)
+    {
+        return connections.find(token) != nullptr;
+    }
+    static std::uint32_t requests(const CDirectConnections& connections) { return connections.m_request_count; }
     static std::size_t bulk_capacity(CDirectConnections& connections, const connections::SToken token)
     {
         const CDirectConnections::SRecord* const record = connections.find(token);
@@ -94,22 +107,47 @@ struct SDirectConnectionTestAccess
 namespace tests
 {
 
+//  Observations copied by fixture dispatchers from the common receiver. They
+//  impose no additional consumption obligation on the production helper.
+struct SDirectResultObservations
+{
+    threading::CErasedPodMsg messages[32];
+    unsigned count{ 0u };
+    bool observe(const threading::CErasedPodMsg& message) noexcept
+    {
+        if (!message.is_payload_a<connections::Result>()) return false;
+        MV_ASSERT(count < 32u);
+        if (count < 32u) messages[count++] = message;
+        return true;
+    }
+    bool read(connections::Result& result, std::int32_t& slot) noexcept
+    {
+        if (!count) return false;
+        slot = messages[0].query_async_slot();
+        const bool copied = messages[0].copy_payload_to(result);
+        --count;
+        for (unsigned index = 0u; index < count; ++index) messages[index] = messages[index + 1u];
+        return copied;
+    }
+};
+
 struct SDirectHostFixture
 {
     host::CHostRestrictions restrictions;
     host::CDirectConnections connections;
-    host::SClientRecord* clients[4]{};
-    threading::CErasedPodMsg deferred[4];
-    bool deferred_pending[4]{};
+    static constexpr unsigned capacity = 16u;
+    host::SClientRecord* clients[capacity]{};
+    threading::CErasedPodMsg deferred[capacity];
+    bool deferred_pending[capacity]{};
     bool failed{ false };
     std::uint32_t data_capacity{ 0u };
 
     bool attach(host::SClientRecord& client) noexcept
     {
-        if (!client.thread) return false;
         for (const auto* slot : clients)
         {
-            if (slot && ((slot == &client) || (slot->module == client.module) || (slot->instance.value == client.instance.value)))
+            if (slot && ((slot == &client) || (slot->identity.value == client.identity.value) ||
+                ((slot->module == client.module) && (slot->endpoint->thread_id == client.endpoint->thread_id))))
             {
                 return false;
             }
@@ -120,7 +158,7 @@ struct SDirectHostFixture
             {
                 slot = &client;
                 client.phase = host::EClientPhase::ready;
-                return true;
+                return client.initialise();
             }
         }
         return false;
@@ -128,7 +166,7 @@ struct SDirectHostFixture
     bool detach(const host::SClientRecord& client) noexcept
     {
         if (!connections.client_idle(client)) return false;
-        for (unsigned index = 0u; index < 4u; ++index)
+        for (unsigned index = 0u; index < capacity; ++index)
         {
             if (clients[index] == &client)
             {
@@ -150,6 +188,17 @@ struct SDirectHostFixture
         }
         return nullptr;
     }
+    host::SClientRecord* endpoint(const system_ids::id_type address) noexcept
+    {
+        for (host::SClientRecord* client : clients)
+        {
+            if (client && (system_ids::ops::make_system_id(client->module, client->endpoint->thread_id) == address))
+            {
+                return client;
+            }
+        }
+        return nullptr;
+    }
     bool dispatch(host::SClientRecord& source, const threading::CErasedPodMsg& message) noexcept
     {
         connections::Register registration;
@@ -160,7 +209,8 @@ struct SDirectHostFixture
         connections::Quiescent quiescent;
         if (message.copy_payload_to(registration))
         {
-            connections.register_client(source, registration);
+            if (!source.reserve_replies(1u)) failed = true;
+            else connections.register_client(source, registration, message.query_async_slot());
         }
         else if (message.is_payload_a<threading::EndpointReady>())
         {
@@ -171,7 +221,9 @@ struct SDirectHostFixture
             if (!source.reserve_replies(1u)) failed = true;
             else
             {
-                connections.request(source, peer(request.peer), request, message.query_async_slot(), restrictions.reader());
+                connections.request(source, (request.bulk.is_bulk() ? &source : endpoint(request.first)),
+                    (request.bulk.is_bulk() ? peer(request.bulk_peer) : endpoint(request.second)),
+                    request, message.query_async_slot(), restrictions.reader());
             }
         }
         else if (message.copy_payload_to(decision))
@@ -201,7 +253,7 @@ struct SDirectHostFixture
     //  Leave owning messages and every unrelated POD under the caller's control.
     bool read_other(host::SClientRecord& source, threading::CErasedPodMsg& message) noexcept
     {
-        for (unsigned index = 0u; index < 4u; ++index)
+        for (unsigned index = 0u; index < capacity; ++index)
         {
             if ((clients[index] == &source) && deferred_pending[index])
             {
@@ -210,7 +262,7 @@ struct SDirectHostFixture
                 return true;
             }
         }
-        while (source.thread->read(message))
+        while (source.read(message))
         {
             if (!dispatch(source, message))
             {
@@ -224,7 +276,7 @@ struct SDirectHostFixture
         threading::CErasedPodMsg message;
         if (!read_other(source, message)) return;
         failed = true;
-        for (unsigned index = 0u; index < 4u; ++index)
+        for (unsigned index = 0u; index < capacity; ++index)
         {
             if (clients[index] == &source)
             {
@@ -250,16 +302,17 @@ struct SDirectPeerFixture
     host::SClientRecord record;
     threading::CThreadContext context;
     connections::CClient client;
+    SDirectResultObservations results;
     bool ready{ false };
     bool attached{ false };
-    threading::CErasedPodMsg other;
+    connections::SReceived other;
     bool other_pending{ false };
 
     SDirectPeerFixture(SDirectHostFixture& driver, const platform::system::CPerfCountConversion& conversion,
-        const module_ids::id_type role, const std::uint64_t instance,
-        const connections::SContractPolicy* const policies, const std::uint32_t policy_count) noexcept
-        : host{ driver }, package{ { thread_ids::executive, role }, conversion }, record{ role, instance, &package, { instance + UINT64_C(0x100000000) } },
-          context{ threading::SDirectConnectionTestAccess::resources(package) }, client{ context, role, policies, policy_count }
+        const module_ids::id_type role, const std::uint64_t instance) noexcept
+        : host{ driver }, package{ { system_ids::ops::get_thread_id(modules::test_connections::address(role)), role }, conversion },
+          record{ role, instance, &package, { instance + UINT64_C(0x100000000) } },
+          context{ threading::SDirectConnectionTestAccess::resources(package) }, client{ context }
     {
         record.host_execution.instance = record.instance;
         if (!threading::SDirectConnectionTestAccess::initialise(package, record.host_execution))
@@ -267,20 +320,26 @@ struct SDirectPeerFixture
             return;
         }
         attached = host.attach(record);
-        ready = attached && client.register_service();
+        ready = attached && client.enable();
         if (ready) host.drain_controls(record);
     }
     void pump(const bool quiesce = true) noexcept
     {
         host.drain_controls(record);
-        threading::CErasedPodMsg message;
-        while (!other_pending && context.read(message))
+        if (other_pending && !other.source.is_host() && !client.active(other.source.connection)) other_pending = false;
+        connections::SReceived received;
+        while (!other_pending && client.receive(received))
         {
-            if (!client.handle(message))
+            if (received.source.is_host() && results.observe(received.message)) continue;
+            connections::Offer offer;
+            if (received.source.is_host() && received.message.copy_payload_to(offer) && !offer.bulk.is_bulk())
             {
-                other = message;
+                (void)client.decide(offer.token, connections::EStatus::success);
+            }
+            else if (!received.source.is_host() || !connections::is_control(received.message))
+            {
+                other = received;
                 other_pending = true;
-                host.failed = true;
             }
         }
         if (quiesce)
@@ -292,6 +351,17 @@ struct SDirectPeerFixture
         }
         client.progress();
         host.failed = host.failed || client.failed();
+    }
+    bool read(const connections::SToken token, threading::CErasedPodMsg& message) noexcept
+    {
+        pump();
+        if (!other_pending || other.source.is_host() || (other.source.connection.value != token.value))
+        {
+            return false;
+        }
+        message = other.message;
+        other_pending = false;
+        return true;
     }
     bool shutdown() noexcept
     {

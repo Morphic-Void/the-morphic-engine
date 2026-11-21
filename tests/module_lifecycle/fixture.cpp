@@ -727,10 +727,18 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
         previous = token;
         auto message = threading::make_pod_message(slot, modules::RunTestsRequest{ module_ids::conditioning_general });
         modules::RunTestsResult result;
-        return s_direct->post(token, message) && s_direct->receive(module_ids::conditioning_general, token, message) && message.copy_payload_to(result) &&
+        if (!s_direct->post(token, message)) return false;
+        if ((std::strcmp(selected, "service-lifecycle") == 0) &&
+            !s_direct->wait([&] { return s_direct->buffered_direct() == 16u; }))
+        {
+            return false;
+        }
+        //  The reconnect case leaves fifteen copied records unread. Connection
+        //  cleanup must discard them before this endpoint can accept its successor.
+        return s_direct->receive(module_ids::conditioning_general, token, message) && message.copy_payload_to(result) &&
             (message.query_async_slot() == slot) && (result.module == module_ids::conditioning_general) &&
             (result.status == modules::ETestRunStatus::success) && (result.passed == 1u) &&
-            (result.failed == 0u) && (result.skipped == 0u) && s_direct->retire();
+            (result.failed == 0u) && (result.skipped == 0u) && s_direct->retire() && !s_direct->buffered_direct();
     };
     const auto service_file = test_environment::module_filename("package:/bin/MorphicLifecycleService");
     if (std::strcmp(selected, "service-start-failure") == 0)
@@ -1141,6 +1149,13 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(threading::CThreadContext& co
     if (!context.post(message)) return fail();
     message = threading::make_pod_message(correlation, modules::RunTestsResult{ module_ids::conditioning_general, modules::ETestRunStatus::success, 1u, 0u, 0u });
     if (!direct.post(token, message)) return fail();
+    if (std::strcmp(selected, "service-lifecycle") == 0)
+    {
+        for (unsigned index = 0u; index < 15u; ++index)
+        {
+            if (!direct.post(token, message)) return fail();
+        }
+    }
     while (!context.exit_requested())
     {
         const auto epoch = context.observe_epoch();
@@ -1201,10 +1216,6 @@ static constexpr auto k_advertised_module_id = module_ids::rendering;
 static std::uint32_t MV_STD_ABI_CALL rendering_entry(threading::CThreadContext& context, void* const) noexcept
 {
     context.startup();
-    if (!context.post(threading::make_pod_message(-1, connections::Register{})))
-    {
-        return 1u;
-    }
     context.mark_failed(1u);
     return 1u;
 }
@@ -1497,10 +1508,6 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(threading::CThreadContext& 
         if (success) context.mark_exited();
         else context.mark_failed(1u);
         return success ? 0u : 1u;
-    }
-    if (!context.post(threading::make_pod_message(-1, connections::Register{})))
-    {
-        return 1u;
     }
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         (std::strcmp(selected, "bundle-rendering") == 0))

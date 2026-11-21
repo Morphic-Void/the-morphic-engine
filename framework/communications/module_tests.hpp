@@ -31,20 +31,24 @@ struct RunTestsResult
 
 namespace test_connections
 {
-static constexpr std::uint32_t version = 1u;
-static const connections::SMessageRule rendering_rules[]{
-    { system_type_ids::run_tests_request, module_ids::executive },
-    { system_type_ids::run_tests_result, module_ids::rendering }
-};
-static const connections::SMessageRule audio_rules[]{
-    { system_type_ids::run_tests_request, module_ids::executive },
-    { system_type_ids::run_tests_result, module_ids::audio }
-};
-static const connections::SContractPolicy policies[]{
-    { connections::contract(module_ids::executive, module_ids::rendering, version), rendering_rules, 2u },
-    { connections::contract(module_ids::executive, module_ids::audio, version), audio_rules, 2u }
-};
-static constexpr std::uint32_t policy_count = 2u;
+//  These application conversations know their receiving execution addresses.
+[[nodiscard]] inline system_ids::id_type address(const module_ids::id_type module) noexcept
+{
+    const thread_ids::id_type thread = (module == module_ids::executive) ? thread_ids::executive :
+        ((module == module_ids::rendering) ? thread_ids::rendering : thread_ids::audio);
+    return system_ids::ops::make_system_id(module, thread);
+}
+
+[[nodiscard]] inline bool accepts(const module_ids::id_type local, const connections::Offer& offer) noexcept
+{
+    if (offer.bulk.is_bulk()) return false;
+    if (local == module_ids::executive)
+    {
+        return (offer.peer_address == address(module_ids::rendering)) || (offer.peer_address == address(module_ids::audio));
+    }
+    return ((local == module_ids::rendering) || (local == module_ids::audio)) &&
+        (offer.peer_address == address(module_ids::executive));
+}
 }   //  namespace test_connections
 
 }   //  namespace modules

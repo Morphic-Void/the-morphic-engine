@@ -16,7 +16,7 @@
 namespace modules
 {
 
-template<threading::FEndpointThreadEntry Entry = nullptr, const thread_ids::id_type* Thread = nullptr, bool Direct = true>
+template<threading::FEndpointThreadEntry Entry = nullptr, const thread_ids::id_type* Thread = nullptr, bool Designated = true>
 class TServiceThreadPump
 {
 public:
@@ -62,7 +62,7 @@ private:
             if (!self.m_requested && !self.m_stopping)
             {
                 const threading::CreateThreadRequest request{ Entry, nullptr, *Thread,
-                    platform::threading::EThreadPriority::Normal, Direct ? 1u : 0u };
+                    platform::threading::EThreadPriority::Normal, Designated ? 1u : 0u };
                 const threading::SEndpointPost posted = endpoint.post(threading::make_pod_message(0, request));
                 if (!posted && (posted.status != threading::EEndpointPost::busy))
                 {

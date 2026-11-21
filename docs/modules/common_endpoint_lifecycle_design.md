@@ -1,11 +1,19 @@
 # Common endpoints and module lifecycle
 
-Agreed design direction, updated 20 November 2026. The
+Agreed design direction, updated 21 November 2026. The
 [first-pass refactor](common_endpoint_first_pass.md) defines the initial scope,
 retained behaviour, failure policy and selected implementation decisions. This broader
 record also contains follow-on contracts; they are not all prerequisites for the
 first pass. Neither document authorises implementation. Existing system
 references continue to describe the running engine.
+
+The first pass and its consolidation are implemented in `ca8770d`. The implemented follow-on
+scope is the [direct POD endpoint increment](direct_endpoint_increment.md), which
+selects a bounded subset of the follow-on design below. Its common receiving
+contract, establishment handshake and helper/module responsibilities during closing
+and quiescence are implemented; the increment records implementation and validation details.
+Implementation of that bounded increment is authorised; the remaining broader
+design is not part of that authorisation.
 
 Every module has a pump and can request zero or more service threads. Pumps and
 service threads use the same Host communication contract. Host provides common
@@ -570,11 +578,11 @@ is retiring. Duplicate creation fails. After retirement the address can be reuse
 with a fresh endpoint instance identity. Diagnostic names and native thread IDs
 do not determine this identity.
 
-Host resolves an establishment target once when processing the request. An absent
-or not-ready destination returns `unavailable`; Host does not wait for it to
+Host resolves both establishment participants once when processing the request.
+An absent or not-ready participant returns `unavailable`; Host does not wait for it to
 appear, load its module or subscribe the requester to future availability. Other
 admission checks, including permission and closure, still apply. Once selected,
-the exact destination instance is fixed for that establishment. If it disappears,
+each exact participant instance is fixed for that establishment. If either disappears,
 the handshake fails rather than substituting a replacement at the same address.
 A later explicit request may resolve the address again.
 
@@ -760,9 +768,11 @@ including offered, installing, active and closing records. Each establishment
 receives a fresh nonreused connection token. A new establishment between the same
 pair must wait until the previous record has fully retired.
 
-An establishment request names the target system ID, which Host resolves once to
-an exact endpoint as described above. Host derives the source from the
-authenticated Host connection; a caller cannot nominate another source.
+An establishment request names two participant system IDs, which Host resolves
+once to exact endpoints as described above. Any endpoint may request the pair;
+the requester need not be either participant. Host authenticates the requester
+through its Host connection, independently of the named participants. Naming a
+participant does not impersonate it or grant authority to act on its behalf.
 Connecting an endpoint to itself is invalid. Address resolution and permission
 to connect are separate concerns.
 
@@ -773,11 +783,17 @@ and message representation must be compatible; message semantics and acceptance
 belong to the receiving module. Owning transfers remain exclusively to Host.
 
 Incoming messages from Host and all direct inbound queues reach the endpoint's
-common receiving mechanism. The queues remain separate SPSC transports, drained
-in bounded batches with FIFO ordering per queue and no total cross-queue order.
+common receiving mechanism. The queues remain separate SPSC transports, with one
+record per nonblocking receive call, FIFO per queue and no total cross-queue order.
 The direct sender identity comes from the established descriptor, not a payload
 claim. Host-routed commands distinguish their immediate transport source from
 any authenticated original requester carried by the command.
+
+The [common receiving contract](direct_endpoint_increment.md#common-receiving-contract)
+specifies persistent round-robin selection, authenticated source metadata and
+bounded mechanical handling of Host controls before returning the original record.
+The caller budgets all records and retains application dispatch and consent.
+Direct messages cannot invoke Host control handling merely by claiming its type.
 
 Outgoing direct messages specify the recipient system ID. For normal sends, the
 participant helper locates the established connection bound to that address's
@@ -803,23 +819,30 @@ capacity.
 
 ## Explicit direct connection establishment
 
-The handshake distinguishes consent, installed readiness and permission to use
-the data queues:
+Request/result traffic is separate from participant installation and lifecycle
+traffic. There is one pending establishment per unordered exact endpoint pair,
+regardless of who requests it. Reciprocal requests cannot create a second pipe.
 
-1. A requests establishment with B's system ID. Host resolves the exact endpoint
-   and checks participation, admission, uniqueness and resource availability. The
-   submitted request remains pending and direct sends return `no_pipe`. A's
-   request supplies A's consent.
-2. Host assigns a fresh connection token and offers the exact connection to B.
-   B explicitly accepts or rejects through its Host connection. No queue
-   descriptors are exposed yet. Rejection, disappearance or an establishment
+The agreed handshake separates consent, installed readiness and permission to
+use the data queues. The requester need not be a participant, and submitting a
+request does not supply participant consent.
+
+1. R requests establishment between A's and B's system IDs. R may be A, B or a
+   third endpoint. Host resolves both exact endpoints and checks participation,
+   admission, uniqueness and resource availability. The submitted request remains
+   pending and direct sends return `no_pipe`.
+2. Host assigns a fresh connection token and offers the exact connection to both
+   participants. Both explicitly accept or reject through their own Host
+   connections, even if they requested establishment. No queue descriptors are
+   exposed yet. Rejection, disappearance or an establishment
    deadline resolves the request with an appropriate failure.
 3. After both participants consent, Host provisions both queues, shared atomic
    admission state and notification facilities. It retains lifetime bookkeeping
    before publishing either descriptor. Each descriptor identifies the token,
    exact local/peer identities and that side's queue and notification access.
-4. Each side validates and installs its descriptor, integrates its inbound queue
-   with receiving, and acknowledges readiness. Ready means installation is
+4. Each side's common helper validates and installs its descriptor, integrates
+   its inbound queue with receiving, and acknowledges readiness. These are generic
+   mechanics, not a second module consent decision. Ready means installation is
    complete and activation/closure can be handled; direct data access is still
    disabled. Installation failure initiates closure.
 5. Once both sides are ready, Host rechecks admission, including revocation and
@@ -828,16 +851,40 @@ the data queues:
    activation notification. Each data operation also checks current shared
    admission through the access guard described below.
 
-A requester's successful establishment result follows its activation notification
-in the same ordered control stream. Receiving success therefore does not precede
-local installation and activation. A can send after processing activation even
-if B has not yet processed its own activation: B's queue is already installed and
+An offer identifies the connection token and exact peer. The helper records the
+pending offer and exposes it to module code. Module policy chooses accept or reject;
+the helper validates that the reply belongs to the still-pending offer and sends
+the response through that participant's ordinary Host endpoint. There is no wait
+inside receive and no implicit acceptance. Rejection by either side fails the
+attempt for all attached requesters and withdraws the other side's pending state.
+Ignoring an offer is bounded by the existing establishment deadline.
+
+Acceptance permits installation; it does not make the pipe available. The helper
+handles installation and readiness publication, retains any unsent control using
+the existing deferred-control mechanism, and reports installation notices through
+the common receiver. Host cannot activate until it has received both readiness
+responses. A failed or withdrawn installation follows the existing closure path;
+it does not require module code to undo generic queue registration. Late controls
+and replies must match the exact token and expected state and cannot reopen a
+closing connection. Module-specific cleanup still observes lifecycle notices.
+
+When a requester is also a participant, its successful establishment result follows
+its activation notification in the same ordered Host stream. A third-party
+requester receives only its correlated result, not descriptors or installation
+controls. Success records activation by Host after both installations; it does
+not prove that both participants have consumed activation or processed data.
+A can send after processing activation even if B has not yet processed its own
+activation: B's queue is already installed and
 holds the data until B activates and consumes it.
 
-Reciprocal explicit requests share one pending establishment and retain a request
-correlation per requester; the reciprocal request supplies the second endpoint's
-consent. Redundant same-side pending requests return busy. An active pair returns
-already connected with its existing token, not a second ownership claim. A closing
+Concurrent explicit requests share one pending establishment and retain a request
+correlation per accepted requester, independently of the two participant records.
+Joining a pending attempt sends no duplicate offers and supplies no implicit
+consent. Keep correlation storage bounded; additional requests return busy when
+that bound is reached. The direct POD increment selects eight correlations per
+pending establishment. Redundant pending requests
+from the same requester return busy. An active pair returns already connected
+with its existing token, not a second ownership claim. A closing
 pair returns closing; Host does not queue automatic re-establishment after
 retirement.
 
@@ -847,10 +894,11 @@ availability when handled. Current shared admission always governs data access.
 
 Before descriptor exposure, failure resolves requests and releases unexposed
 resources. Once either descriptor is exposed, failure requires closure and
-quiescence of exposed participants. Requester exit closes the connection because
-it loses a designated participant; unlike thread creation, the connection cannot
-survive independently as a usable module-owned execution resource. Undeliverable
-results are settled and the survivor receives the applicable lifecycle outcome.
+quiescence of exposed participants. A third-party requester's exit settles its
+undeliverable result without cancelling the participants' attempt or connection.
+Departure of either participant closes the connection, including when that
+participant is also a requester. Requesting a connection does not confer ownership,
+an extra lifetime reference, or authority to close or revoke it on others' behalf.
 
 ## Closing and permission to connect
 
@@ -921,6 +969,15 @@ The progression is active, closing with admission shut, in-flight operations
 finished, both sides quiescent, then retired. Participants receive retirement
 notification where deliverable. Normal close permits a later explicit request
 after retirement, subject to all remaining admission restrictions.
+
+The agreed [helper/module responsibilities](direct_endpoint_increment.md#helper-and-module-responsibilities)
+retain an explicit `quiesce(token)` call after module-dependent users have finished.
+The helper applies closing state before exposing the notice, detaches transport
+and notification access, and handles acknowledgement publication without blocking.
+Modules cancel direct conversation expectations but need not finish unrelated Host
+work or discard independent copied data. Neither side waits for peer quiescence
+before relinquishing its own access. Request-result correlations settle independently
+of connection retirement.
 
 ## Direct connections during sealing and shutdown
 

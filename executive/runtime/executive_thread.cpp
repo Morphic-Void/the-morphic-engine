@@ -243,7 +243,7 @@ private:
     CExecutiveThread(CExecutiveThread&&) noexcept = delete;
     CExecutiveThread& operator=(CExecutiveThread&&) noexcept = delete;
     explicit CExecutiveThread(threading::CThreadContext& context) noexcept : m_context{ context },
-        m_connections{ m_context, module_ids::executive, modules::test_connections::policies, modules::test_connections::policy_count } {}
+        m_connections{ m_context } {}
     ~CExecutiveThread() noexcept = default;
 
     std::uint32_t main() noexcept;
@@ -336,7 +336,7 @@ bool CExecutiveThread::startup() noexcept
     m_context.startup();
     MV_INFO("Executive: Starting");
 
-    if (!m_connections.register_service())
+    if (!m_connections.enable())
     {
         fail(EFailure::submission, "direct service registration");
         return false;
@@ -441,21 +441,6 @@ bool CExecutiveThread::progress_connections() noexcept
         fail(EFailure::submission, "connection control submission");
         return false;
     }
-    connections::Result connected;
-    std::int32_t slot = -1;
-    while (m_connections.take_result(connected, slot))
-    {
-        progressed = true;
-        if ((m_phase != EPhase::module_connect) || (slot != m_pending_slot) || (connected.peer_role != m_test_module) ||
-            ((connected.status != connections::EStatus::success) && (connected.status != connections::EStatus::already_connected)) ||
-            !m_connections.active(connected.token))
-        {
-            fail(EFailure::completion, "module test connection");
-            return true;
-        }
-        m_test_connection = connected.token;
-        m_phase = EPhase::module_submit;
-    }
     for (auto closing = m_connections.next_closing(); closing.value; closing = m_connections.next_closing())
     {
         if ((closing.value == m_test_connection.value) && (m_phase != EPhase::module_retire))
@@ -481,20 +466,6 @@ bool CExecutiveThread::progress_connections() noexcept
         else if (posted != connections::EPost::full)
         {
             fail(EFailure::submission, "module test request submission");
-        }
-    }
-    if (m_phase == EPhase::module_tests)
-    {
-        threading::CErasedPodMsg message;
-        const auto read = m_connections.read(m_test_connection, message);
-        if (connections::was_read(read))
-        {
-            complete_module_tests(message);
-            progressed = true;
-        }
-        else if (read != connections::ERead::empty)
-        {
-            fail(EFailure::completion, "module test connection cancelled");
         }
     }
     if ((m_phase == EPhase::module_retire) && m_connections.idle())
@@ -1451,10 +1422,43 @@ void CExecutiveThread::operate() noexcept
         }
         const bool direct_progress = progress_connections();
         if (m_failure_code) break;
-        threading::CErasedPodMsg message;
-        if (m_context.read(message))
+        connections::SReceived received;
+        if (m_connections.receive(received))
         {
-            if (m_connections.handle(message)) continue;
+            const threading::CErasedPodMsg& message = received.message;
+            if (!received.source.is_host())
+            {
+                if ((received.source.connection.value == m_test_connection.value) &&
+                    (received.source.address == modules::test_connections::address(m_test_module)) &&
+                    (m_phase == EPhase::module_tests))
+                {
+                    complete_module_tests(message);
+                }
+                else fail(EFailure::completion, "unexpected direct message");
+                continue;
+            }
+            connections::Offer offer;
+            if (message.copy_payload_to(offer))
+            {
+                (void)m_connections.decide(offer.token, modules::test_connections::accepts(module_ids::executive, offer) ?
+                    connections::EStatus::success : connections::EStatus::rejected);
+            }
+            connections::Result connected;
+            if (message.copy_payload_to(connected))
+            {
+                if ((m_phase != EPhase::module_connect) || (message.query_async_slot() != m_pending_slot) ||
+                    ((connected.status != connections::EStatus::success) && (connected.status != connections::EStatus::already_connected)) ||
+                    !m_connections.active(connected.token))
+                {
+                    fail(EFailure::completion, "module test connection");
+                }
+                else
+                {
+                    m_test_connection = connected.token;
+                    m_phase = EPhase::module_submit;
+                }
+            }
+            if (connections::is_control(message)) continue;
             if (m_phase == EPhase::awaiting_exit)
             {
                 continue;
@@ -1468,7 +1472,7 @@ void CExecutiveThread::operate() noexcept
                 else if (m_phase == EPhase::module_connect)
                 {
                     if (start_budget(m_operation_watchdog) &&
-                        !m_connections.open(m_test_module, modules::test_connections::version, m_pending_slot))
+                        !m_connections.open(modules::test_connections::address(m_test_module), m_pending_slot))
                     {
                         fail(EFailure::submission, "module test connection request");
                     }

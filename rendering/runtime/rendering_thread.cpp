@@ -40,9 +40,8 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(threading::CThreadContext& con
         return ~0u;
     }
     context.startup();
-    connections::CClient connection{ context, module_ids::rendering,
-        modules::test_connections::policies, modules::test_connections::policy_count };
-    if (!connection.register_service() || (context.batch_client() == nullptr) || !basis_codec::initialise())
+    connections::CClient connection{ context };
+    if (!connection.enable() || (context.batch_client() == nullptr) || !basis_codec::initialise())
     {
         context.mark_failed(1u);
         return 1u;
@@ -84,19 +83,28 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(threading::CThreadContext& con
         }
 
         //  Host asset and release completions still drive cleanup after closing.
-        threading::CErasedPodMsg message;
-        for (unsigned count = 0u; (count < 32u) && context.read(message); ++count)
+        connections::SReceived received;
+        for (unsigned count = 0u; (count < 32u) && connection.receive(received,
+            (tests.can_read() && !context.exit_requested() && !failed)); ++count)
         {
             progressed = true;
-            if (connection.handle(message))
+            const threading::CErasedPodMsg& message = received.message;
+            if (!received.source.is_host())
             {
-                if (connection.failed())
+                if ((received.source.address != system_ids::executive) || !tests.start(received.source.connection, message))
                 {
                     failed = true;
                     connection.close_all();
                 }
                 continue;
             }
+            connections::Offer offer;
+            if (message.copy_payload_to(offer))
+            {
+                (void)connection.decide(offer.token, modules::test_connections::accepts(module_ids::rendering, offer) ?
+                    connections::EStatus::success : connections::EStatus::rejected);
+            }
+            if (connections::is_control(message)) continue;
             if (message.is_payload_a<AssetAcquireResult>() || message.is_payload_a<AssetReleaseResult>())
             {
                 failed = !requests.complete(message) || failed;
@@ -114,15 +122,6 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(threading::CThreadContext& con
         connection.progress();
         failed = !tests.progress() || connection.failed() || failed;
         if (failed) connection.close_all();
-        const auto token = connection.active(module_ids::executive);
-        for (unsigned count = 0u; (count < 32u) && token.value && tests.can_read() && !context.exit_requested() && !failed; ++count)
-        {
-            const auto read = connection.read(token, message);
-            if (!connections::was_read(read)) break;
-            progressed = true;
-            if (!connection.active(token)) break;
-            failed = !tests.start(token, message) || failed;
-        }
         SResourceResult result;
         std::int32_t correlation;
         while (requests.receive(result, correlation))
@@ -149,7 +148,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(threading::CThreadContext& con
         }
         if (!progressed && !connection.needs_progress())
         {
-            if (tests.can_read() && connection.has_data())
+            if (connection.has_data(tests.can_read() && !context.exit_requested() && !failed))
             {
                 continue;
             }

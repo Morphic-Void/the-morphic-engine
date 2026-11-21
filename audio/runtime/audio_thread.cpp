@@ -41,8 +41,7 @@ static modules::RunTestsResult report(const modules::ETestRunStatus status) noex
 std::uint32_t serve_audio(threading::CThreadContext& context, IAudioOutput& output) noexcept
 {
     context.startup();
-    connections::CClient connection{ context, module_ids::audio,
-        modules::test_connections::policies, modules::test_connections::policy_count };
+    connections::CClient connection{ context };
     CAudioRun run{ output };
     std::int32_t correlation = threading::k_uncorrelated_slot;
     connections::SToken conversation, rejected_connection;
@@ -51,7 +50,7 @@ std::uint32_t serve_audio(threading::CThreadContext& context, IAudioOutput& outp
     bool rejected = false;
     bool failed = false;
     bool reported = false;
-    if (!connection.register_service())
+    if (!connection.enable())
     {
         context.mark_failed(1u);
         return 1u;
@@ -65,12 +64,6 @@ std::uint32_t serve_audio(threading::CThreadContext& context, IAudioOutput& outp
         connection.clear_notifications();
         context.advance_heartbeat();
         bool progressed = false;
-        threading::CErasedPodMsg message;
-        for (unsigned count = 0u; (count < 32u) && context.read(message); ++count)
-        {
-            progressed = true;
-            if (!connection.handle(message)) failed = true;
-        }
         connection.progress();
         const bool exiting = context.exit_requested();
         if (exiting || failed || connection.failed() || (pending && !connection.active(conversation)))
@@ -116,17 +109,27 @@ std::uint32_t serve_audio(threading::CThreadContext& context, IAudioOutput& outp
                 failed = true;
             }
         }
-        const auto token = connection.active(module_ids::executive);
         //  One retained rejection bounds local work when the result queue is full.
-        for (unsigned count = 0u; (count < 32u) && !rejected && token.value && !exiting && !failed; ++count)
+        connections::SReceived received;
+        for (unsigned count = 0u; (count < 32u) && connection.receive(received, (!rejected && !exiting && !failed)); ++count)
         {
-            const auto read = connection.read(token, message);
-            if (!connections::was_read(read)) break;
             progressed = true;
-            if (!connection.active(token)) break;
+            const threading::CErasedPodMsg& message = received.message;
+            if (received.source.is_host())
+            {
+                connections::Offer offer;
+                if (message.copy_payload_to(offer))
+                {
+                    (void)connection.decide(offer.token, modules::test_connections::accepts(module_ids::audio, offer) ?
+                        connections::EStatus::success : connections::EStatus::rejected);
+                }
+                if (!connections::is_control(message)) failed = true;
+                continue;
+            }
+            const connections::SToken token = received.source.connection;
             modules::RunTestsRequest request;
             const auto slot = message.query_async_slot();
-            if (!message.copy_payload_to(request))
+            if ((received.source.address != system_ids::executive) || !message.copy_payload_to(request))
             {
                 failed = true;
                 break;
@@ -173,7 +176,7 @@ std::uint32_t serve_audio(threading::CThreadContext& context, IAudioOutput& outp
         {
             continue;
         }
-        if (!rejected && connection.has_data())
+        if (connection.has_data(!rejected && !exiting && !failed))
         {
             continue;
         }

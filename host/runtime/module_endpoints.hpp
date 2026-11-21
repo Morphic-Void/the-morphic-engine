@@ -39,7 +39,7 @@ struct SModuleEndpoints
     TInstance<CPumpedClient> pump;
     SServiceProvider provider;
     TUnorderedCollection<SRequestedThread> threads;
-    services::SClientToken direct_role;
+    services::SClientToken designated_service;
     bool ready{ false };
 };
 

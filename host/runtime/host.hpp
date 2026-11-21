@@ -84,7 +84,8 @@ private:
     [[nodiscard]] bool retire_endpoint(SClientRecord& client) noexcept;
     [[nodiscard]] SClientRecord* first_client() noexcept;
     [[nodiscard]] SClientRecord* next_client(const SClientRecord& previous) noexcept;
-    [[nodiscard]] SClientRecord* direct_client(const module_ids::id_type module) noexcept;
+    [[nodiscard]] SClientRecord* designated_client(const module_ids::id_type module) noexcept;
+    [[nodiscard]] SClientRecord* endpoint_client(const system_ids::id_type address) noexcept;
     [[nodiscard]] SModuleEndpoints* module_endpoints(const module_ids::id_type module) noexcept;
     void start_pending_module() noexcept;
     void pump_clients() noexcept;

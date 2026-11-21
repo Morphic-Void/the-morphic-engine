@@ -45,8 +45,8 @@ ordering are unchanged by this source-layout reconfiguration.
   bounded startup file and checked-in flow-test presets.
 - [Asynchronous module lifecycle](modules/asynchronous_module_lifecycle.md):
   Executive bootstrap, service startup, replacement, shutdown and lifecycle tests.
-- [Host pump foundation](modules/host_pump_foundation.md): passive, threaded and
-  pumped client identities, service routing and process ownership.
+- [Host pump foundation](modules/host_pump_foundation.md): common pump/thread
+  endpoints, module lifecycle coordination, service routing and safe retirement.
 - [Borrowed services](modules/service_borrow_lifetimes.md) and
   [notifications](modules/service_notifications.md): publication, cancellation,
   exact-instance lifetime protection and two-sided retirement.
@@ -74,6 +74,8 @@ ordering are unchanged by this source-layout reconfiguration.
   coarse module work, return channels and requester lifetime rules.
 - [Direct POD connections](modules/direct_pod_connections.md): ordered module
   conversations, exact-instance establishment and two-sided retirement.
+- [Direct POD endpoint increment](modules/direct_endpoint_increment.md): implemented
+  scope and validation for endpoint pairs, common receiving and safe quiescence.
 - [Opaque bulk connections](modules/direct_bulk_connections.md): Host-owned aligned
   fixed-capacity latest-state buffers sharing the direct-connection lifecycle;
   acquired views remain bounded by endpoint quiescence.

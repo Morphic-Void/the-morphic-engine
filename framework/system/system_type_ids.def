@@ -89,4 +89,5 @@
     type_macro(finish_service_borrow_retirement) \
     type_macro(bind_service_notification) \
     type_macro(provider_operation_result) \
-    type_macro(endpoint_ready)
+    type_macro(endpoint_ready) \
+    type_macro(direct_registered)

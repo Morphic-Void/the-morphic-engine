@@ -6,12 +6,13 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    05 Nov 26
 //
-//  Host-mediated lifetime controls for direct service-thread POD connections.
+//  Host-mediated endpoint connections, authenticated sources and access admission.
 
 #pragma once
 
 #include "framework/system/system_ids.hpp"
 #include "framework/module/module_identity.hpp"
+#include "framework/services/service_protocol.hpp"
 #include "system/system_type_registration.hpp"
 #include "threading/CNotification.hpp"
 #include "framework/threading/messages/CErasedMessageTransports.hpp"
@@ -40,12 +41,6 @@ struct SContract
     return (a.raw_value() < b.raw_value()) ? SContract{ a, b, version } : SContract{ b, a, version };
 }
 
-struct SMessageRule
-{
-    system_type_id type;
-    module_ids::id_type source;
-};
-
 //  Zero capacity and no producer select the existing bidirectional POD transport.
 //  Bulk capacity is the usable byte count of each of three 128-byte-aligned slots.
 struct SBulkConfiguration
@@ -60,31 +55,77 @@ struct SBulkConfiguration
     [[nodiscard]] bool is_bulk() const noexcept { return capacity != 0u; }
 };
 
-//  Immutable policy belongs to the participating module, never a Host callback.
-struct SContractPolicy
+//  Bulk retains its designated service and role contract. POD has no role policy.
+struct SBulkPolicy
 {
     SContract identity;
-    const SMessageRule* messages{ nullptr };
-    std::uint32_t count{ 0u };
     SBulkConfiguration bulk;
+};
 
-    [[nodiscard]] bool admits(const threading::CErasedPodMsg& message,
-        const module_ids::id_type source) const noexcept
+//  Closing and operation acquisition modify the same word. The guard remains
+//  held through signalling, and zero users never substitutes for quiescence.
+class CAdmission
+{
+public:
+    static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
+    void activate() noexcept { m_state.store(0u, std::memory_order_release); }
+    void close() noexcept { m_state.fetch_or(k_closed, std::memory_order_acq_rel); }
+    [[nodiscard]] bool available() const noexcept
     {
-        system_type_id type;
-        if (!message.query_message_type_id().try_system_type_id(type))
+        return (m_state.load(std::memory_order_acquire) & k_closed) == 0u;
+    }
+    [[nodiscard]] bool drained() const noexcept
+    {
+        return m_state.load(std::memory_order_acquire) == k_closed;
+    }
+    [[nodiscard]] bool acquire() noexcept
+    {
+        std::uint32_t state = m_state.load(std::memory_order_acquire);
+        while ((state & k_closed) == 0u)
         {
-            return false;
-        }
-        for (std::uint32_t index = 0u; index < count; ++index)
-        {
-            if ((messages[index].type == type) && (messages[index].source == source))
+            if (state == (k_closed - 1u)) return false;
+            if (m_state.compare_exchange_weak(state, (state + 1u), std::memory_order_acq_rel))
             {
                 return true;
             }
         }
         return false;
     }
+    void release() noexcept { m_state.fetch_sub(1u, std::memory_order_release); }
+
+private:
+    static constexpr std::uint32_t k_closed = UINT32_C(1) << 31u;
+    std::atomic<std::uint32_t> m_state{ k_closed };
+};
+
+class COperation
+{
+public:
+    explicit COperation(CAdmission* const admission) noexcept
+        : m_admission{ (admission && admission->acquire()) ? admission : nullptr } {}
+    ~COperation() noexcept { if (m_admission) m_admission->release(); }
+    COperation(const COperation&) = delete;
+    COperation& operator=(const COperation&) = delete;
+    [[nodiscard]] explicit operator bool() const noexcept { return m_admission != nullptr; }
+
+private:
+    CAdmission* m_admission;
+};
+
+struct SSource
+{
+    enum class EKind : std::uint8_t { host, direct };
+    EKind kind{ EKind::host };
+    system_ids::id_type address{ system_ids::host };
+    services::SClientToken endpoint;
+    SToken connection;
+    [[nodiscard]] bool is_host() const noexcept { return kind == EKind::host; }
+};
+
+struct SReceived
+{
+    threading::CErasedPodMsg message;
+    SSource source;
 };
 
 //  Host retains this descriptor, both transports and both notification targets
@@ -92,9 +133,10 @@ struct SContractPolicy
 struct SEndpointDescriptor
 {
     SToken token;
-    modules::SModuleInstance local, peer;
-    module_ids::id_type local_role{}, peer_role{};
-    std::uint32_t version{ 0u };
+    services::SClientToken local, peer;
+    system_ids::id_type local_address{}, peer_address{};
+    std::uint32_t size{ sizeof(SEndpointDescriptor) }, version{ 1u };
+    CAdmission* admission{ nullptr };
     threading::transports::CErasedPodMsgTransport* outgoing{ nullptr };
     threading::transports::CErasedPodMsgTransport* incoming{ nullptr };
     threading::SNotificationReader notification;
@@ -106,18 +148,20 @@ struct SEndpointDescriptor
 
 //  All these messages use the ordinary Host POD pipes. Request correlation uses
 //  their carrier's async_slot and the authenticated originating client instance.
-struct Register { std::uint32_t version{ 2u }; };
+struct Register { std::uint32_t version{ 1u }; };
+struct Registered { EStatus status{ EStatus::invalid_request }; };
 struct Request
 {
-    module_ids::id_type peer{};
-    std::uint32_t version{ 0u };
+    system_ids::id_type first{}, second{};
+    module_ids::id_type bulk_peer{};
+    std::uint32_t version{ 1u };
     SBulkConfiguration bulk;
 };
 struct Offer
 {
     SToken token;
-    modules::SModuleInstance peer;
-    module_ids::id_type peer_role{};
+    services::SClientToken peer;
+    system_ids::id_type peer_address{};
     std::uint32_t version{ 0u };
     SBulkConfiguration bulk;
 };
@@ -132,17 +176,20 @@ struct Retired { SToken token; };
 struct Result
 {
     SToken token;
-    modules::SModuleInstance peer;
-    module_ids::id_type peer_role{};
+    services::SClientToken first, second;
     EStatus status{ EStatus::invalid_request };
 };
 
 enum class EPost : std::uint8_t
 {
-    queued, full, inactive, invalid_message, transport_failed, queued_wake_failed
+    queued, full, no_pipe, invalid_message, transport_failed, queued_wake_failed
 };
 enum class ERead : std::uint8_t { record, empty, inactive, invalid_message, record_wake_failed };
 enum class EBulkPublish : std::uint8_t { published, inactive, published_wake_failed };
+
+static_assert(sizeof(Request) <= 48u);
+static_assert(sizeof(Offer) <= 48u);
+static_assert(sizeof(Result) <= 48u);
 
 [[nodiscard]] inline bool was_queued(const EPost result) noexcept
 {
@@ -156,6 +203,7 @@ enum class EBulkPublish : std::uint8_t { published, inactive, published_wake_fai
 }   //  namespace connections
 
 MV_REGISTER_SYSTEM_TYPE(connections::Register, system_type_ids::direct_register);
+MV_REGISTER_SYSTEM_TYPE(connections::Registered, system_type_ids::direct_registered);
 MV_REGISTER_SYSTEM_TYPE(connections::Request, system_type_ids::direct_request);
 MV_REGISTER_SYSTEM_TYPE(connections::Offer, system_type_ids::direct_offer);
 MV_REGISTER_SYSTEM_TYPE(connections::Decision, system_type_ids::direct_decision);
@@ -172,7 +220,7 @@ namespace connections
 {
 [[nodiscard]] inline bool zero_reply_control(const threading::CErasedPodMsg& message) noexcept
 {
-    return message.is_payload_a<Register>() || message.is_payload_a<Decision>() ||
+    return message.is_payload_a<Decision>() ||
         message.is_payload_a<Ready>() || message.is_payload_a<Close>() || message.is_payload_a<Quiescent>();
 }
 }   //  namespace connections

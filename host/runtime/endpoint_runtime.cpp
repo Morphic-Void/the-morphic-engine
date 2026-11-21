@@ -87,17 +87,17 @@ SClientRecord* CHost::client_for(const threading::CThreadPackage& package) noexc
     return nullptr;
 }
 
-SClientRecord* CHost::direct_client(const module_ids::id_type module) noexcept
+SClientRecord* CHost::designated_client(const module_ids::id_type module) noexcept
 {
     SModuleEndpoints* const record = module_endpoints(module);
-    if (!record || !record->direct_role.value)
+    if (!record || !record->designated_service.value)
     {
         return nullptr;
     }
     for (std::int32_t slot = record->threads.first_live(); slot >= 0; slot = record->threads.next_live(slot))
     {
         SRequestedThread& thread = *record->threads.get_object(slot);
-        if ((thread.identity.value == record->direct_role.value) && thread.client &&
+        if ((thread.identity.value == record->designated_service.value) && thread.client &&
             !thread.client->stop_requested && !thread.client->terminal())
         {
             return &*thread.client;
@@ -106,9 +106,34 @@ SClientRecord* CHost::direct_client(const module_ids::id_type module) noexcept
     return nullptr;
 }
 
+SClientRecord* CHost::endpoint_client(const system_ids::id_type address) noexcept
+{
+    if (!system_ids::ops::is_valid_id(address))
+    {
+        return nullptr;
+    }
+    const module_ids::id_type module = system_ids::ops::get_module_id(address);
+    const thread_ids::id_type thread = system_ids::ops::get_thread_id(address);
+    SModuleEndpoints* const endpoints = module_endpoints(module);
+    if (!endpoints) return nullptr;
+    if (thread == thread_ids::host)
+    {
+        return endpoints->coordinator ? &*endpoints->coordinator : nullptr;
+    }
+    for (std::int32_t slot = endpoints->threads.first_live(); slot >= 0; slot = endpoints->threads.next_live(slot))
+    {
+        SRequestedThread& candidate = *endpoints->threads.get_object(slot);
+        if ((candidate.request.thread == thread) && candidate.client)
+        {
+            return &*candidate.client;
+        }
+    }
+    return nullptr;
+}
+
 threading::CThreadPackage* CHost::module_thread_package(const module_ids::id_type module) noexcept
 {
-    SClientRecord* const client = direct_client(module);
+    SClientRecord* const client = designated_client(module);
     return client ? client->thread : nullptr;
 }
 
@@ -138,7 +163,7 @@ void CHost::create_thread(SClientRecord& requester, const threading::CreateThrea
     attempt.outcome = EServiceStatus::invalid_request;
     if ((correlation < 0) || !request.entry || (request.thread == thread_ids::host) ||
         !thread_ids::ops::is_valid_id(request.thread) || !system_id_registry::lookup_thread_name(request.thread) ||
-        (request.priority > platform::threading::EThreadPriority::Realtime) || (request.direct_service > 1u))
+        (request.priority > platform::threading::EThreadPriority::Realtime) || (request.designated_service > 1u))
     {
         return;
     }
@@ -148,7 +173,7 @@ void CHost::create_thread(SClientRecord& requester, const threading::CreateThrea
         return;
     }
     attempt.outcome = EServiceStatus::occupied;
-    if (request.direct_service && module->direct_role.value)
+    if (request.designated_service && module->designated_service.value)
     {
         return;
     }
@@ -191,7 +216,7 @@ void CHost::create_thread(SClientRecord& requester, const threading::CreateThrea
         attempt.outcome = EServiceStatus::native_failure;
         return;
     }
-    if (request.direct_service) module->direct_role = attempt.identity;
+    if (request.designated_service) module->designated_service = attempt.identity;
     attempt.outcome_ready = false;
 }
 
@@ -329,7 +354,7 @@ void CHost::progress_threads(SModuleEndpoints& module) noexcept
             notice.event = threading::EEndpointLifecycle::retired;
             if (!success || module.coordinator->post(threading::make_pod_message(-1, notice)))
             {
-                if (module.direct_role.value == attempt.identity.value) module.direct_role = {};
+                if (module.designated_service.value == attempt.identity.value) module.designated_service = {};
                 (void)module.threads.erase(slot);
             }
         }
@@ -499,8 +524,7 @@ bool CHost::receive_endpoint_message(const threading::CErasedPodMsg& message, SC
                 continue;
             }
             if (attempt.ready_observed || (client.phase != EClientPhase::starting) ||
-                (attempt.package->preparation() != 1u) || (attempt.request.direct_service &&
-                (client.direct_connections != EDirectConnectionState::available)))
+                (attempt.package->preparation() != 1u))
             {
                 client.endpoint->fail(threading::EEndpointFailure::lifecycle_failure);
             }

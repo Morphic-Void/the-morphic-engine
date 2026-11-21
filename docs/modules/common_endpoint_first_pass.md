@@ -122,6 +122,11 @@ succeed or diagnostics to be perfectly deliverable after a runtime failure.
 
 ## Deliberately separate work
 
+The [direct POD endpoint increment](direct_endpoint_increment.md) implements the agreed follow-on
+scope after this first pass. Its current API supersedes the original designated-thread
+POD and registration-dependent readiness details below. The other subsets below remain
+separate work.
+
 | Follow-on subset | Boundary from the first pass |
 | --- | --- |
 | Direct endpoint connections | Generalise explicit POD establishment to any endpoint pair, readiness, pair uniqueness, permission revocation and two-sided quiescence. Preserve existing supported connections and their safety during the first pass. |

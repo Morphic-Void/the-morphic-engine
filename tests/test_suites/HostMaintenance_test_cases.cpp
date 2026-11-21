@@ -19,6 +19,7 @@
 #include "tests/support/test_scopes.hpp"
 #include "tests/support/endpoint_fixture.hpp"
 #include "tests/support/thread_helpers.hpp"
+#include "tests/support/direct_connection_fixture.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "platform/filesystem/file.hpp"
@@ -260,6 +261,198 @@ struct SHostMaintenanceTestAccess
         TEST_EXPECT(ctx, (owned.coordinator->replies_idle() && !runtime.m_emergency_shutdown));
     }
 
+    struct SDirectPump
+    {
+        threading::CEndpointContext* endpoint{ nullptr };
+        TInstance<connections::CClient> client;
+        connections::SToken token;
+        unsigned calls{ 0u }, received{ 0u }, markers{ 0u };
+        bool direct_data{ true }, pending_response{ false }, stopping{ false }, bad_order{ false };
+    };
+    static inline SDirectPump* direct_pumps[2]{};
+    static modules::ECallStatus MV_STD_ABI_CALL direct_activate(const modules::SHostPumpContext* const context,
+        void** const value, modules::SProgress* const progress) noexcept
+    {
+        SDirectPump& state = *direct_pumps[(context->endpoint->module_id() == module_ids::rendering) ? 0u : 1u];
+        state.endpoint = context->endpoint;
+        if (!state.client.emplace(*context->endpoint) || !state.client->enable(1))
+        {
+            return modules::ECallStatus::failed;
+        }
+        *value = &state;
+        *progress = {};
+        progress->phase = modules::EPumpPhase::ready;
+        return modules::ECallStatus::success;
+    }
+    static modules::ECallStatus MV_STD_ABI_CALL direct_pump(void* const value, const modules::SPumpInput* const,
+        modules::SPumpResult* const result) noexcept
+    {
+        SDirectPump& state = *static_cast<SDirectPump*>(value);
+        ++state.calls;
+        connections::CClient& client = *state.client;
+        client.clear_notifications();
+        if (state.pending_response)
+        {
+            const connections::EPost posted = client.post(state.token, threading::make_pod_message(32, threading::EndpointReady{}));
+            if (posted != connections::EPost::full) state.pending_response = false;
+        }
+        connections::SReceived received;
+        for (unsigned index = 0u; (index < 4u) && client.receive(received, (state.direct_data && !state.pending_response)); ++index)
+        {
+            connections::Offer offer;
+            connections::Result connected;
+            if (!received.source.is_host())
+            {
+                if (received.message.query_async_slot() != static_cast<int>(state.received)) state.bad_order = true;
+                ++state.received;
+            }
+            else if (received.message.copy_payload_to(offer)) (void)client.decide(offer.token, connections::EStatus::success);
+            else if (received.message.copy_payload_to(connected)) state.token = connected.token;
+            else if (received.message.is_payload_a<threading::EndpointReady>()) ++state.markers;
+        }
+        for (connections::SToken token = client.next_closing(); token.value; token = client.next_closing())
+        {
+            state.pending_response = false;
+            if (!client.quiesce(token)) break;
+        }
+        client.progress();
+        if (state.stopping && client.idle()) (void)state.endpoint->seal();
+        *result = {};
+        result->progress.phase = state.endpoint->sealed() ? modules::EPumpPhase::stopped :
+            (state.stopping ? modules::EPumpPhase::stopping : modules::EPumpPhase::ready);
+        result->progress.work_pending = (client.needs_progress() || client.has_data(state.direct_data && !state.pending_response) ||
+            (state.stopping && !state.endpoint->sealed())) ? 1u : 0u;
+        return (client.failed() && !state.stopping) ? modules::ECallStatus::failed : modules::ECallStatus::success;
+    }
+    static modules::ECallStatus MV_STD_ABI_CALL direct_stop(void* const value, const modules::EStopReason,
+        modules::SProgress* const progress) noexcept
+    {
+        SDirectPump& state = *static_cast<SDirectPump*>(value);
+        state.stopping = true;
+        state.client->close_all();
+        *progress = {};
+        progress->phase = modules::EPumpPhase::stopping;
+        progress->work_pending = 1u;
+        return modules::ECallStatus::success;
+    }
+    static modules::ECallStatus MV_STD_ABI_CALL direct_deactivate(void* const value) noexcept
+    {
+        SDirectPump& state = *static_cast<SDirectPump*>(value);
+        if (!state.endpoint->sealed())
+        {
+            return modules::ECallStatus::failed;
+        }
+        state.client.reset();
+        return modules::ECallStatus::success;
+    }
+    static void direct_pump_pressure(tests::TTestContext& ctx, const bool close_under_pressure, const bool poison = false)
+    {
+        tests::TAllocationFailureFixture allocation;
+        memory::CMemoryAllocator failing_allocator{ &allocation, tests::allocate_with_failure,
+            tests::deallocate_test_memory, system_ids::host };
+        memory::CMemoryContext memory{ failing_allocator, system_ids::host };
+        tests::TMemoryContextScope scope{ &memory };
+        memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory, system_ids::host };
+        modules::CBoundModule binding;
+        modules::SBoundModuleTestAccess::prepare(binding);
+        CHost runtime{ allocator };
+        runtime.m_phase = CHost::EPhase::complete;
+        TEST_EXPECT(ctx, runtime.m_perf_count_conversion.init());
+        SModuleEndpoints& a = module(ctx, runtime, module_ids::rendering, 1400u, &binding, false);
+        SModuleEndpoints& b = module(ctx, runtime, module_ids::audio, 1500u, &binding, false);
+        const auto step = [&]
+        {
+            runtime.pump_clients();
+            runtime.m_direct_connections.progress();
+        };
+        SDirectPump first, second;
+        direct_pumps[0] = &first;
+        direct_pumps[1] = &second;
+        const modules::SHostPumpV1 capability{ sizeof(modules::SHostPumpV1), 1u, 0u,
+            &direct_activate, &direct_pump, &direct_stop, &direct_deactivate };
+        for (SModuleEndpoints* const owned : { &a, &b })
+        {
+            TEST_EXPECT(ctx, owned->pump.emplace(*owned->coordinator, binding, capability, runtime.m_service_router, runtime.m_maintenance));
+            TEST_EXPECT(ctx, owned->pump->initialise());
+            owned->pump->activate();
+        }
+        for (unsigned round = 0u; round < 3u; ++round) step();
+        TEST_EXPECT(ctx, (first.client->enabled() && second.client->enabled()));
+        TEST_EXPECT(ctx, first.client->open(second.client->address(), 2));
+        for (unsigned round = 0u; round < 8u; ++round) step();
+        const connections::SToken token = first.token;
+        second.token = token;
+        TEST_EXPECT(ctx, (first.client->active(token) && second.client->active(token)));
+        const connections::SEndpointDescriptor* const descriptor = SDirectConnectionTestAccess::descriptor(runtime.m_direct_connections, token, 0u);
+        TEST_EXPECT(ctx, descriptor);
+        if (!descriptor) return;
+        if (poison)
+        {
+            descriptor->outgoing->deallocate();
+            TEST_EXPECT(ctx, descriptor->outgoing->initialise_growable(32u, 128u));
+            const threading::CErasedPodMsg message = threading::make_pod_message(0, threading::EndpointReady{});
+            for (unsigned index = 0u; index < 32u; ++index)
+            {
+                TEST_EXPECT(ctx, (first.client->post(token, message) == connections::EPost::queued));
+            }
+            allocation.fail_on = allocation.attempts + 1u;
+            TEST_EXPECT(ctx, (first.client->post(token, message) == connections::EPost::transport_failed));
+            TEST_EXPECT(ctx, (allocation.failed && descriptor->outgoing->posting_poisoned() && first.client->failed() &&
+                (a.coordinator->endpoint->failure.load(std::memory_order_acquire) == threading::EEndpointFailure::direct_transport_poisoned)));
+            TEST_EXPECT(ctx, (first.client->post(token, message) == connections::EPost::no_pipe));
+            runtime.drain_client(*a.coordinator);
+            TEST_EXPECT(ctx, (runtime.m_emergency_shutdown && !runtime.m_direct_connections.empty()));
+        }
+        else
+        {
+            descriptor->outgoing->deallocate();
+            TEST_EXPECT(ctx, descriptor->outgoing->initialise_fixed(32u));
+            second.direct_data = false;
+            for (int index = 0; index < 32; ++index)
+            {
+                TEST_EXPECT(ctx, (first.client->post(token, threading::make_pod_message(index, threading::EndpointReady{})) == connections::EPost::queued));
+            }
+            first.pending_response = true;
+            for (int index = 0; index < 4; ++index)
+            {
+                TEST_EXPECT(ctx, (second.client->post(token, threading::make_pod_message(index, threading::EndpointReady{})) == connections::EPost::queued));
+            }
+            TEST_EXPECT(ctx, a.coordinator->post(threading::make_pod_message(42, threading::EndpointReady{})));
+            for (unsigned round = 0u; round < 3u; ++round) step();
+            TEST_EXPECT(ctx, (first.pending_response && !first.received && (first.markers == 1u) && !second.received));
+            runtime.m_turn_pending = false;
+            step();
+            TEST_EXPECT(ctx, (!a.pump->work_pending() && !b.pump->work_pending() && !runtime.m_turn_pending));
+            if (close_under_pressure)
+            {
+                second.client->close(token);
+                second.client->progress();
+                for (unsigned round = 0u; round < 6u; ++round) step();
+                TEST_EXPECT(ctx, (runtime.m_direct_connections.empty() && !first.pending_response && !first.received));
+            }
+            else
+            {
+                second.direct_data = true;
+                b.coordinator->endpoint->signal_consumer();
+                for (unsigned round = 0u; round < 16u; ++round) step();
+                TEST_EXPECT(ctx, (!first.pending_response && (first.received == 4u) && (second.received == 33u) &&
+                    !first.bad_order && !second.bad_order));
+            }
+        }
+        runtime.stop_module(a, modules::EStopReason::requested);
+        runtime.stop_module(b, modules::EStopReason::requested);
+        for (unsigned round = 0u; round < 20u; ++round) step();
+        TEST_EXPECT(ctx, (a.pump->stopped() && b.pump->stopped() && runtime.m_direct_connections.empty() && (runtime.m_emergency_shutdown == poison)));
+        for (SModuleEndpoints* const owned : { &a, &b })
+        {
+            TEST_EXPECT(ctx, owned->pump->deactivate());
+            runtime.drain_client(*owned->coordinator);
+            TEST_EXPECT(ctx, owned->coordinator->retire_host_execution(true));
+            owned->pump.reset();
+            owned->coordinator.reset();
+        }
+        direct_pumps[0] = direct_pumps[1] = nullptr;
+    }
     struct SReadyProbe
     {
         std::atomic<bool> published{ false }, finish{ false };
@@ -271,10 +464,10 @@ struct SHostMaintenanceTestAccess
         SReadyProbe& probe = *static_cast<SReadyProbe*>(value);
         connections::Register registration;
         if (!probe.valid_registration) registration.version = UINT32_MAX;
-        bool posted = context.post(threading::make_pod_message(-1, registration)) && context.publish_ready();
+        bool posted = context.post(threading::make_pod_message(0, registration)) && context.publish_ready();
         if (posted && (probe.request_peer != module_ids::id_type{}))
         {
-            posted = context.post(threading::make_pod_message(33, connections::Request{ probe.request_peer, 1u }));
+            posted = context.post(threading::make_pod_message(33, connections::Request{ system_ids::ops::make_system_id(context.module_id(), context.thread_id()), system_ids::ops::make_system_id(probe.request_peer, thread_ids::audio) }));
         }
         if (probe.host_stop)
         {
@@ -323,7 +516,7 @@ struct SHostMaintenanceTestAccess
         }
         // Register and Ready are both buffered before the first Host drain.
         runtime.drain_client(*child.client);
-        TEST_EXPECT(ctx, ((child.client->phase == EClientPhase::ready) == ((scenario == 0u) || (scenario == 9u))));
+        TEST_EXPECT(ctx, ((child.client->phase == EClientPhase::ready) == ((scenario == 0u) || (scenario == 1u) || (scenario == 9u))));
         if (scenario == 7u) threading::SThreadPackageTestAccess::preparation(*child.package, 1u);
         if (scenario == 9u) child.client->request_exit();
         runtime.progress_threads(owned);
@@ -340,11 +533,11 @@ struct SHostMaintenanceTestAccess
             if (message.copy_payload_to(ready))
             {
                 ++readiness_count;
-                TEST_EXPECT(ctx, (ready.endpoint.value == owned.direct_role.value));
+                TEST_EXPECT(ctx, (ready.endpoint.value == owned.designated_service.value));
             }
         }
-        TEST_EXPECT(ctx, (readiness_count == ((scenario == 0u) ? 1u : 0u)));
-        TEST_EXPECT(ctx, (runtime.m_emergency_shutdown == ((scenario == 1u) || (scenario == 5u) || (scenario == 7u))));
+        TEST_EXPECT(ctx, (readiness_count == (((scenario == 0u) || (scenario == 1u)) ? 1u : 0u)));
+        TEST_EXPECT(ctx, (runtime.m_emergency_shutdown == ((scenario == 5u) || (scenario == 7u))));
         probe.finish.store(true, std::memory_order_release);
         TEST_EXPECT(ctx, tests::wait_until(runtime.m_perf_count_conversion, [&]
         {
@@ -1110,6 +1303,9 @@ void run_host_maintenance_tests(tests::TTestContext& ctx)
     host::SHostMaintenanceTestAccess::terminal_batch(ctx, true);
     host::SHostMaintenanceTestAccess::child_host_stop(ctx);
     host::SHostMaintenanceTestAccess::ordered_shutdown(ctx);
+    host::SHostMaintenanceTestAccess::direct_pump_pressure(ctx, false);
+    host::SHostMaintenanceTestAccess::direct_pump_pressure(ctx, true);
+    host::SHostMaintenanceTestAccess::direct_pump_pressure(ctx, false, true);
     host::SHostMaintenanceTestAccess::ready_fifo_request(ctx, false);
     host::SHostMaintenanceTestAccess::ready_fifo_request(ctx, true);
     host::SHostMaintenanceTestAccess::stop_identity(ctx);
