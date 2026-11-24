@@ -211,7 +211,9 @@ additionally protects recovery from cached focus-loss readings.
 The initial mapper allowance is 500 microseconds, 2,048 elementary work credits
 and 64 output attempts per pump, shared fairly between connections and contained
 within Platform's existing two-millisecond budget. These are cooperative bounds;
-the timing allowance is not a hard scheduling guarantee.
+the timing allowance is not a hard scheduling guarantee. Controller-first turns
+cap the mapper slice at 250 microseconds; native-first turns allow up to 500
+microseconds, subject to the remaining Platform budget.
 
 Credits include modifier checks, contribution processing and output work, not
 merely observation count. Evaluation retains continuation cursors across pumps.
@@ -223,6 +225,14 @@ one contribution, or attempt one output. Setup charges page growth conservativel
 and shares this allowance. Busy callers retain their observation; adapters that
 cannot retain it must report history loss. Waiting solely for new input or an
 acknowledgement does not report runnable mapper work.
+
+Controller copy/reset steps cover only the controller control range (256 through
+273). Desktop observations retain the existing full-range handling. Controller
+observations, bindings and modifiers cannot refer to desktop controls, so visiting
+those slots adds work without affecting controller state. Missing controls within
+the controller range still become unknown on a snapshot; recovery baselines and
+held-control rearming are unchanged. This does not alter any time, work-credit or
+output budget.
 
 Ingestion overflow or lost source history requires explicit discontinuity and a
 trustworthy fresh baseline. Output overflow uses the existing recovery protocol.

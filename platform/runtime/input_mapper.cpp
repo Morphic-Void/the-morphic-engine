@@ -108,7 +108,9 @@ EInputAdmission CInputMapper::submit(const SInputObservation& observation) noexc
         !((m_connection.snapshot().pending | m_connection.snapshot().ingress_pending) & input::k_text);
     m_admitted = allowed() && !observation.suppressed;
     m_selective = false;
-    m_cursor = 0u;
+    // Controller observations and bindings cannot reference desktop controls.
+    // Keep the same bounded copy/reset steps within their own control range.
+    m_cursor = (m_connection.view.kind == input::EConnection::controller) ? input_control::k_first_pad_button : 0u;
     m_stage = (observation.kind == EObservationKind::text) ? EStage::finish : EStage::copy;
     return EInputAdmission::accepted;
 }

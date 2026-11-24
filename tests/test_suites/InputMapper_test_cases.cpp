@@ -317,6 +317,69 @@ void analog_traces(TTestContext& ctx)
     TEST_EXPECT(ctx, ((desktop.count == 2u) && (desktop.scalar(0u) == -12.0f) && (desktop.scalar(1u) == 0.5f)));
 }
 
+void controller_snapshot_recovery(TTestContext& ctx)
+{
+    using namespace input_control;
+    for (const std::uint32_t credits : { 1u, 2048u })
+    {
+        SFixture fixture{ ctx };
+        fixture.credits = credits;
+        fixture.attempts = 1u;
+        fixture.add(1u, 1u, k_first_pad_button, EInputActivation::chord, k_last_pad_button);
+        fixture.add(2u, 2u, k_right_trigger, EInputActivation::direct);
+        fixture.start(EConnection::controller);
+        fixture.set(k_first_pad_button, 0.0f);
+        fixture.set(k_last_pad_button, 0.0f);
+        fixture.set(k_right_trigger, 0.0f);
+        fixture.send(true);
+        fixture.set(k_last_pad_button, 1.0f);
+        fixture.send();
+        TEST_EXPECT(ctx, !fixture.count);
+        fixture.set(k_first_pad_button, 1.0f);
+        fixture.set(k_right_trigger, 0.75f);
+        fixture.send();
+        TEST_EXPECT(ctx, ((fixture.count == 2u) && fixture.digital(0u) && (fixture.scalar(1u) == 0.75f)));
+
+        // A snapshot omitting the final control must cancel its prior value.
+        fixture.observation.count = 0u;
+        fixture.set(k_first_pad_button, 1.0f);
+        fixture.set(k_last_pad_button, 0.0f);
+        fixture.send();
+        TEST_EXPECT(ctx, ((fixture.count == 4u) && !fixture.digital(2u) &&
+            (fixture.scalar(3u) == 0.0f) && (fixture.records[3u].flags == k_action_cancelled)));
+        fixture.set(k_first_pad_button, 0.0f);
+        fixture.set(k_last_pad_button, 1.0f);
+        fixture.set(k_right_trigger, 0.0f);
+        fixture.send();
+        fixture.set(k_first_pad_button, 1.0f);
+        fixture.set(k_right_trigger, 0.5f);
+        fixture.send();
+        TEST_EXPECT(ctx, ((fixture.count == 6u) && fixture.digital(4u) && (fixture.scalar(5u) == 0.5f)));
+
+        // Held controls in a recovery baseline stay suppressed until neutral.
+        fixture.connection.mapper().discontinuity();
+        fixture.recover();
+        fixture.send(true);
+        fixture.send();
+        TEST_EXPECT(ctx, (fixture.count == 6u));
+        fixture.set(k_first_pad_button, 0.0f);
+        fixture.set(k_right_trigger, 0.0f);
+        fixture.send();
+        fixture.set(k_first_pad_button, 1.0f);
+        fixture.set(k_right_trigger, 0.5f);
+        fixture.send();
+        TEST_EXPECT(ctx, ((fixture.count == 8u) && fixture.digital(6u) && (fixture.scalar(7u) == 0.5f)));
+
+        // Missing modifier knowledge must not retain an earlier held chord.
+        fixture.observation.count = 0u;
+        fixture.set(k_first_pad_button, 1.0f);
+        fixture.set(k_right_trigger, 0.5f);
+        fixture.send();
+        TEST_EXPECT(ctx, ((fixture.count == 9u) && !fixture.digital(8u) &&
+            (fixture.records[8u].flags == k_action_cancelled)));
+    }
+}
+
 void partitions_pressure_and_allocations(TTestContext& ctx)
 {
     SActionInputV1 reference[12]{};
@@ -841,6 +904,7 @@ void run_input_mapper_tests(tests::TTestContext& ctx)
     digital_traces(ctx);
     rearm_and_selective_cancellation(ctx);
     analog_traces(ctx);
+    controller_snapshot_recovery(ctx);
     partitions_pressure_and_allocations(ctx);
     ordering_and_interruption(ctx);
     cancellation_regressions(ctx);
