@@ -32,7 +32,7 @@ function Assert-HostDiagnostics([string] $Events, [string] $Runtime) {
     foreach ($entry in $expected) {
         $entry.message = $entry.message.Replace('{runtime}', $Runtime.Replace('\', '/'))
     }
-    $passes = @([regex]::Matches($Events, '(?m)^\[(\d+)\].*\[(?:executive_thread|texture_flow_tests)\.cpp:\d+\] (?:Executive|Rendering): (\w+) passed\r?$') |
+    $passes = @([regex]::Matches($Events, '(?m)^\[(\d+)\].*\[(?:executive_execution|texture_flow_tests)\.cpp:\d+\] (?:Executive|Rendering): (\w+) passed\r?$') |
         ForEach-Object { [pscustomobject]@{ Id = [long] $_.Groups[1].Value; Scenario = $_.Groups[2].Value } } |
         Sort-Object Id)
     $seen = @{}

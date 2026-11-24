@@ -103,6 +103,9 @@
     <ClCompile Include="..\tests\input_host\execution_measurement.cpp"><Filter>Tests\input_host</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ModulePreamble_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\LifecycleExecution_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\PumpExecution_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\InputExecution_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ServiceBorrow_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\Notification_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\DirectConnections_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -227,6 +230,9 @@
     <ClInclude Include="..\tests\support\direct_connection_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\input_schema.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\endpoint_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\ExecutionFixture_test_cases.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\module_preamble_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\execution_facade_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\provider_endpoint_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\thread_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>

@@ -99,7 +99,7 @@ foreach ($case in $Cases) {
         if ($events -match 'Lifecycle fixture failed|notification failed|\[(critical|fatal):') { throw "$case has unexpected diagnostics: $log" }
         $errors = @($events -split '\r?\n' | Where-Object { $_ -match '\[error:' })
         if ($case -in @('normal-bad-start', 'service-start-failure', 'normal-tests-malformed', 'normal-unavailable', 'normal-missing-execution')) {
-            $failure = [regex]::Matches($events, '\[error:event\] \[endpoint_runtime\.cpp:\d+\] Host: endpoint failure module \d+, instance \d+, endpoint (\d+), stage 4')
+            $failure = [regex]::Matches($events, '\[error:event\] \[host_endpoints\.cpp:\d+\] Host: endpoint failure module \d+, instance \d+, endpoint (\d+), stage 4')
             if ($failure.Count -ne 1) { throw "$case did not record exactly one common execution failure: $log" }
             $endpoint = $failure[0].Groups[1].Value
             $failedModule = if ($case -eq 'normal-bad-start') { 'rendering' } elseif ($case -eq 'service-start-failure') { 'conditioning_general' } else { 'executive' }
@@ -144,7 +144,7 @@ foreach ($case in $Cases) {
             }
         }
         elseif ($case -in @('startup-failure', 'replace-startup-failure')) {
-            $native = @($errors | Where-Object { $_ -match '\[endpoint_runtime\.cpp:\d+\] Host: endpoint failure module \d+, instance \d+, endpoint \d+, stage 4$' })
+            $native = @($errors | Where-Object { $_ -match '\[host_endpoints\.cpp:\d+\] Host: endpoint failure module \d+, instance \d+, endpoint \d+, stage 4$' })
             $lifecycle = @($errors | Where-Object { $_ -match '\[host\.cpp:\d+\] Executive module lifecycle failed, status 7$' })
             if (($errors.Count -ne 2) -or ($native.Count -ne 1) -or ($lifecycle.Count -ne 1)) {
                 throw "$case has an unexpected initialization failure diagnostic: $log"
@@ -159,12 +159,12 @@ foreach ($case in $Cases) {
             if ($errors.Count -ne 0) { throw "$case has unexpected errors after its native initialization failure: $log" }
         }
         elseif ($serviceFailure) {
-            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_thread\.cpp:\d+\] Executive: module_startup failed: module unavailable or invalid load reply \(scenario slot 0, filesystem step 0, bundle step 0\)$')) {
+            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_execution\.cpp:\d+\] Executive: module_startup failed: module unavailable or invalid load reply \(scenario slot 0, filesystem step 0, bundle step 0\)$')) {
                 throw "$case has an unexpected service failure diagnostic: $log"
             }
         }
         elseif ($case -eq 'normal-tests-malformed') {
-            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_thread\.cpp:\d+\] Executive: module_tests failed: module tests \(scenario slot 1, filesystem step 0, bundle step 0\)$')) {
+            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_execution\.cpp:\d+\] Executive: module_tests failed: module tests \(scenario slot 1, filesystem step 0, bundle step 0\)$')) {
                 throw "Malformed test completion did not report the expected generic failure: $log"
             }
         }

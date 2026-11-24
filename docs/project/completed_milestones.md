@@ -18,6 +18,32 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Execution test organisation
+
+Implemented on 24 November 2026 following the bounded maintenance review. The
+10,408-line common-preamble test file now separates Host/integration tests from
+Lifecycle, Pump and Input fixture regressions. All scenarios remain; the duplicate
+ordinary invocation of connection cancellation was removed. Small shared Host
+access/allocation probes and bounded POD capture replace cross-domain helper
+dependencies. Production code and fixture lifecycle state machines are unchanged.
+
+Six previously focused-only groups now have explicit Windows CI and CTest entries.
+Scheduling the Provider groups on Linux exposed their assumption that unloading
+a DLL resets bootstrap state. They now use one installed image with fresh execution
+contexts, proving graph retirement and empty attribution between scenarios; they
+do not claim same-image unload/rebootstrap coverage. The
+[test organisation reference](building_and_testing.md#execution-test-organisation)
+records the maintained entry points.
+
+Windows x64 Debug and Linux GCC Debug builds and HostPump runs passed (111,454 and
+109,856 assertions respectively), as did all six separate fixture groups on each.
+Only the four affected Provider groups were repeated after the binding correction.
+Source comparison preserves all 123 original free functions and aggregate scenario
+order, apart from the intentional duplicate-call removal. Filter correspondence,
+CMake source-extraction tests, line endings and whitespace checks pass. Scoped
+logs and the source comparison are under `build/preamble-test-organisation`;
+hosted CI, other configurations and physical input were not rerun.
+
 ## Module execution source layout
 
 Completed and user-reviewed on 24 November 2026. The first source-organisation pass
@@ -47,7 +73,19 @@ The move map, isolated delta, source/binary fingerprints, build commands and tes
 logs are under `build/source-layout-change`; `validation.json` indexes the results.
 Line endings, whitespace, source membership and reviewed filter placement pass.
 Prior validation artifacts retain their original provenance. Rendering/Platform
-directory subdivision and large test-file splits remain separate future decisions.
+directory subdivision remains a separate future decision; the bounded common-preamble
+test split is recorded above.
+
+The subsequent hosted CI samples exposed missed source-filename matches in four
+acceptance-checking scripts: `executive_thread.cpp` and `endpoint_runtime.cpp`
+had become `executive_execution.cpp` and `host_endpoints.cpp`. Ordinary suites
+passed, but the checkers rejected intended failure diagnostics or could not
+associate them with their scenario completion. On 24 November those exact matches
+were corrected without relaxing diagnostic text, count, identity or ordering
+checks. Recorded-log replay accepts both Linux Host-acceptance and Pump failures
+and the Windows Host-acceptance log; missing/duplicate/altered acceptance errors
+still fail. Seven affected Windows lifecycle cases also pass. Evidence is under
+`build/ci-checker-fix`; the complete hosted pipeline has not yet been rerun.
 
 ## Module execution preamble consolidation
 

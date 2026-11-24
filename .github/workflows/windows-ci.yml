@@ -119,6 +119,20 @@ jobs:
             -Platform $outputPlatform -WorkerCount 2 -SkipBuild 2>&1 |
             Tee-Object -FilePath build/ci/input-two-workers-console.log
 
+      - name: Run execution fixture regressions
+        run: |
+          # The preceding fixture runners build matching Provider/InputPlatform DLLs.
+          $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
+          $testExecutable = "./build/bin/$outputPlatform/$env:BUILD_CONFIGURATION/MorphicTests.exe"
+          $cases = @('provider-execution', 'provider-refusals', 'provider-retirement',
+            'provider-notification', 'platform-execution', 'pump-executive')
+          foreach ($case in $cases) {
+            & $testExecutable -t1 "--$case" "--log-tag=fixture-$case" `
+              "--output-directory=build/ci/execution-fixtures/$case" 2>&1 |
+              Tee-Object -FilePath "build/ci/fixture-$case-console.log"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Upload build, policy, and test diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -121,6 +121,9 @@
     <ClCompile Include="..\tests\test_suites\HostRuntime_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ModulePreamble_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\LifecycleExecution_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\PumpExecution_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\InputExecution_test_cases.cpp" />
     <ClCompile Include="..\tests\input_host\execution.cpp" />
     <ClCompile Include="..\tests\input_host\execution_scenarios.cpp" />
     <ClCompile Include="..\tests\input_host\execution_measurement.cpp" />
@@ -244,6 +247,9 @@
     <ClInclude Include="..\tests\support\direct_connection_fixture.hpp" />
     <ClInclude Include="..\tests\support\input_schema.hpp" />
     <ClInclude Include="..\tests\support\endpoint_fixture.hpp" />
+    <ClInclude Include="..\tests\test_suites\ExecutionFixture_test_cases.hpp" />
+    <ClInclude Include="..\tests\support\module_preamble_fixture.hpp" />
+    <ClInclude Include="..\tests\support\execution_facade_fixture.hpp" />
     <ClInclude Include="..\tests\support\provider_endpoint_fixture.hpp" />
     <ClInclude Include="..\tests\support\thread_helpers.hpp" />
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp" />

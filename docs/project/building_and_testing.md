@@ -70,6 +70,48 @@ source lists from the Visual Studio projects, so check that extraction and the
 InputPlatform source/filter parity as well. Preserve dated validation paths as
 historical evidence. Directory moves alone do not change ABI or stored-data versions.
 
+### Execution test organisation
+
+`ModulePreamble_test_cases.cpp` covers the common Host execution machinery and
+real module integration. `LifecycleExecution_test_cases.cpp`,
+`PumpExecution_test_cases.cpp` and `InputExecution_test_cases.cpp` hold their
+respective acceptance-fixture regressions. The ordinary HostPump suite calls
+these groups; existing focused selectors remain available. Common POD connection
+cancellation runs once through the CommonPod group.
+
+Shared support is limited to controlled Host setup/allocation observations in
+`tests/support/module_preamble_fixture.hpp` and bounded submission capture in
+`tests/support/execution_facade_fixture.hpp`. Domain-specific validation and
+custody state remain with each fixture.
+
+Six additional fixture groups run separately from the ordinary suite in Windows
+CI and CTest. Build MorphicTests, MorphicPumpProvider, MorphicPlatform and
+MorphicInputPlatform in the same configuration, then run locally:
+
+```powershell
+$cases = @('provider-execution', 'provider-refusals', 'provider-retirement',
+    'provider-notification', 'platform-execution', 'pump-executive')
+foreach ($case in $cases) {
+    & .\build\bin\x64\Debug\MorphicTests.exe -t1 "--$case" "--log-tag=fixture-$case"
+    if ($LASTEXITCODE -ne 0) { throw "Fixture group failed: $case" }
+}
+```
+
+CMake builds the required modules with MorphicTests and registers the same
+selectors with the `execution-fixtures` label:
+
+```sh
+ctest --test-dir <cmake-build-directory> -L execution-fixtures --output-on-failure
+```
+
+Each group has its own process. Within a Provider group, fresh execution contexts
+share one installed DLL image; every scenario must retire its Host graph and
+empty its allocation attribution before the next begins. This avoids assuming
+that ELF `dlclose` resets an image retained by the loader. These are fixture and
+lifetime regressions, not same-file unload/rebootstrap or physical Input checks.
+The InputPlatform portion of `platform-execution` is Windows-only; its production
+Platform lifetime check also runs on Linux.
+
 ## Shader compiler dependency
 
 Before building, run `python tools/acquire_dxc.py` on Windows or

@@ -142,7 +142,8 @@ target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/external/ba
 target_compile_definitions(MorphicTests PRIVATE MV_HOST_RUNTIME_TESTS=1 BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)
 add_dependencies(MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform)
-add_dependencies(MorphicTests MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform)
+add_dependencies(MorphicTests MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform
+    MorphicInputPlatform MorphicPumpProvider)
 
 enable_testing()
 add_test(NAME MorphicPolicyIncludes COMMAND "${Python3_EXECUTABLE}"
@@ -154,6 +155,16 @@ set_tests_properties(MorphicPolicyAuditing PROPERTIES TIMEOUT 60)
 add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)
+# Controlled acceptance-fixture regressions are routine, but use independent
+# processes so each DLL bootstrap/installation has its own lifetime.
+foreach(fixture_case IN ITEMS provider-execution provider-refusals provider-retirement
+        provider-notification platform-execution pump-executive)
+    add_test(NAME MorphicExecutionFixture-${fixture_case} COMMAND MorphicTests -t1
+        "--${fixture_case}" "--log-tag=fixture-${fixture_case}"
+        "--output-directory=${CMAKE_BINARY_DIR}/execution-fixtures/${fixture_case}")
+    set_tests_properties(MorphicExecutionFixture-${fixture_case} PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 120 LABELS "execution-fixtures")
+endforeach()
 add_test(NAME MorphicReflectionArenaFatal COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_SOURCE_DIR}/tools/tests/test_reflection_arena_fatal.py" --binary "$<TARGET_FILE:MorphicTests>"
     "--output-directory=${CMAKE_BINARY_DIR}/reflection-arena-fatal")

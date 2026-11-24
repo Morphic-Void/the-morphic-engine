@@ -22,7 +22,7 @@ def check_diagnostics(events, repository, runtime):
     for entry in expected:
         entry["message"] = entry["message"].replace("{runtime}", runtime.as_posix())
     passes = sorted((int(incident), scenario) for incident, scenario in re.findall(
-        r"(?m)^\[(\d+)\].*\[(?:executive_thread|texture_flow_tests)\.cpp:\d+\] (?:Executive|Rendering): (\w+) passed\r?$", events))
+        r"(?m)^\[(\d+)\].*\[(?:executive_execution|texture_flow_tests)\.cpp:\d+\] (?:Executive|Rendering): (\w+) passed\r?$", events))
     seen = set()
     for line in events.splitlines():
         if not re.search(r"\[(assert|error|critical|fatal):", line):

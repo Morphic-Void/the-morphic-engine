@@ -74,7 +74,7 @@ def main():
         for line in events.splitlines():
             if not re.search(r"\[(assert|error|critical|fatal):", line):
                 continue
-            if case in fatal_cases + ("deactivate-failed",) and re.search(r"\[endpoint_runtime\.cpp:\d+\] Host: module coordinator failed, module \d+, instance \d+, endpoint \d+$", line):
+            if case in fatal_cases + ("deactivate-failed",) and re.search(r"\[host_endpoints\.cpp:\d+\] Host: module coordinator failed, module \d+, instance \d+, endpoint \d+$", line):
                 continue
             if case == "stop-timeout" and "Host: shutdown grace expired; continuing progress with live resources retained" in line:
                 continue
