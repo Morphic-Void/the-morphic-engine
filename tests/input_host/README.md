@@ -29,6 +29,14 @@ checks the two file lists and filter mappings before every acceptance run and
 Linux CMake configuration, so additions cannot silently drift between variants.
 Linux CMake builds these targets and registers the matrix as `MorphicInputHost-*`.
 
+Windows x86 Debug CI explicitly passes `-CompatibilityCheck`, which skips only
+`work-pressure` and `load-smoke` and prints each exclusion. This configuration
+checks compatibility rather than deployment timing on a hosted runner. Other
+Windows configurations and Linux CI retain both cases. The default local wrapper
+still runs all eleven cases, including on Win32 Debug; omit `-CompatibilityCheck`
+for detailed local or target-hardware qualification. No production deadlines,
+history-age limits or test acceptance thresholds are changed by this selection.
+
 | Case | Coverage |
 | --- | --- |
 | `lifecycle` | Host asset publication/acquisition, installation, five pipes, readiness/boundaries, notifications, application and retirement. |

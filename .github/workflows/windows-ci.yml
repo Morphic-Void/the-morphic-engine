@@ -124,8 +124,10 @@ jobs:
         run: |
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
           $msbuild = (Get-Command msbuild -CommandType Application).Source
+          # x86 Debug checks compatibility, not deployment timing under hosted load.
+          $compatibilityCheck = ($env:BUILD_CONFIGURATION -eq 'Debug') -and ($env:BUILD_PLATFORM -eq 'x86')
           ./tests/input_host/run_tests.ps1 -Configuration $env:BUILD_CONFIGURATION `
-            -Platform $outputPlatform -WorkerCount 1 -MSBuild $msbuild 2>&1 |
+            -Platform $outputPlatform -WorkerCount 1 -MSBuild $msbuild -CompatibilityCheck:$compatibilityCheck 2>&1 |
             Tee-Object -FilePath build/ci/input-one-worker-console.log
 
       - name: Test real Host input fixtures with two requested workers

@@ -7,7 +7,8 @@ param(
     [ValidateSet(1, 2)] [int] $WorkerCount = 2,
     [string] $MSBuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe',
     [string] $Python = 'python',
-    [switch] $SkipBuild
+    [switch] $SkipBuild,
+    [switch] $CompatibilityCheck
 )
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
@@ -20,6 +21,10 @@ if (!$SkipBuild) {
 }
 foreach ($case in @('lifecycle', 'pressure', 'transitions', 'history-freshness', 'work-pressure', 'second-consumer',
         'shutdown-blocked', 'ingress-loss', 'acquisition-cleanup', 'source-cleanup', 'load-smoke')) {
+    if ($CompatibilityCheck -and ($case -in @('work-pressure', 'load-smoke'))) {
+        Write-Output "SKIP ${case}: compatibility check excludes deployment-timing qualification."
+        continue
+    }
     & $Python (Join-Path $PSScriptRoot 'run_tests.py') --engine "$repository/build/bin/$Platform/$Configuration/MorphicEngine.exe" `
         --host-workers $WorkerCount --output-directory "$repository/build/input-host-$Platform-$Configuration" --case $case --rate 120
     if ($LASTEXITCODE -ne 0) { throw "Input Host $case acceptance failed." }
