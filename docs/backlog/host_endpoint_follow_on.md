@@ -1,15 +1,29 @@
 # Host and endpoint follow-on work
 
-Reviewed 21 November 2026. The selected Host refactor is complete: common Host
-endpoints and module lifecycle in `ca8770d`, followed by direct POD endpoint
-connections in `84506a7`. No next implementation is selected. This is the backlog
-for the remaining work captured during those discussions, not a requirement to
+Reviewed 24 November 2026. Common Host endpoints and module lifecycle (`ca8770d`),
+direct POD endpoints (`84506a7`) and the subsequent module preamble consolidation
+are complete. This backlog contains only remaining work, not a requirement to
 deliver one larger redesign.
+
+The [module preamble design](../modules/module_preamble_design.md) and
+[implementation decisions](../modules/module_preamble_proposal.md), dated
+22 November 2026, select common dispatch/routing, Host-private lifecycle channels,
+fixed ordinary POD rings and pressure-based draining, now implemented. The current
+provisional ordinary ring size is 1,024 messages per direction; lifecycle rings
+hold 256 messages and local message FIFOs grow up to 1,024 messages. Deferred
+responses prefer existing operation storage, and message loss fails the affected
+module. Existing framework-wide escalation is retained for fatal endpoint/module
+failures, including active or pending Executive failures. Orderly direct closure
+explicitly cancels unread messages. Bounded admission/retry rules and rate-limited
+pressure/starvation diagnostics address overload without a general recovery
+scheduler. The [qualification ledger](../modules/module_preamble_validation.md)
+records completion, the scoped 24 November fixture correction and the explicit
+validation limits. These mechanisms are no longer backlog alternatives.
 
 Current behaviour belongs in the [Host foundation](../modules/host_pump_foundation.md),
 [direct POD](../modules/direct_pod_connections.md) and
 [bulk](../modules/direct_bulk_connections.md) references. The
-[completion record](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections)
+[completion record](../project/completed_milestones.md#module-execution-preamble-consolidation)
 records delivered scope. The [broader design](../modules/common_endpoint_lifecycle_design.md)
 retains the detailed decisions for the deferred contracts below.
 
@@ -102,26 +116,21 @@ watchdog for a pump stuck in native/module code, coordinator recovery or automat
 restart requires a separate decision. Until then, logging, safe retention and
 application/process shutdown remain the failure policy.
 
-## Backpressure beyond current transports
+## Capacity tuning beyond the delivered pressure policy
 
-**Options retained; no replacement selected.** Current common/direct POD queues
-are growable, with bounded operation records, safe retry/refusal and fatal handling
-for unrecoverable obligations or uncertain publication. The receive helper can
-pause direct data while Host controls and completions continue; this does not
-prove progress for every finite-capacity workload.
+**Measurement-driven follow-up only.** Common/direct ordinary POD pipes now use
+fixed 1,024-message rings; private lifecycle rings hold 256 records. Self and Host
+fallback FIFOs grow only to 1,024 entries. Existing operation records retain
+asynchronous results, while immediate replies use dispatch-scoped storage
+reservations. Pressure-based draining, starvation protection and diagnostic
+episodes are implemented. Direct data can pause while lifecycle, Host completions
+and asynchronous servicing remain eligible.
 
-If measured stalls or a selected consumer justify it, evaluate fixed rings,
-explicit outstanding-work limits, local pending output and existing Host-staged
-results. Make pressure observable and preserve ownership on safe refusal. Stale
-data/drop policy belongs to operations that explicitly permit it. Ordinary Host
-requests/results cannot silently disappear.
-
-A secondary lifecycle lane is an option only for a restricted message set with
-a proven maximum outstanding count, potentially a reserved-slot transport. No
-general cleanup queue or response-slot reservation scheme is agreed. Any selected
-change must show progress with both directions under pressure, including stop,
-cleanup, capacity wakes and unrecoverable failure; moving an unbounded backlog to
-another queue is not a capacity guarantee.
+Further sizes, operation limits or domain-specific stale-data policies need a
+measured workload or selected consumer. Ordinary accepted requests/results cannot
+silently disappear. Fixed rings do not guarantee progress for every workload, and
+a larger queue is not a substitute for resolving sustained pressure. No general
+outbox, arbitrary cleanup queue or new recovery scheduler is selected.
 
 ## Optional authority, readiness and transport extensions
 
@@ -148,7 +157,9 @@ The completed increment's [validation record](../modules/direct_endpoint_increme
 distinguishes portable/native automated evidence from physical qualification.
 Further native interactive, hardware/audio and Linux toolchain/configuration
 coverage can be selected when relevant; it is not an open implementation step.
-High-rate Debug input performance and observation cleanup remain with
+High-rate Debug input performance remains with
 [input integration](../modules/input_host_integration.md) and the parked input
-backlog. Platform-native backends, rendering/PSO work and report acceptance keep
+backlog. The 24 November unfocused-observation/freeze-cleanup fixture correction
+is complete with [scoped evidence](../modules/module_preamble_validation.md);
+it is not a pending implementation item. Platform-native backends, rendering/PSO work and report acceptance keep
 their own scope and approval boundaries.

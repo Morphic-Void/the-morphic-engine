@@ -88,7 +88,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\audio\module\binding\audio_binding.cpp" />
@@ -99,8 +99,8 @@
     <ClInclude Include="..\audio\module\types\local_types.hpp" />
     <ClCompile Include="..\audio\runtime\audio_run.cpp" />
     <ClInclude Include="..\audio\runtime\audio_run.hpp" />
-    <ClCompile Include="..\audio\runtime\audio_thread.cpp" />
-    <ClInclude Include="..\audio\runtime\audio_thread.hpp" />
+    <ClCompile Include="..\audio\runtime\audio_execution.cpp" />
+    <ClInclude Include="..\audio\runtime\audio_execution.hpp" />
     <ClCompile Include="..\audio\runtime\miniaudio_adapter.cpp" />
     <ClInclude Include="..\audio\runtime\miniaudio_adapter.hpp" />
     <ClInclude Include="..\audio\runtime\miniaudio_context.inl" />

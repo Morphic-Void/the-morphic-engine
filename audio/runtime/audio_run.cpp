@@ -156,6 +156,20 @@ void CAudioRun::cancel() noexcept
     }
 }
 
+bool CAudioRun::remaining_wait(std::uint64_t& nanoseconds) noexcept
+{
+    nanoseconds = UINT64_MAX;
+    if (!m_active) return true;
+    std::uint64_t overall = 0u, progress = 0u, check_time = 0u;
+    if (!remaining(m_overall, overall) || !remaining(m_progress, progress) || !remaining(m_check, check_time))
+    {
+        return false;
+    }
+    nanoseconds = (overall < progress) ? overall : progress;
+    if (check_time < nanoseconds) nanoseconds = check_time;
+    return true;
+}
+
 void CAudioRun::wait_failed(const threading::WaitResult& result) noexcept
 {
     MV_LOG(error, "Audio: Epoch wait failed ({}, native {})", static_cast<unsigned>(result.status), result.native_error);

@@ -17,19 +17,19 @@ Timer precision, descheduling and native callback duration prevent any hard
 Host waits only after a complete pass and durable state/output checks. Exhausting
 a drain budget requests another fair pass. Waiting for peer capacity, a borrow,
 an asynchronous result or a deadline does not by itself prevent sleeping.
-`SProgress::work_pending` means that another invocation can make progress now.
+`SExecutionProgress::work_pending` means that another invocation can make progress now.
 Native-event ownership is a separate registration, retained through stopping
 until native resources and callbacks have relinquished it.
 
-The current pump ABI is `SHostPumpV1`, exported as
-`morphic_module_host_pump_v1`. Historical layouts are unsupported; every consumer
-is rebuilt against the current version-1 contract. The
-`k_host_pump_native_events` capability reserves exclusive thread-queue ownership
-before activation; a second owner is rejected before invoking its callbacks.
-`SProgress::native_events_active` enables native waiting while that owner can
-service events. `stop_requested` is a durable application-stop request. Both
-fields require the native-owner capability; ordinary providers do not gain
-whole-Host stop authority. All three progress fields are Boolean values.
+The current module ABI is version-1 `SExecutionV1`, exported as
+`morphic_module_execution_v1`. Host drives both pumped and serviced preambles.
+The `k_execution_native_events` flag reserves exclusive native-event ownership
+before creating a pumped context; a second owner is rejected before callbacks.
+`SExecutionProgress::native_events_active` enables native waiting while that
+owner can service events. `stop_requested` is a durable application-stop request.
+Both fields require the native-owner capability; ordinary providers gain no
+whole-Host stop authority. Boolean progress fields are validated. Historical
+pump layouts are unsupported and all affected consumers must be rebuilt.
 
 The wait is shortened to the earliest applicable Host-owned deadline. Existing
 Host-eligible budgets retain restriction exclusions; a paused budget does not

@@ -101,7 +101,7 @@ def main():
                                                [int(row[1]), row[2], *map(int, row[3:])])))
         elif row[0] == "WINDOW":
             report["windows"].append(dict(zip(("window", "rate", "controllers", "duration_ns", "offered", "admitted",
-                                                "generator_max_late_ns", "waits", "rounds", "missing", "invalid", "excluded", "stale"), map(int, row[1:]))))
+                                                "generator_max_late_ns", "wait_requests", "service_passes", "missing", "invalid", "excluded", "stale"), map(int, row[1:]))))
         elif row[0] == "PIPE":
             report["pipes"].append(dict(zip(("pipe", "action_high_water", "text_high_water", "published_actions", "published_text",
                                               "applied", "cancellations", "action_loss", "text_loss", "ingress_loss"), map(int, row[1:]))))

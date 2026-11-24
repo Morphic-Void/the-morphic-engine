@@ -11,12 +11,11 @@
 #include "framework/system/system_ids.hpp"
 #include <cstdint>      //  std::uint32_t
 
-#include "module/binding/rendering_binding.hpp"
+#include "framework/module/module_binding.hpp"
 
 #include "module/types/local_type_ids.hpp"
-#include "runtime/rendering_thread.hpp"
+#include "runtime/rendering_execution.hpp"
 #include "framework/module/module_binding_context.hpp"
-#include "framework/module/service_thread_pump.hpp"
 
 namespace rendering::module_binding
 {
@@ -38,13 +37,8 @@ static modules::EBindingResult MV_STD_ABI_CALL query_function(
     }
     *function = nullptr;
 
-    if (function_type != system_type_ids::rendering_thread_function)
-    {
-        return modules::EBindingResult::unsupported_function;
-    }
-
-    *function = reinterpret_cast<modules::FModuleFunction>(rendering_thread_entry_point());
-    return modules::EBindingResult::success;
+    (void)function_type;
+    return modules::EBindingResult::unsupported_function;
 }
 
 static constexpr modules::SModuleBindingConfig k_binding_config = MV_MODULE_BINDING_CONFIG();
@@ -53,24 +47,20 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 
 }   //  namespace rendering::module_binding
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(
-    modules::SBootstrapFunctions* const functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(modules::SBootstrapFunctions* const functions) noexcept
 {
     return rendering::module_binding::s_binding.bootstrap(functions);
 }
 
-static std::uint32_t MV_STD_ABI_CALL requested_entry(threading::CThreadContext& context, void* const module_context) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_execution_v1(const std::uint32_t capacity, modules::SExecutionV1* const execution) noexcept
 {
-    return rendering::rendering_thread_entry_point()(context, module_context);
-}
-
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(
-    const std::uint32_t capacity, modules::SHostPumpV1* const pump) noexcept
-{
-    if (!pump || (capacity != sizeof(*pump)))
+    if (!execution || (capacity != sizeof(*execution)))
     {
         return modules::EBindingResult::invalid_argument;
     }
-    *pump = modules::TServiceThreadPump<&requested_entry, &thread_ids::rendering>::capability();
+    static const modules::SExecutionV1 service = rendering::rendering_execution();
+    static const modules::SChildExecution child{ &service, nullptr, thread_ids::rendering };
+    *execution = {};
+    execution->initial_child = &child;
     return modules::EBindingResult::success;
 }

@@ -29,7 +29,7 @@ per-installation correlation and separates transport ownership from admission.
 The terminal reply and copied failure body have explicit 48/32-byte assertions,
 including field offsets on both supported Windows architectures.
 
-[Admission and publication](../../host/runtime/asset_schema_process.cpp) protect
+[Admission and publication](../../host/assets/asset_schema_process.cpp) protect
 retained inputs before Accepted, reserve both replies and acquisition capacity,
 and defer worker dispatch until admission publication. Four normal operation slots
 are supplemented by a fixed rejection-retirement slot; a transferred rejection
@@ -41,7 +41,7 @@ outputs of this service. Runtime outputs, raw assets and unclassified baked asse
 are not silently treated as equivalent schema sources. This boundary is documented
 in the usage guide; owned authored documents supply the other input path.
 
-[Worker conditioning](../../host/runtime/host_worker_thread.cpp) executes generic
+[Worker conditioning](../../host/runtime/workers/host_worker_thread.cpp) executes generic
 Foundation operations and retires the envelope and source reads before completion.
 Host keeps source pins and producer/client lifetime barriers until that completion
 or proved terminal drain. Cancellation is separately synchronised. Inspection found

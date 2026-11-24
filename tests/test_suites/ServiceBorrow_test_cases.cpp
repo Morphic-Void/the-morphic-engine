@@ -11,7 +11,7 @@
 #include "framework/system/system_ids.hpp"
 #include "tests/support/endpoint_fixture.hpp"
 #include <cstring>
-#include "host/runtime/service_router.hpp"
+#include "host/runtime/services/service_router.hpp"
 #include "framework/services/service_borrow_client.hpp"
 #include "tests/support/test_context.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
@@ -30,9 +30,9 @@ static_assert(threading::CErasedPodMsg::is_payload_compatible_with<ServiceReques
 
 struct SFixture
 {
-    tests::SEndpointFixture client{ module_ids::executive, 101u };
-    tests::SEndpointFixture replacement{ module_ids::executive, 102u };
-    tests::SEndpointFixture provider{ module_ids::rendering, 103u };
+    tests::SCommonEndpointFixture client{ module_ids::executive, 101u };
+    tests::SCommonEndpointFixture replacement{ module_ids::executive, 102u };
+    tests::SCommonEndpointFixture provider{ module_ids::rendering, 103u };
     host::CServiceRouter router;
     CServiceBorrowClient consumer;
     SServiceRoute route;
@@ -46,7 +46,7 @@ struct SFixture
         const SServiceContract contract{ 1u, 1u };
         const host::SServiceProvider advertisement{ &provider, &contract, 1u };
         TEST_EXPECT(ctx, client.reserve_replies(1u));
-        router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &advertisement);
+        open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &advertisement);
         OpenServiceResult result;
         TEST_EXPECT(ctx, client.received(0).copy_payload_to(result) && result.status == EServiceStatus::success);
         route = result.route;
@@ -61,9 +61,59 @@ struct SFixture
         request.route = route;
         request.request.value = 1u;
         request.opcode = 1u;
-        router.request(request, 4, client);
+        this->request(request, 4, client);
         observe(ctx);
         TEST_EXPECT(ctx, tests::receive_commands(router, provider, &command, 1u) == 1u);
+    }
+
+    void open(const OpenServiceRequest& request, const std::int32_t slot,
+        host::SClientRecord& recipient, const host::SServiceProvider* const source)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        MV_ASSERT(dispatch);
+        router.open(request, slot, recipient, source);
+    }
+
+    void close(const CloseServiceRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        MV_ASSERT(dispatch);
+        router.close(request, slot, recipient);
+    }
+
+    void request(const ServiceRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 2u };
+        MV_ASSERT(dispatch);
+        router.request(request, slot, recipient);
+    }
+
+    void register_notification(host::SClientRecord& recipient, const RegisterServiceNotification& request,
+        const std::int32_t slot)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        MV_ASSERT(dispatch);
+        router.register_notification(recipient, request, slot);
+    }
+
+    void progress()
+    {
+        router.progress();
+        // Controlled transport drain: each retained borrow can publish closing
+        // and quiescence. This is not the production Host scheduling policy.
+        for (host::SClientRecord* const endpoint : { &client, &replacement, &provider })
+        {
+            for (std::uint32_t count = 0u; count < (host::CServiceBorrows::k_capacity << 1u); ++count)
+            {
+                if (!endpoint->output_ready()) break;
+                const bool borrow = router.borrow_output_ready(*endpoint);
+                if (borrow) router.retry_borrow_output(*endpoint);
+                const bool operation = endpoint->output_ready() && router.output_ready(*endpoint);
+                if (operation) router.retry_output(*endpoint);
+                if (!borrow && !operation) break;
+            }
+        }
+        router.progress();
     }
 
     SServiceBorrowOffer offer() const
@@ -113,7 +163,7 @@ struct SFixture
 
     void publish(TTestContext& ctx)
     {
-        router.progress();
+        progress();
         observe(ctx);
         TEST_EXPECT(ctx, consumer.view(token).descriptor == &descriptor);
     }
@@ -122,7 +172,7 @@ struct SFixture
     {
         TEST_EXPECT(ctx, router.finish_borrow_retirement(provider, token) == EServiceStatus::success);
         TEST_EXPECT(ctx, router.finish_borrow_retirement(provider, token) == EServiceStatus::success);
-        router.progress();
+        progress();
         observe(ctx);
         TEST_EXPECT(ctx, consumer.retired(token));
         TEST_EXPECT(ctx, consumer.forget(route, { 1u }));
@@ -143,35 +193,35 @@ void independent_lifetime(TTestContext& ctx)
     TEST_EXPECT(ctx, f.router.prepare_borrow(f.provider, f.offer(), invalid) == EServiceStatus::invalid_request);
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::busy);
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, (f.client.pending() == 2u));
     f.publish(ctx);
     TEST_EXPECT(ctx, f.client.replies_idle() && !f.consumer.forget(f.route, { 1u }));
     TEST_EXPECT(ctx, f.client.reserve_replies(1u));
-    f.router.close({ f.route, { 2u } }, 7, f.client);
+    f.close({ f.route, { 2u } }, 7, f.client);
     ServiceReply reply;
     TEST_EXPECT(ctx, f.client.received(0).copy_payload_to(reply) && reply.status == EServiceStatus::busy);
     f.client.discard(1u);
     f.router.release_borrow(f.replacement, { f.route, f.token });
     f.router.quiesce_borrow(f.replacement, { f.route, f.token });
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.provider.pending() == 0u && !f.router.provider_borrows_retired(f.provider));
     ReleaseServiceBorrow release;
     TEST_EXPECT(ctx, f.consumer.release(f.token, release));
     f.router.release_borrow(f.client, release);
-    f.router.progress();
+    f.progress();
     f.observe(ctx);
     TEST_EXPECT(ctx, f.consumer.view(f.token).descriptor == nullptr && f.proof() == EServiceQuiescence::none);
     ServiceBorrowQuiescent quiescent;
     TEST_EXPECT(ctx, f.consumer.quiesce(f.token, quiescent));
     f.router.quiesce_borrow(f.client, quiescent);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.proof() == EServiceQuiescence::relinquished);
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.replacement, f.token) == EServiceStatus::stale);
     f.finish(ctx);
     TEST_EXPECT(ctx, f.router.provider_borrows_retired(f.provider));
     TEST_EXPECT(ctx, f.client.reserve_replies(1u));
-    f.router.close({ f.route, { 3u } }, 8, f.client);
+    f.close({ f.route, { 3u } }, 8, f.client);
     TEST_EXPECT(ctx, f.client.received(0).copy_payload_to(reply) && reply.status == EServiceStatus::success);
     TEST_EXPECT(ctx, f.router.client_idle(f.client) && !f.router.failed());
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::stale);
@@ -185,7 +235,7 @@ void cancellation_before_publication(TTestContext& ctx)
     CancelServiceRequest cancel;
     TEST_EXPECT(ctx, f.consumer.cancel(f.route, { 1u }, cancel));
     f.router.cancel_request(f.client, cancel);
-    f.router.progress();
+    f.progress();
     f.observe(ctx);
     TEST_EXPECT(ctx, f.consumer.view(f.token).descriptor == nullptr && f.client.replies_idle());
     TEST_EXPECT(ctx, f.proof() == EServiceQuiescence::never_published);
@@ -193,11 +243,11 @@ void cancellation_before_publication(TTestContext& ctx)
     SServiceBorrow late;
     TEST_EXPECT(ctx, f.router.prepare_borrow(f.provider, f.offer(), late) == EServiceStatus::closing);
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     f.observe(ctx);
     TEST_EXPECT(ctx, !f.router.client_idle(f.client)); //  Provider work still owes completion.
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.client.pending() == 0u); //  Exactly one terminal result.
     TEST_EXPECT(ctx, f.consumer.forget(f.route, { 1u }));
     TEST_EXPECT(ctx, !f.router.failed());
@@ -208,9 +258,9 @@ void closing_follows_prepared(TTestContext& ctx)
     SFixture f{ ctx };
     f.submit(ctx);
     f.prepare(ctx);
-    f.router.progress(); //  Prepared is queued but the consumer has not read it.
+    f.progress(); //  Prepared is queued but the consumer has not read it.
     TEST_EXPECT(ctx, f.router.begin_borrow_retirement(f.provider, f.token) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     ServiceReply prepared;
     TEST_EXPECT(ctx, (f.client.received(0u).copy_payload_to(prepared) &&
         (prepared.notice == EServiceNotice::prepared) && f.consumer.observe(prepared)));
@@ -220,12 +270,12 @@ void closing_follows_prepared(TTestContext& ctx)
     f.client.discard(2u);
     ServiceBorrowQuiescent quiescent;
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     f.observe(ctx); // Completion follows the already consumed closing control.
     TEST_EXPECT(ctx, f.consumer.view(f.token).descriptor == nullptr);
     TEST_EXPECT(ctx, f.consumer.quiesce(f.token, quiescent));
     f.router.quiesce_borrow(f.client, quiescent);
-    f.router.progress();
+    f.progress();
     f.finish(ctx);
 }
 
@@ -236,28 +286,26 @@ void saturated_cleanup_and_terminal_proof(TTestContext& ctx)
     f.prepare(ctx);
     f.publish(ctx);
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     f.observe(ctx);
-    f.provider.endpoint->host_to_worker_msgs.deallocate();
-    TEST_EXPECT(ctx, f.provider.endpoint->host_to_worker_msgs.initialise_fixed(8u));
     while (f.provider.post(threading::make_pod_message(-1, ServiceBorrowControl{}))) {}
     TEST_EXPECT(ctx, f.router.begin_borrow_retirement(f.provider, f.token) == EServiceStatus::success);
     f.client.phase = host::EClientPhase::stopped;
     f.client.incoming_drained = true;
     f.router.retire_client(f.client);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::busy);
     f.provider.discard(f.provider.pending());
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.proof() == EServiceQuiescence::none); //  Terminal was not observed before draining.
     f.client.terminal_before_drain = true;
     f.router.retire_client(f.client);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.proof() == EServiceQuiescence::execution_ended);
     //  A provider can retain native obligations even after CPU readers end.
     TEST_EXPECT(ctx, !f.router.client_idle(f.client) && !f.router.provider_borrows_retired(f.provider));
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.router.client_idle(f.client) && f.router.provider_borrows_retired(f.provider));
     TEST_EXPECT(ctx, f.replacement.pending() == 0u && f.replacement.pending() == 0u);
 }
@@ -269,11 +317,11 @@ void unpublished_borrow_cancellation(TTestContext& ctx)
     f.prepare(ctx);
     //  Cancel before Host publishes the prepared view to the consumer.
     f.router.cancel_request(f.client, { f.route, { 1u } });
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, (f.proof() == EServiceQuiescence::never_published));
     TEST_EXPECT(ctx, (f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::success));
     TEST_EXPECT(ctx, (f.router.complete(f.provider, f.result()) == EServiceStatus::success));
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, (f.router.provider_borrows_retired(f.provider) && f.client.replies_idle() && !f.router.failed()));
 }
 
@@ -290,7 +338,7 @@ void cancellation_and_completion_precedence(TTestContext& ctx)
     f.router.cancel_request(f.replacement, { f.route, { 1u } });
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
     f.router.cancel_request(f.client, { f.route, { 1u } });
-    f.router.progress();
+    f.progress();
     ServiceReply reply;
     TEST_EXPECT(ctx, f.client.received(0).copy_payload_to(reply) && reply.status == EServiceStatus::success);
     TEST_EXPECT(ctx, f.provider.pending() == 0u);
@@ -305,12 +353,12 @@ void separate_consumers(TTestContext& ctx)
     f.prepare(ctx);
     f.publish(ctx);
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     f.observe(ctx);
     const SServiceContract contract{ 1u, 1u };
     const host::SServiceProvider advertisement{ &f.provider, &contract, 1u };
     TEST_EXPECT(ctx, f.replacement.reserve_replies(1u));
-    f.router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 9, f.replacement, &advertisement);
+    f.open({ module_ids::rendering, 1u, 1u, { 1u } }, 9, f.replacement, &advertisement);
     OpenServiceResult opened;
     TEST_EXPECT(ctx, f.replacement.received(0).copy_payload_to(opened));
     f.replacement.discard(1u);
@@ -319,7 +367,7 @@ void separate_consumers(TTestContext& ctx)
     request.route = opened.route;
     request.request.value = 1u;
     request.opcode = 1u;
-    f.router.request(request, 10, f.replacement);
+    f.request(request, 10, f.replacement);
     f.replacement.discard(1u);
     SDispatchedCommand command;
     TEST_EXPECT(ctx, tests::receive_commands(f.router, f.provider, &command, 1u) == 1u);
@@ -328,7 +376,7 @@ void separate_consumers(TTestContext& ctx)
     auto reply = f.result();
     reply.route = opened.route;
     TEST_EXPECT(ctx, f.router.complete(f.provider, reply) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     ServiceReply prepared;
     TEST_EXPECT(ctx, f.replacement.received(0).copy_payload_to(prepared) && prepared.notice == EServiceNotice::prepared);
     SPreparedServiceBorrow view;
@@ -340,17 +388,17 @@ void separate_consumers(TTestContext& ctx)
     TEST_EXPECT(ctx, f.consumer.release(f.token, release) && f.consumer.quiesce(f.token, quiescent));
     f.router.release_borrow(f.client, release);
     f.router.quiesce_borrow(f.client, quiescent);
-    f.router.progress();
+    f.progress();
     f.finish(ctx);
     TEST_EXPECT(ctx, !f.router.provider_borrows_retired(f.provider) && *static_cast<const unsigned*>(view.view.descriptor) == 42u);
     f.router.quiesce_borrow(f.client, { opened.route, other }); //  Same module ID is not the same consumer.
     TEST_EXPECT(ctx, f.router.begin_borrow_retirement(f.provider, other) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, other) == EServiceStatus::busy);
     f.router.quiesce_borrow(f.replacement, { opened.route, other });
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, other) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.router.provider_borrows_retired(f.provider));
 }
 
@@ -361,13 +409,13 @@ void cancelled_completed_borrow(TTestContext& ctx, const bool queued_terminal)
     f.prepare(ctx);
     f.publish(ctx);
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
-    if (queued_terminal) f.router.progress(); //  Operation is already gone; borrow remains.
+    if (queued_terminal) f.progress(); //  Operation is already gone; borrow remains.
     CancelServiceRequest cancel;
     TEST_EXPECT(ctx, f.consumer.cancel(f.route, { 1u }, cancel));
     f.router.cancel_request(f.replacement, cancel);
     TEST_EXPECT(ctx, f.provider.pending() == 0u);
     f.router.cancel_request(f.client, cancel);
-    f.router.progress();
+    f.progress();
     bool success = false;
     for (std::uint32_t index = 0u; index < f.client.pending(); ++index)
     {
@@ -380,7 +428,7 @@ void cancelled_completed_borrow(TTestContext& ctx, const bool queued_terminal)
     ServiceBorrowQuiescent quiescent;
     TEST_EXPECT(ctx, f.consumer.quiesce(f.token, quiescent));
     f.router.quiesce_borrow(f.client, quiescent);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, f.proof() == EServiceQuiescence::relinquished);
     f.finish(ctx);
     TEST_EXPECT(ctx, f.client.replies_idle() && f.router.provider_borrows_retired(f.provider) && !f.router.failed());
@@ -398,7 +446,7 @@ void bounded_long_lived_borrows(TTestContext& ctx)
         request.route = f.route;
         request.request = id;
         request.opcode = 1u;
-        f.router.request(request, static_cast<std::int32_t>(index), f.client);
+        f.request(request, static_cast<std::int32_t>(index), f.client);
         f.client.discard(f.client.pending());
         SDispatchedCommand command;
         TEST_EXPECT(ctx, tests::receive_commands(f.router, f.provider, &command, 1u) == 1u);
@@ -413,7 +461,7 @@ void bounded_long_lived_borrows(TTestContext& ctx)
         auto reply = f.result();
         reply.request = id;
         TEST_EXPECT(ctx, f.router.complete(f.provider, reply) == EServiceStatus::success);
-        f.router.progress();
+        f.progress();
         f.client.discard(f.client.pending());
     }
     for (const auto token : tokens)
@@ -425,7 +473,7 @@ void bounded_long_lived_borrows(TTestContext& ctx)
     std::uint32_t finished = 0u;
     for (std::uint32_t turn = 0u; (turn < 512u) && (finished < host::CServiceBorrows::k_capacity); ++turn)
     {
-        f.router.progress();
+        f.progress();
         for (std::uint32_t index = 0u; index < f.provider.pending(); ++index)
         {
             ServiceBorrowControl control;
@@ -439,7 +487,7 @@ void bounded_long_lived_borrows(TTestContext& ctx)
         f.provider.discard(f.provider.pending());
         f.client.discard(f.client.pending());
     }
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, finished == host::CServiceBorrows::k_capacity && f.router.provider_borrows_retired(f.provider) && f.client.replies_idle());
 }
 
@@ -456,18 +504,18 @@ void notification_retirement(TTestContext& ctx, const bool cancel, const bool de
     TEST_EXPECT(ctx, !f.consumer.request_notification(f.token, request));
     request = { f.route, f.token };
     TEST_EXPECT(ctx, f.client.reserve_replies(1u));
-    f.router.register_notification(f.client, request, 12);
+    f.register_notification(f.client, request, 12);
     ServiceNotificationRegistered registered;
     TEST_EXPECT(ctx, f.client.received(0).copy_payload_to(registered) && registered.status == EServiceStatus::success);
     f.client.discard(1u);
     if (!delayed) TEST_EXPECT(ctx, f.consumer.observe(registered));
     TEST_EXPECT(ctx, f.client.reserve_replies(1u));
-    f.router.register_notification(f.client, request, 12);
+    f.register_notification(f.client, request, 12);
     ServiceNotificationRegistered repeated;
     TEST_EXPECT(ctx, f.client.received(0).copy_payload_to(repeated) && repeated.registration.value == registered.registration.value);
     f.client.discard(1u);
     TEST_EXPECT(ctx, f.replacement.reserve_replies(1u));
-    f.router.register_notification(f.replacement, request, 12);
+    f.register_notification(f.replacement, request, 12);
     TEST_EXPECT(ctx, f.replacement.received(0).copy_payload_to(repeated) && repeated.status == EServiceStatus::stale);
     f.replacement.discard(1u);
     f.replacement.notifications_pending.store(0u); // A consumed FIFO reply also wakes its endpoint.
@@ -496,7 +544,7 @@ void notification_retirement(TTestContext& ctx, const bool cancel, const bool de
     TEST_EXPECT(ctx, !f.consumer.notification(f.token).is_valid());
     TEST_EXPECT(ctx, !f.consumer.request_notification(f.token, request));
     TEST_EXPECT(ctx, f.client.reserve_replies(1u));
-    f.router.register_notification(f.client, { f.route, f.token }, 12);
+    f.register_notification(f.client, { f.route, f.token }, 12);
     TEST_EXPECT(ctx, f.client.received(0).copy_payload_to(repeated) && repeated.status == EServiceStatus::closing);
     f.client.discard(1u);
     threading::SNotificationEndpoint rejected;
@@ -505,11 +553,11 @@ void notification_retirement(TTestContext& ctx, const bool cancel, const bool de
     ServiceBorrowQuiescent quiescent;
     TEST_EXPECT(ctx, f.consumer.quiesce(f.token, quiescent));
     f.router.quiesce_borrow(f.client, quiescent);
-    f.router.progress();
+    f.progress();
     TEST_EXPECT(ctx, endpoint.signal()); //  Consumer quiescence does not revoke a live publisher.
     TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
     TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::success);
-    f.router.progress();
+    f.progress();
     f.observe(ctx);
     TEST_EXPECT(ctx, f.consumer.retired(f.token));
     if (delayed)

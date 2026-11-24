@@ -13,8 +13,8 @@
 #include <cstdint>
 #include <limits>
 
-#include "host/runtime/batch_pool.hpp"
-#include "host/runtime/worker_policy.hpp"
+#include "host/runtime/workers/batch_pool.hpp"
+#include "host/runtime/workers/worker_policy.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "platform/threading/thread_lifetime.hpp"
 #include "framework/threading/CBatchWork.hpp"

@@ -185,8 +185,7 @@ bool CTextureFlowTests::prepare_texture_fixture(STextureInput& pending, const st
     return true;
 }
 
-bool CTextureFlowTests::prepare_scenario(STextureInput& pending,
-    const texture_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
+bool CTextureFlowTests::prepare_scenario(STextureInput& pending, const texture_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
 {
     using namespace texture_acceptance;
     switch (scenario.identity)
@@ -371,9 +370,29 @@ bool CTextureFlowTests::check(const texture_acceptance::SScenario& scenario, con
     return true;
 }
 
+bool CTextureFlowTests::active(const connections::SToken token) const noexcept
+{
+    return m_communication.query({ modules::SDestination::EKind::connection, {}, token }).active != 0u;
+}
+
+modules::ESubmission CTextureFlowTests::post(const connections::SToken token, const threading::CErasedPodMsg& message) noexcept
+{
+    return m_communication.submit({ modules::SDestination::EKind::connection, {}, token }, message);
+}
+
+modules::ESubmission CTextureFlowTests::post_host(const threading::CErasedPodMsg& message) noexcept
+{
+    return m_communication.submit({}, message);
+}
+
+modules::ESubmission CTextureFlowTests::post_host(threading::CErasedOwnerMsg&& message) noexcept
+{
+    return m_communication.submit({}, std::move(message));
+}
+
 bool CTextureFlowTests::start(const connections::SToken token, const threading::CErasedPodMsg& message) noexcept
 {
-    if (!can_read() || !m_connection.active(token))
+    if (!can_read() || !active(token))
     {
         return false;
     }
@@ -388,7 +407,7 @@ bool CTextureFlowTests::start(const connections::SToken token, const threading::
     {
         rejected.status = modules::ETestRunStatus::busy;
     }
-    else if (m_context.exit_requested())
+    else if (stopping())
     {
         rejected.status = modules::ETestRunStatus::cancelled;
     }
@@ -412,10 +431,8 @@ bool CTextureFlowTests::start(const connections::SToken token, const threading::
         if ((transfer != nullptr) && transfer->storage.value.resize(sizeof(texture_acceptance::fixture) - 1u))
         {
             std::memcpy(transfer->storage.value.data(), texture_acceptance::fixture, (sizeof(texture_acceptance::fixture) - 1u));
-            if (m_context.post(std::move(fixture)))
-            {
-                return true;
-            }
+            m_transfer = std::move(fixture);
+            return progress();
         }
         m_result.status = modules::ETestRunStatus::failed;
         return finish();
@@ -428,26 +445,48 @@ bool CTextureFlowTests::start(const connections::SToken token, const threading::
 
 bool CTextureFlowTests::progress() noexcept
 {
+    if (m_transfer.has_owner())
+    {
+        if (cancelled())
+        {
+            m_transfer = {};
+            m_result.status = modules::ETestRunStatus::cancelled;
+            return dispose_next();
+        }
+        const modules::ESubmission result = post_host(std::move(m_transfer));
+        if ((result != modules::ESubmission::busy) && !modules::accepted(result))
+        {
+            MV_LOG_IMMEDIATE(error, "Rendering: Asset transfer publication failed ({})", static_cast<unsigned>(result));
+            return false;
+        }
+    }
+    if (m_disposal_pending)
+    {
+        const modules::ESubmission result = post_host(threading::make_pod_message(m_pending_slot,
+            AssetDisposeRequest{ m_assets[m_asset_count - 1u] }));
+        if (modules::accepted(result)) m_disposal_pending = false;
+        else if (result != modules::ESubmission::busy) return false;
+    }
     if (m_rejection_pending)
     {
-        const auto result = m_connection.post(m_rejection_token, m_rejection);
-        if (result == connections::EPost::invalid_message)
+        const modules::ESubmission result = post(m_rejection_token, m_rejection);
+        if ((result == modules::ESubmission::invalid) || (result == modules::ESubmission::transport_failed))
         {
             return false;
         }
-        if (result != connections::EPost::full)
+        if (result != modules::ESubmission::busy)
         {
             m_rejection_pending = false;
         }
     }
     if (m_completion_pending)
     {
-        const auto result = m_connection.post(m_token, threading::make_pod_message(m_request_slot, m_result));
-        if (result == connections::EPost::invalid_message)
+        const modules::ESubmission result = post(m_token, threading::make_pod_message(m_request_slot, m_result));
+        if ((result == modules::ESubmission::invalid) || (result == modules::ESubmission::transport_failed))
         {
             return false;
         }
-        if (result != connections::EPost::full)
+        if (result != modules::ESubmission::busy)
         {
             m_completion_pending = false;
         }
@@ -540,7 +579,8 @@ bool CTextureFlowTests::complete(SResourceResult&& result, const std::int32_t co
         if (raw == nullptr) return false;
         raw->storage.value = std::move(result.encoded.buffer);
         m_phase = EPhase::publication;
-        return m_context.post(std::move(transfer));
+        m_transfer = std::move(transfer);
+        return progress();
     }
     return next();
 }
@@ -577,7 +617,9 @@ bool CTextureFlowTests::dispose_next() noexcept
     m_ldr_texture = {};
     m_hdr_texture = {};
     if (m_asset_count == 0u) return finish();
-    return m_context.post(threading::make_pod_message((++m_pending_slot), AssetDisposeRequest{ m_assets[m_asset_count - 1u] }));
+    ++m_pending_slot;
+    m_disposal_pending = true;
+    return progress();
 }
 
 bool CTextureFlowTests::finish() noexcept

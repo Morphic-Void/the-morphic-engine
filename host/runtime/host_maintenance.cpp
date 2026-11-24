@@ -36,64 +36,6 @@ bool CHostMaintenance::references(const threading::CThreadPackage& package) cons
     return false;
 }
 
-bool CHostMaintenance::captured(const SClientRecord* const client, const threading::CThreadPackage* const package) const noexcept
-{
-    for (const auto& entry : m_pods)
-    {
-        if (entry.source.sequence && ((client && (entry.source.client == client)) || (package && (entry.source.package == package))))
-        {
-            return true;
-        }
-    }
-    for (const auto& entry : m_owners)
-    {
-        if (entry.source.sequence && ((client && (entry.source.client == client)) || (package && (entry.source.package == package))))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool CHostMaintenance::captured_pod(const SClientRecord& client) const noexcept
-{
-    for (const SPod& entry : m_pods)
-    {
-        if (entry.source.sequence && (entry.source.client == &client))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool CHostMaintenance::captured_owner(const SClientRecord& client) const noexcept
-{
-    for (const SOwner& entry : m_owners)
-    {
-        if (entry.source.sequence && (entry.source.client == &client))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool CHostMaintenance::defer_owner(SClientRecord& client, threading::CErasedOwnerMsg& message) noexcept
-{
-    if (!m_next_sequence) return false;
-    for (std::uint32_t index = 0u; index < 32u; ++index)
-    {
-        SOwner& entry = m_owners[index];
-        if (entry.source.sequence) continue;
-        entry.message = std::move(message);
-        entry.source = { &client, client.thread, 0u, 2u };
-        accepted(entry.source);
-        return true;
-    }
-    return false;
-}
-
 void CHostMaintenance::poll_stop() noexcept
 {
     bool executive_stop = false;
@@ -160,7 +102,7 @@ void CHost::apply_host_stop() noexcept
     m_executive_request.destroy();
     if (SModuleEndpoints* const executive = module_endpoints(module_ids::executive))
     {
-        stop_module(*executive, modules::EStopReason::shutdown);
+        stop_module(*executive, modules::EExecutionStop::shutdown);
         if (m_phase != EPhase::shutting_down)
         {
             m_phase = EPhase::stopping_executive;
@@ -177,16 +119,10 @@ void CHostMaintenance::accepted(SSource& source) noexcept
     source.sequence = m_next_sequence;
     m_next_sequence = (m_next_sequence == UINT64_MAX) ? 0u : m_next_sequence + 1u;
     ++m_count;
-    if (source.client)
-    {
-        ++source.client->deferred_records;
-        source.client->incoming_drained = false;
-    }
 }
 
 void CHostMaintenance::released(SSource& source) noexcept
 {
-    if (source.client) --source.client->deferred_records;
     source = {};
     --m_count;
 }
@@ -222,84 +158,62 @@ bool CHostMaintenance::next_source(const bool worker, const std::uint32_t lane, 
 
 bool CHostMaintenance::capture_pod(const bool worker) noexcept
 {
-    const std::uint32_t begin = worker ? 128u : 0u;
-    SPod* vacant = nullptr;
-    for (std::uint32_t i = begin; i < (begin + 128u); ++i)
-    {
-        if (!m_pods[i].source.sequence)
-        {
-            vacant = &m_pods[i];
-            break;
-        }
-    }
-    if (!vacant)
-    {
-        m_pressure = true;
-        return false;
-    }
     SSource source;
     std::uint32_t index = 0u;
     if (!next_source(worker, (worker ? 1u : 0u), source, index))
     {
         return false;
     }
-    source.credits = source.client ? 2u : 0u;
-    if (source.client && !source.client->reserve_replies(source.credits))
+    if (source.client)
     {
-        return false;
+        if (!source.client->channel) return false;
+        if (source.client->pod_head_live)
+        {
+            m_pressure |= source.client->channel->to_host.readable_count() != 0u;
+            return false;
+        }
+        return source.client->capture_pod_head();
     }
-    const bool copied = source.client ? source.client->read(vacant->message) : source.package->read(vacant->message);
-    if (!copied)
+    for (SPod& entry : m_pods)
     {
-        if (source.client) source.client->cancel_reservation(source.credits);
-        return false;
+        if (entry.source.sequence) continue;
+        if (!source.package->read(entry.message)) return false;
+        entry.source = source;
+        accepted(entry.source);
+        return true;
     }
-    vacant->source = source;
-    accepted(vacant->source);
-    return true;
+    m_pressure = true;
+    return false;
 }
 
 bool CHostMaintenance::capture_owner(const bool worker) noexcept
 {
-    const auto begin = worker ? 32u : 0u;
-    SOwner* vacant = nullptr;
-    for (auto index = begin; index < (begin + 32u); ++index)
-    {
-        if (!m_owners[index].source.sequence)
-        {
-            vacant = &m_owners[index];
-            break;
-        }
-    }
-    if (!vacant)
-    {
-        m_pressure = true;
-        return false;
-    }
     SSource source;
     std::uint32_t index = 0u;
     if (!next_source(worker, (worker ? 3u : 2u), source, index))
     {
         return false;
     }
-    source.credits = source.client ? 2u : 0u;
-    if (source.credits && !source.client->reserve_replies(source.credits))
+    if (source.client)
     {
-        m_pressure = true;
-        return false;
-    }
-    const bool captured = source.client ? source.client->capture(vacant->message) : source.package->capture(vacant->message);
-    if (!captured)
-    {
-        if (source.client)
+        if (!source.client->channel) return false;
+        if (source.client->owner_head_live)
         {
-            source.client->cancel_reservation(source.credits);
+            m_pressure |= source.client->endpoint->worker_to_host_owned_msgs.readable_count() != 0u;
+            return false;
         }
-        return false;
+        return source.client->capture_owner_head();
     }
-    vacant->source = source;
-    accepted(vacant->source);
-    return true;
+    for (SOwner& entry : m_owners)
+    {
+        if (entry.source.sequence) continue;
+        if (!source.package->capture(entry.message)) return false;
+        entry.source = source;
+        accepted(entry.source);
+        return true;
+    }
+    m_pressure = true;
+    return false;
 }
 
 bool CHostMaintenance::signal_one() noexcept
@@ -441,14 +355,7 @@ void CHostMaintenance::replay() noexcept
         if (pod)
         {
             auto& source = pod->source;
-            if (source.client)
-            {
-                const std::uint32_t surplus = source.credits - client_reply_count(pod->message);
-                source.client->cancel_reservation(surplus);
-                m_host.receive_message(pod->message, *source.client);
-                source.client->accounted_pod();
-            }
-            else if ((source.package == m_host.worker_package(0u)) && pod->message.is_payload_a<ModuleWorkResult>())
+            if ((source.package == m_host.worker_package(0u)) && pod->message.is_payload_a<ModuleWorkResult>())
             {
                 m_host.m_module_service.complete(pod->message);
             }
@@ -466,31 +373,13 @@ void CHostMaintenance::replay() noexcept
             for (const SOwner& entry : m_owners)
             {
                 if (entry.source.sequence && (entry.source.sequence < sequence) &&
-                    (entry.source.client == source.client) && (entry.source.package == source.package))
+                    (entry.source.package == source.package))
                 {
                     preceding = true;
                 }
             }
             if (preceding) continue;
-            if (source.client)
-            {
-                if (m_host.defer_startup_module_request(owner->message, *source.client))
-                {
-                    continue;
-                }
-                if (owner->message.is_message_a<SchemaProcessRequest>() && !m_host.m_asset_service.schema_ingress_available())
-                {
-                    continue;
-                }
-                if (!owner->message.is_message_a<modules::ModuleRequest>() && !owner->message.is_message_a<SchemaProcessRequest>())
-                {
-                    const std::uint32_t required = owner->message.is_message_a<platform::reports::PlatformReportCaptured>() ? 0u : 1u;
-                    source.client->cancel_reservation(source.credits - required);
-                }
-                m_host.receive_request(owner->message, *source.client);
-                source.client->accounted_owner();
-            }
-            else if ((source.package == m_host.worker_package(0u)) && owner->message.is_message_a<FilesystemScanResult>())
+            if ((source.package == m_host.worker_package(0u)) && owner->message.is_message_a<FilesystemScanResult>())
             {
                 m_host.complete_scan(owner->message);
             }

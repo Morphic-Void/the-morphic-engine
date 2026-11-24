@@ -433,7 +433,9 @@ void read_clock_rollback(TTestContext& ctx)
     SDevice device;
     SReading original, forward, rollback, current;
     {
-        modules::SHostPumpContext context{};
+        const modules::CCommunication communication;
+        modules::SExecutionContext context{};
+        context.communication = &communication;
         platform::runtime::CPlatformRuntime runtime{ context };
         SGameInput state;
         input.AddRef();
@@ -505,7 +507,9 @@ void focus_freshness(TTestContext& ctx)
     {
         //  Only native catalogue callbacks are exercised: no routed borrowers
         //  or Host services are needed by this runtime's publication storage.
-        modules::SHostPumpContext context{};
+        const modules::CCommunication communication;
+        modules::SExecutionContext context{};
+        context.communication = &communication;
         platform::runtime::CPlatformRuntime runtime{ context };
         SGameInput state;
         input.AddRef();

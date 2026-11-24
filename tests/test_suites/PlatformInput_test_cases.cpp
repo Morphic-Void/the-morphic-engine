@@ -19,12 +19,13 @@
 #include "platform/runtime/platform_runtime.hpp"
 #include "framework/platform/input_reader.hpp"
 #include "host/assets/asset_repository.hpp"
-#include "host/runtime/service_router.hpp"
+#include "host/runtime/services/service_router.hpp"
 #include "host/runtime/host_restrictions.hpp"
 #include "tests/support/test_context.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 #include "framework/services/service_borrow_client.hpp"
 #include "tests/support/input_schema.hpp"
+#include "tests/input_host/platform_access.hpp"
 #if MV_PLATFORM_WINDOWS
 #include "platform/windows_include.hpp"
 #include "platform/native/windows/input_windows.hpp"
@@ -34,6 +35,23 @@ namespace platform::runtime
 {
 struct SPlatformInputTestAccess
 {
+    static unsigned configuration_storage(const CPlatformRuntime& runtime) noexcept
+    {
+        unsigned count = 0u;
+        for (const CPlatformRuntime::SConfiguration& configuration : runtime.m_configurations)
+        {
+            if (configuration.data) ++count;
+        }
+        return count;
+    }
+    static bool preparing(const CPlatformRuntime& runtime) noexcept
+    {
+        return runtime.m_preparation.configuration >= 0;
+    }
+    static bool configuration_used(const CPlatformRuntime& runtime, const input::SInstallationToken token) noexcept
+    {
+        return runtime.configuration_used(token);
+    }
     static EInputPost post_action(CInputConnection& connection, const input::SActionInputV1& record) noexcept
     {
         return connection.post_action(record);
@@ -309,20 +327,42 @@ struct SFixture
     SControllers controllers;
     platform::threading::COwnerWait wake;
     host::CHostRestrictions restrictions{ clock.source() };
-    tests::SEndpointFixture client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
-    tests::SEndpointFixture provider{ module_ids::platform, 103u };
+    tests::SCommonEndpointFixture client{ module_ids::executive, 101u }, other{ module_ids::rendering, 102u };
+    tests::SCommonEndpointFixture provider{ module_ids::platform, 103u };
     host::CServiceRouter router;
     modules::SHostExecutionContext execution;
-    threading::CEndpointContext endpoint{ *provider.endpoint };
     tests::CProviderEndpointFixture exchanges;
-    modules::SHostPumpContext context;
+    static modules::ESubmission MV_STD_ABI_CALL facade_post(void* const cookie, const modules::SDestination& destination,
+        const threading::CErasedPodMsg& message) noexcept
+    {
+        SFixture& self = *static_cast<SFixture*>(cookie);
+        if (destination.kind != modules::SDestination::EKind::host)
+        {
+            return modules::ESubmission::invalid;
+        }
+        return tests::submit_common_pod(self.provider, message);
+    }
+    static inline const modules::SCommunicationV1 facade_functions{ &facade_post };
+    modules::CCommunication communication{ facade_functions, this };
+    modules::SExecutionContext context;
     TInstance<platform::runtime::CPlatformRuntime> runtime;
     SServiceRoute route, other_route, window_route;
     std::uint64_t sequence{ 1u };
     SReceived history[512]{};
     std::uint32_t history_count{ 0u };
     bool completion_busy{ false };
-    modules::SProgress progress;
+    modules::SExecutionProgress progress;
+    std::uint64_t invocation_budget{ 2000000u };
+    bool callback_failed{ false }, expect_failure{ false };
+    void invoke(const modules::SInvocation& invocation, modules::SExecutionProgress& result) noexcept
+    {
+        const modules::EExecutionStatus status = runtime->handle(invocation, result);
+        if (status != modules::EExecutionStatus::success)
+        {
+            callback_failed = true;
+            TEST_EXPECT(tests, (expect_failure && (status == modules::EExecutionStatus::failed)));
+        }
+    }
     CAssetRepository assets;
     schema::CPreparedSchema conditioned;
     std::string source;
@@ -445,7 +485,7 @@ struct SFixture
         client.owner_wake = other.owner_wake = provider.owner_wake = wake.endpoint();
         execution.restriction = restrictions.reader();
         context.instance = provider.instance;
-        context.endpoint = &endpoint;
+        context.communication = &communication;
         execution.native_context = this;
         execution.enter_restriction = &enter;
         execution.leave_restriction = &leave;
@@ -462,10 +502,12 @@ struct SFixture
         other_route = open(other, k_input_contract);
         window_route = open(client, platform::windows::k_window_contract);
     }
-    SServiceRoute open(tests::SEndpointFixture& recipient, const SServiceContract contract) noexcept
+    SServiceRoute open(tests::SCommonEndpointFixture& recipient, const SServiceContract contract) noexcept
     {
         const SServiceContract contracts[]{ platform::windows::k_window_contract, k_input_contract };
         host::SServiceProvider advertisement{ &provider, contracts, 2u };
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(tests, dispatch);
         TEST_EXPECT(tests, recipient.reserve_replies(1u));
         router.open({ module_ids::platform, contract.number, contract.version, { sequence++ } }, 1, recipient, &advertisement);
         OpenServiceResult result;
@@ -475,7 +517,7 @@ struct SFixture
     }
     void collect() noexcept
     {
-        for (tests::SEndpointFixture* const recipient : { &client, &other })
+        for (tests::SCommonEndpointFixture* const recipient : { &client, &other })
         {
             const std::uint32_t count = recipient->pending();
             for (std::uint32_t index = 0u; index < count; ++index)
@@ -493,7 +535,7 @@ struct SFixture
     std::uint64_t submit(const std::uint16_t opcode, const void* const payload, const std::uint16_t size,
         const bool second = false, const bool window = false) noexcept
     {
-        tests::SEndpointFixture& recipient = second ? other : client;
+        tests::SCommonEndpointFixture& recipient = second ? other : client;
         ServiceRequest request;
         request.route = window ? window_route : (second ? other_route : route);
         request.request.value = sequence++;
@@ -501,6 +543,8 @@ struct SFixture
         request.payload_size = size;
         if (size) std::memcpy(request.payload, payload, size);
         TEST_EXPECT(tests, recipient.reserve_replies(2u));
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 2u };
+        TEST_EXPECT(tests, dispatch);
         router.request(request, static_cast<std::int32_t>(request.request.value), recipient);
         return request.request.value;
     }
@@ -509,23 +553,43 @@ struct SFixture
     {
         return submit(static_cast<std::uint16_t>(opcode), &payload, sizeof(payload), second);
     }
+    void progress_routes() noexcept
+    {
+        router.progress();
+        for (host::SClientRecord* const recipient : { &client, &other, &provider })
+        {
+            tests::progress_service_outputs(router, *recipient);
+        }
+        router.progress();
+    }
+
     void step() noexcept
     {
         host_step();
         for (unsigned turn = 0u; turn < 16u; ++turn)
         {
-            router.progress();
+            progress_routes();
             (void)exchanges.progress(*this);
-            modules::SPumpInput input;
-            modules::SPumpResult result;
             TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
-            runtime->pump(input, result);
-            progress = result.progress;
+            modules::SExecutionProgress result;
+            modules::SInvocation invocation;
+            invocation.time_budget_ns = invocation_budget;
+            threading::CErasedPodMsg incoming;
+            for (std::uint32_t count = 0u; (count < 64u) && provider.channel->read_preamble_pod(incoming); ++count)
+            {
+                invocation.event = modules::EExecutionEvent::message;
+                invocation.message = &incoming;
+                invoke(invocation, result);
+            }
+            invocation.event = modules::EExecutionEvent::service_async;
+            invocation.message = nullptr;
+            invoke(invocation, result);
+            progress = result;
             TEST_EXPECT(tests, restrictions.end_invocation());
             const bool work = exchanges.progress(*this);
-            router.progress();
+            progress_routes();
             collect();
-            if (!work && !provider.endpoint->host_to_worker_msgs.refresh_readable_count())
+            if (!work && !provider.channel->to_module.readable_count())
             {
                 break;
             }
@@ -561,8 +625,10 @@ struct SFixture
     ServiceNotificationRegistered registration(const SPreparedServiceBorrow& borrow, const bool second = false,
         const bool window = false) noexcept
     {
-        tests::SEndpointFixture& recipient = second ? other : client;
+        tests::SCommonEndpointFixture& recipient = second ? other : client;
         TEST_EXPECT(tests, recipient.reserve_replies(1u));
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(tests, dispatch);
         router.register_notification(recipient, { (window ? window_route : (second ? other_route : route)), borrow.borrow }, 400);
         ServiceNotificationRegistered result;
         TEST_EXPECT(tests, recipient.received(recipient.pending() - 1u).copy_payload_to(result));
@@ -585,13 +651,14 @@ struct SFixture
     }
     void release(const SPreparedServiceBorrow& borrow, const bool second = false, const bool window = false) noexcept
     {
-        tests::SEndpointFixture& recipient = second ? other : client;
+        tests::SCommonEndpointFixture& recipient = second ? other : client;
         const SServiceRoute source = window ? window_route : (second ? other_route : route);
         router.release_borrow(recipient, { source, borrow.borrow });
         router.quiesce_borrow(recipient, { source, borrow.borrow });
     }
     ~SFixture() noexcept
     {
+        invocation_budget = 2000000u;
         completion_busy = false;
         hold_schema = hold_release = post_busy = false;
         for (std::uint32_t index = 0u; index < history_count; ++index)
@@ -605,7 +672,11 @@ struct SFixture
             }
         }
         TEST_EXPECT(tests, restrictions.begin_invocation(provider.instance, true));
-        runtime->begin_stop(progress);
+        router.close_provider_admission(provider);
+        modules::SInvocation stop;
+        stop.event = modules::EExecutionEvent::stop;
+        modules::SExecutionProgress stopped;
+        invoke(stop, stopped);
         TEST_EXPECT(tests, restrictions.end_invocation());
         for (unsigned iteration = 0u; iteration < 10000u; ++iteration)
         {
@@ -618,6 +689,7 @@ struct SFixture
         TEST_EXPECT(tests, runtime->stopped());
         TEST_EXPECT(tests, router.provider_borrows_retired(provider));
         TEST_EXPECT(tests, !router.failed());
+        TEST_EXPECT(tests, (callback_failed == expect_failure));
     }
 };
 
@@ -950,10 +1022,10 @@ void deadlines_admission_and_retirement(TTestContext& ctx)
         TEST_EXPECT(ctx, (SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::controller)->snapshot().phase == EPhase::active));
         desktop.reader.close();
         fixture.release(desktop.borrow);
-        fixture.runtime->enter_callback();
+        fixture.runtime->enter_native_callback();
         fixture.step();
         TEST_EXPECT(ctx, !fixture.native.destroyed);
-        fixture.runtime->leave_callback();
+        fixture.runtime->leave_native_callback();
         fixture.step(); fixture.step();
         TEST_EXPECT(ctx, (fixture.native.destroyed == 1u));
     }
@@ -1434,6 +1506,7 @@ void mapper_runtime_integration(TTestContext& ctx)
     ++key.ordinal;
     TEST_EXPECT(ctx, (fixture.runtime->input_observation(desktop.view->connection, key) == EInputAdmission::accepted));
     const std::uint64_t committed = connection->snapshot().committed;
+    fixture.expect_failure = true;
     fixture.native.fail_dispatch = true;
     SPlatformInputTestAccess::late_dispatch(*fixture.runtime);
     fixture.step();
@@ -1578,6 +1651,197 @@ void installation_cancellation(TTestContext& ctx)
         (fixture.schema_requests == 1u) && (fixture.schema_releases == 1u)));
 }
 
+void installation_shutdown_retention(TTestContext& ctx)
+{
+    const auto stop = [&](SFixture& fixture)
+    {
+        fixture.router.close_provider_admission(fixture.provider);
+        TEST_EXPECT(ctx, fixture.restrictions.begin_invocation(fixture.provider.instance, true));
+        modules::SInvocation invocation;
+        invocation.event = modules::EExecutionEvent::stop;
+        invocation.notification.stop_reason = modules::EExecutionStop::shutdown;
+        fixture.invoke(invocation, fixture.progress);
+        TEST_EXPECT(ctx, fixture.restrictions.end_invocation());
+        TEST_EXPECT(ctx, !fixture.progress.work_complete);
+    };
+    // Accepted preparation and release obligations survive closed admission.
+    // Neither a consumer stop nor its cancelled installation outcome frees the
+    // Platform configuration while the conditioned descriptor is still borrowed.
+    for (const bool late_schema : { true, false })
+    {
+        SFixture fixture{ ctx, false };
+        const CAssetId source = fixture.schema_source(100u);
+        fixture.hold_schema = late_schema;
+        fixture.hold_release = true;
+        const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+        for (unsigned turn = 0u; (turn < 10000u) &&
+            (!fixture.host_request_count || (!late_schema && !fixture.schema_requests)); ++turn)
+        {
+            fixture.step();
+        }
+        TEST_EXPECT(ctx, (fixture.host_request_count == 1u));
+        TEST_EXPECT(ctx, (fixture.schema_requests == (late_schema ? 0u : 1u)));
+        stop(fixture);
+        const std::uint64_t refused = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+        fixture.step();
+        TEST_EXPECT(ctx, (fixture.terminal(refused) == EServiceStatus::closing));
+        fixture.hold_schema = false;
+        for (unsigned turn = 0u; turn < 12u; ++turn)
+        {
+            fixture.step();
+            TEST_EXPECT(ctx, (SPlatformInputTestAccess::preparing(*fixture.runtime) &&
+                (SPlatformInputTestAccess::configuration_storage(*fixture.runtime) == 1u) &&
+                !fixture.runtime->stopped() && !fixture.progress.work_complete));
+        }
+        TEST_EXPECT(ctx, ((fixture.schema_requests == 1u) && !fixture.schema_releases &&
+            (fixture.host_request_count == 1u) && !installation_token(fixture, request).value));
+        fixture.hold_release = false;
+        for (unsigned turn = 0u; (turn < 10000u) && !fixture.runtime->stopped(); ++turn)
+        {
+            fixture.step();
+        }
+        TEST_EXPECT(ctx, ((fixture.schema_releases == 1u) && fixture.runtime->stopped() &&
+            fixture.progress.work_complete && !SPlatformInputTestAccess::configuration_storage(*fixture.runtime)));
+        TEST_EXPECT(ctx, (fixture.terminal(request) == EServiceStatus::closing));
+    }
+    SFixture fixture{ ctx, false };
+    const CAssetId source = fixture.schema_source(100u);
+    const std::uint64_t request = fixture.submit(ECommand::install_configuration, SInstallConfiguration{ source });
+    for (unsigned turn = 0u; (turn < 10000u) && !installation_token(fixture, request).value; ++turn)
+    {
+        fixture.step();
+    }
+    const SInstallationToken installation = installation_token(fixture, request);
+    TEST_EXPECT(ctx, installation.value);
+    SUse use;
+    if (!use.acquire(fixture, EConnection::controller, false, installation, 8u, 4u))
+    {
+        return;
+    }
+    use.activate(fixture);
+    stop(fixture);
+    for (unsigned turn = 0u; turn < 12u; ++turn)
+    {
+        fixture.step();
+        TEST_EXPECT(ctx, (SPlatformInputTestAccess::configuration_used(*fixture.runtime, installation) &&
+            (SPlatformInputTestAccess::configuration_storage(*fixture.runtime) == 1u) &&
+            !fixture.router.provider_borrows_retired(fixture.provider) && !fixture.runtime->stopped() &&
+            !fixture.progress.work_complete));
+    }
+    // Relinquish local access before Host quiescence. With no dispatch time left,
+    // storage retirement remains runnable but cannot claim work_complete merely
+    // because the input user has now gone.
+    use.reader.close();
+    use.view = nullptr;
+    fixture.invocation_budget = 0u;
+    fixture.release(use.borrow);
+    for (unsigned turn = 0u; (turn < 1000u) &&
+        SPlatformInputTestAccess::configuration_used(*fixture.runtime, installation); ++turn)
+    {
+        fixture.step();
+    }
+    TEST_EXPECT(ctx, !SPlatformInputTestAccess::configuration_used(*fixture.runtime, installation));
+    TEST_EXPECT(ctx, ((SPlatformInputTestAccess::configuration_storage(*fixture.runtime) == 1u) &&
+        !fixture.runtime->stopped() && !fixture.progress.work_complete && fixture.progress.work_pending));
+    fixture.invocation_budget = 2000000u;
+    for (unsigned turn = 0u; (turn < 10000u) && !fixture.runtime->stopped(); ++turn)
+    {
+        fixture.step();
+    }
+    TEST_EXPECT(ctx, (fixture.runtime->stopped() && fixture.progress.work_complete &&
+        fixture.router.provider_borrows_retired(fixture.provider) &&
+        !SPlatformInputTestAccess::configuration_storage(*fixture.runtime)));
+}
+
+void native_freeze_focus_loss(TTestContext& ctx)
+{
+    SFixture fixture{ ctx, true, SNative::desktop_adapter() };
+    SUse desktop;
+    if (!desktop.acquire(fixture, EConnection::desktop)) return;
+    desktop.activate(fixture);
+    for (unsigned step = 0u; step < 12u; ++step) fixture.step();
+    CInputConnection& connection = *SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::desktop);
+    input_host::SFreezeProgress progress;
+    const auto freeze = [&](const bool native = true)
+    {
+        return platform::runtime::SInputAcceptanceAccess::freeze_idle(*fixture.runtime, progress, native);
+    };
+    TEST_EXPECT(ctx, (freeze() && freeze(false)));
+    const auto settle = [&]
+    {
+        for (unsigned step = 0u; step < 12u; ++step)
+        {
+            fixture.step();
+            desktop.drain(fixture);
+            SBoundaryReady ready;
+            if (desktop.reader.boundary_ready(ready)) desktop.acknowledge(fixture);
+        }
+    };
+    // The same real eligibility transition as ending observation in another app.
+    fixture.runtime->input_focus(false);
+    TEST_EXPECT(ctx, !freeze()); // Its cancellation boundary has not settled.
+    settle();
+    TEST_EXPECT(ctx, (freeze() && !freeze(false) && !progress.eligible.load() &&
+        (progress.cutover.load() == k_desktop) && (progress.ingress.load() == 1u) &&
+        !progress.desktop_runnable.load() && !progress.desktop_queued.load()));
+    const std::uint32_t cutover = progress.cutover.load();
+    TEST_EXPECT(ctx, (connection.snapshot().ingress_pending == cutover));
+    const std::uint64_t epoch = fixture.runtime->desktop_epoch();
+    TEST_EXPECT(ctx, (freeze() && (fixture.runtime->desktop_epoch() == epoch) &&
+        (connection.snapshot().ingress_pending == cutover)));
+    // Strict refusal still applies to mismatched ingress, baseline work and
+    // unread output, even while the dormant cutover exemption otherwise holds.
+    connection.ingress(k_actions);
+    TEST_EXPECT(ctx, !freeze());
+    connection.ingress(cutover);
+    connection.source_baseline_pending = true;
+    TEST_EXPECT(ctx, (!freeze() && (progress.baselines.load() == 1u)));
+    connection.source_baseline_pending = false;
+    connection.source_baseline_inflight = true;
+    TEST_EXPECT(ctx, !freeze());
+    connection.source_baseline_inflight = false;
+    TEST_EXPECT(ctx, (post_action(connection, action()) == EInputPost::published));
+    TEST_EXPECT(ctx, (!freeze() && (progress.actions.load() == 1u)));
+    desktop.drain(fixture);
+    TEST_EXPECT(ctx, freeze());
+
+    platform::runtime::SDesktopTransaction key;
+    key.count = key.raw_count = 1u;
+    key.controls[0].control = 1u;
+    key.controls[0].x = 1.0f;
+    key.raw[0] = action();
+    key.raw[0].kind = EActionKind::pointer;
+    const unsigned suppressed_records = desktop.records;
+    const platform::runtime::SInputObservation baseline;
+    fixture.runtime->desktop_observation(key);
+    fixture.runtime->desktop_quiet(baseline, fixture.runtime->desktop_epoch());
+    settle();
+    TEST_EXPECT(ctx, ((desktop.records == suppressed_records) && freeze() &&
+        (connection.snapshot().ingress_pending == cutover)));
+
+    fixture.runtime->input_focus(true);
+    TEST_EXPECT(ctx, (!freeze() && progress.eligible.load() &&
+        (connection.snapshot().ingress_pending == k_desktop)));
+    // No fabricated quiet point: the real adapter must supply the baseline.
+    fixture.runtime->desktop_quiet(baseline, fixture.runtime->desktop_epoch());
+    TEST_EXPECT(ctx, (!freeze() && progress.desktop_baseline.load()));
+    settle();
+    TEST_EXPECT(ctx, (freeze() && freeze(false) && !connection.snapshot().ingress_pending));
+    const unsigned records = desktop.records;
+    fixture.runtime->desktop_observation(key);
+    TEST_EXPECT(ctx, (!freeze() && progress.desktop_queued.load()));
+    settle();
+    TEST_EXPECT(ctx, (desktop.records > records));
+    key.controls[0].x = 0.0f;
+    fixture.runtime->desktop_observation(key);
+    settle();
+    TEST_EXPECT(ctx, (freeze() && freeze(false)));
+    // Source-loss retention and a real context boundary must not be disguised
+    // as an ordinary dormant focus cutover.
+    connection.history_loss();
+    TEST_EXPECT(ctx, !freeze());
+}
+
 void capture_authority(TTestContext& ctx)
 {
     SFixture fixture{ ctx, true, SNative::desktop_adapter() };
@@ -1641,6 +1905,7 @@ void capture_failure_cleanup(TTestContext& ctx)
         else
         {
             TEST_EXPECT(ctx, (fixture.terminal(grant) == EServiceStatus::success));
+            fixture.expect_failure = true;
             fixture.native.fail_release = true;
             desktop.reader.close();
             fixture.release(desktop.borrow);
@@ -2727,6 +2992,7 @@ void run_platform_input_tests(tests::TTestContext& ctx)
     mapper_runtime_integration(ctx);
     installation_lifecycle(ctx);
     installation_cancellation(ctx);
+    installation_shutdown_retention(ctx);
     installation_admission_and_owner(ctx);
     installation_conditioning_failure(ctx);
     readiness_and_ordering(ctx);
@@ -2740,6 +3006,7 @@ void run_platform_input_tests(tests::TTestContext& ctx)
     concurrent_merge_and_recovery(ctx, true);
     notification_failure_and_closure(ctx);
     local_cancellation_survives_overflow(ctx);
+    native_freeze_focus_loss(ctx);
     capture_authority(ctx);
     capture_failure_cleanup(ctx);
     controller_catalogue_and_claims(ctx);
@@ -2754,6 +3021,20 @@ int run_platform_input_focused()
     tests::TTestContext ctx;
     run_platform_input_tests(ctx);
     return ctx.report("PlatformInput");
+}
+
+int run_platform_input_freeze_focused()
+{
+    tests::TTestContext ctx;
+    native_freeze_focus_loss(ctx);
+    return ctx.report("PlatformInputFreeze");
+}
+
+int run_platform_input_shutdown_focused()
+{
+    tests::TTestContext ctx;
+    installation_shutdown_retention(ctx);
+    return ctx.report("PlatformInputShutdown");
 }
 
 int run_platform_input_native(const bool interactive)

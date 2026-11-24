@@ -215,7 +215,7 @@ static void resource_groups(tests::TTestContext& ctx, texture_batch_tests::SFixt
     }));
     texture_batch_tests::SConcurrentJobs workers{ rendering };
     TEST_EXPECT(ctx, workers.acquire());
-    fixture.assets.request_disposal({ source.asset }, 602, *fixture.client);
+    fixture.dispose(ctx, source.asset, 602);
     fixture.assets.complete_disposals();
     TEST_EXPECT(ctx, fixture.messages.empty());
     TEST_EXPECT(ctx, workers.start(4u));
@@ -238,6 +238,8 @@ static void resource_groups(tests::TTestContext& ctx, texture_batch_tests::SFixt
     std::int32_t slot;
     TEST_EXPECT(ctx, tests::wait_until(rendering.conversion, [&]() noexcept { return fixture.receive_host(notification, slot); }));
     TEST_EXPECT(ctx, notification.asset == source.asset);
+    TEST_EXPECT(ctx, (slot == threading::k_uncorrelated_slot));
+    TEST_EXPECT(ctx, (fixture.messages.empty() && (fixture.client->reserved_replies == 0u)));
     // Source bundle is gone; successful artifacts and failed-member reports survive.
     for (const auto& result : groups)
     {

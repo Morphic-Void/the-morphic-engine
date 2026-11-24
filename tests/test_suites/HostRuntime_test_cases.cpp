@@ -88,7 +88,7 @@ struct SHostRuntimeTestAccess
     {
         std::atomic<bool> fail{false}, publish{false};
         CErasedOwner completion;
-        tests::SEndpointFixture client{module_ids::executive, 1u};
+        tests::SCommonEndpointFixture client{module_ids::executive, 1u};
         bool interleaved{false}, completed_before_cancel{false};
     };
 
@@ -141,8 +141,14 @@ struct SHostRuntimeTestAccess
     static void after_failure(CHost& runtime)
     {
         auto& state = *static_cast<SWorkers*>(runtime.m_test_state);
+        // Worker failure must preserve the final scan outcome in its operation.
+        // This controlled recipient is outside the module registry, so drive its
+        // output retry explicitly after inspecting that retained outcome.
+        const bool completed = runtime.refresh_output_ready(state.client) &&
+            (runtime.m_refresh_queue[runtime.m_refresh_head].result == filesystem::EFilesystemStatus::scan_failed);
+        runtime.retry_refresh_output();
         filesystem::FilesystemRefreshResult result;
-        state.completed_before_cancel = state.client.pending() == 1u &&
+        state.completed_before_cancel = completed && (state.client.pending() == 1u) &&
             state.client.received(0).copy_payload_to(result) && result.status == filesystem::EFilesystemStatus::scan_failed;
     }
 
@@ -261,14 +267,37 @@ struct SHostRuntimeTestAccess
         TEST_EXPECT(ctx, provider_module.coordinator.emplace(module_ids::rendering, 102u, nullptr, modules::SModuleInstance{ 202u }));
         auto& client = *client_module.coordinator;
         auto& provider = *provider_module.coordinator;
-        TEST_EXPECT(ctx, (client.initialise() && provider.initialise()));
+        modules::CBoundModule binding;
+        client.owner_wake = provider.owner_wake = runtime.m_owner_wait.endpoint();
+        TEST_EXPECT(ctx, (client.initialise_execution(binding, {}) && provider.initialise_execution(binding, {})));
         tests::CEndpointProbe client_probe{ client };
         client.phase = provider.phase = EClientPhase::ready;
         const SServiceContract contract{ 1u, 1u };
         runtime.m_modules[provider_index]->provider = { &provider, &contract, 1u };
         auto& router = runtime.m_service_router;
+        const auto progress = [&]()
+        {
+            router.progress();
+            for (SClientRecord* const endpoint : { &client, &provider })
+            {
+                for (unsigned count = 0u; count < 8u; ++count)
+                {
+                    if (!endpoint->output_ready()) break;
+                    const bool borrow = router.borrow_output_ready(*endpoint);
+                    if (borrow) router.retry_borrow_output(*endpoint);
+                    const bool operation = endpoint->output_ready() && router.output_ready(*endpoint);
+                    if (operation) router.retry_output(*endpoint);
+                    if (!borrow && !operation) break;
+                }
+            }
+            router.progress();
+        };
         TEST_EXPECT(ctx, client.reserve_replies(1u));
-        router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &runtime.m_modules[provider_index]->provider);
+        {
+            CRetainedReplies::CDispatch dispatch{ *client.pending_replies, 1u };
+            TEST_EXPECT(ctx, dispatch);
+            router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &runtime.m_modules[provider_index]->provider);
+        }
         OpenServiceResult opened;
         TEST_EXPECT(ctx, client_probe.received(0).copy_payload_to(opened) && opened.status == EServiceStatus::success);
         client_probe.discard(1u);
@@ -277,7 +306,11 @@ struct SHostRuntimeTestAccess
         request.request.value = 1u;
         request.opcode = 1u;
         TEST_EXPECT(ctx, client.reserve_replies(2u));
-        router.request(request, 2, client);
+        {
+            CRetainedReplies::CDispatch dispatch{ *client.pending_replies, 2u };
+            TEST_EXPECT(ctx, dispatch);
+            router.request(request, 2, client);
+        }
         client_probe.discard(1u);
         SDispatchedCommand command;
         TEST_EXPECT(ctx, tests::receive_commands(router, provider, &command, 1u) == 1u);
@@ -286,10 +319,14 @@ struct SHostRuntimeTestAccess
         TEST_EXPECT(ctx, dependency != nullptr);
         SServiceBorrow borrow;
         TEST_EXPECT(ctx, router.prepare_borrow(provider, { opened.route, { 1u }, { dependency, sizeof(*dependency), 1u } }, borrow) == EServiceStatus::success);
-        router.progress();
+        progress();
         client_probe.discard(client_probe.pending());
         TEST_EXPECT(ctx, client.reserve_replies(1u));
-        router.register_notification(client, { opened.route, borrow }, 3);
+        {
+            CRetainedReplies::CDispatch dispatch{ *client.pending_replies, 1u };
+            TEST_EXPECT(ctx, dispatch);
+            router.register_notification(client, { opened.route, borrow }, 3);
+        }
         ServiceNotificationRegistered registered;
         TEST_EXPECT(ctx, client_probe.received(0).copy_payload_to(registered) && registered.status == EServiceStatus::success);
         client_probe.discard(1u);
@@ -309,7 +346,7 @@ struct SHostRuntimeTestAccess
 
         router.release_borrow(client, { opened.route, borrow });
         router.quiesce_borrow(client, { opened.route, borrow });
-        router.progress();
+        progress();
         TEST_EXPECT(ctx, router.finish_borrow_retirement(provider, borrow) == EServiceStatus::success);
         ServiceReply completed;
         completed.route = opened.route;
@@ -317,10 +354,14 @@ struct SHostRuntimeTestAccess
         completed.opcode = 1u;
         completed.status = EServiceStatus::success;
         TEST_EXPECT(ctx, router.complete(provider, completed) == EServiceStatus::success);
-        router.progress();
+        progress();
         TEST_EXPECT(ctx, client.reserve_replies(1u));
-        router.close({ opened.route, { 2u } }, 4, client);
-        router.progress();
+        {
+            CRetainedReplies::CDispatch dispatch{ *client.pending_replies, 1u };
+            TEST_EXPECT(ctx, dispatch);
+            router.close({ opened.route, { 2u } }, 4, client);
+        }
+        progress();
         TEST_EXPECT(ctx, router.client_idle(client) && !router.provider_in_use(provider));
         package->unpin_notification();
         //  Only test cleanup revokes retention, after all synthetic lifetime proofs.

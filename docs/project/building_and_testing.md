@@ -31,6 +31,45 @@ virtual groups, root resource entries and projects without filters are allowed.
 Pass project or shared-item paths to check specific pairs. Its focused tests run
 with `python -B -m unittest discover -s tools/tests -p test_vs_filters.py`.
 
+### Module source organisation
+
+Module binding and local catalogues remain under each module's `module/binding`
+and `module/types` directories. Audio, Rendering and Executive expose their
+execution descriptors from `runtime/*_execution.cpp/.hpp`; these implement module
+execution contexts rather than native thread entry points. Platform retains its
+small execution adapter beside its binding export and its domain runtime in
+`platform/runtime`.
+
+Host source is grouped by responsibility:
+
+| Directory | Responsibility |
+| --- | --- |
+| `host/runtime` | Host orchestration, endpoint/ingress integration, cadence, restrictions, maintenance and shared Host protocol definitions. |
+| `host/runtime/execution` | Common preamble, client records, channels, direct connections, retained replies and pressure handling. |
+| `host/runtime/services` | Routed service operations, provider records and resource borrows. |
+| `host/runtime/workers` | Host worker execution, batch runners and worker sizing. |
+| `host/assets` | Asset storage/repository and asset-service orchestration, including schema and report operations. |
+| `host/module` | Binding ownership and module load/unload/replacement service. |
+| `host/threading` | Native thread-package lifetime and launch/wait support. |
+
+`host_endpoints.cpp` and `host_ingress.cpp` implement parts of `CHost` alongside
+`host.cpp`. `module_preamble_communication.cpp` and `module_preamble_lifecycle.cpp`
+implement parts of `CModulePreamble` alongside `module_preamble.cpp`. These are
+source divisions within their existing classes, not new runtime components.
+
+Visual Studio keeps the existing component `include`/`src` grouping and mirrors
+the relative source directories beneath it. Test fixture files use their matching
+`Tests` subdirectories; Input fixture projects retain their intentional
+`acceptance` groups. Lifecycle and Pump fixture projects have explicit filters.
+The single-file Schema fixture remains at the project root. The filter checker
+verifies correspondence and declared groups; it does not enforce semantic placement.
+
+When moving a file, update its includes, project/filter entries, exact policy
+classifications and current documentation links together. Linux CMake extracts its
+source lists from the Visual Studio projects, so check that extraction and the
+InputPlatform source/filter parity as well. Preserve dated validation paths as
+historical evidence. Directory moves alone do not change ABI or stored-data versions.
+
 ## Shader compiler dependency
 
 Before building, run `python tools/acquire_dxc.py` on Windows or

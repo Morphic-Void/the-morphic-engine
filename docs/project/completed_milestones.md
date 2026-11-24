@@ -18,11 +18,75 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Module execution source layout
+
+Completed and user-reviewed on 24 November 2026. The first source-organisation pass
+moved or renamed 44 files. Audio, Rendering and Executive now use `*_execution`
+filenames. Host runtime execution, services and workers have separate directories;
+asset and module services sit beside their existing domain code. The runtime root
+contains 12 files. Split Host/preamble implementations identify their owning class.
+The [source layout reference](building_and_testing.md#module-source-organisation)
+records the boundaries and naming conventions.
+
+Project entries, filters, includes, exact policy classifications and current source
+links were reconciled together. Lifecycle and Pump fixture filters were added;
+the single-file Schema fixture remains at its project root. Fourteen project/filter
+pairs pass correspondence checks, and InputPlatform's 46 production entries and
+filters still match Platform. The 66 affected source files preserve executable text
+apart from includes and renamed guards; source descriptions were corrected without
+changing ownership, scheduling, ABI or stored formats.
+
+All 18 affected Windows x64 Debug consumers and 12 Linux GCC Debug consumers built
+with no compiler warnings/errors. ModulePreamble, HostMaintenance, HostServices
+and SchemaProcess passed: 46,447 assertions on Windows and 46,138 on Linux, zero
+failures. Counts include platform-specific and pump-iteration assertions. These
+focused runs include the current execution DLL checks; they are not a repeat of
+the earlier complete configuration/process/physical matrices.
+
+The move map, isolated delta, source/binary fingerprints, build commands and test
+logs are under `build/source-layout-change`; `validation.json` indexes the results.
+Line endings, whitespace, source membership and reviewed filter placement pass.
+Prior validation artifacts retain their original provenance. Rendering/Platform
+directory subdivision and large test-file splits remain separate future decisions.
+
+## Module execution preamble consolidation
+
+Completed and coordinator-reviewed on 23 November 2026, with the scoped Input
+fixture correction accepted on 24 November and final user review completed the
+same day. Host now owns the shared pumped/serviced dispatcher, private lifecycle channels,
+fixed ordinary POD rings, pressure-based selection and affine retirement. Module
+classes use an authenticated two-pointer facade; the old module thread/pump loops,
+public lifecycle controls and direct-client compatibility paths are removed.
+
+The [Host execution reference](../modules/host_pump_foundation.md) defines current
+behavior. The [design](../modules/module_preamble_design.md) and
+[implementation decisions](../modules/module_preamble_proposal.md) preserve the
+agreed contract; the [qualification ledger](../modules/module_preamble_validation.md)
+records rebuilt consumers, regenerated artifacts and exact test scopes. All six
+Windows ordinary suites and both Linux configured test scopes passed. The ledger
+explicitly excludes the known Win32 Debug report/Input prerequisite failure,
+unrun Development lifecycle matrix and pre-existing Linux Audio reload limitation.
+
+On 24 November the operator confirmed both physical input checklists; production
+Platform also shut down successfully. The instrumented run exposed a fixture
+freeze/cleanup failure. Its focused correction preserves production focus state
+and allows proven cleanup after the named freeze timeout. Both regression suites
+pass across eight configurations and seven synthetic integration runs pass; this
+does not invent a corrected physical rerun or erase the original failure.
+
+The completed debris audit on 24 November reconciled current references and backlog
+status, retaining dated checkpoint evidence and genuinely deferred work. Four
+unused remnants of the old execution model were removed across seven source files;
+affected consumers rebuilt in eight configurations and 49,837 focused assertions
+passed with zero failures. The qualification ledger records this separate cleanup
+scope. The final manual review and authorised commit include the source layout
+and review cleanups in the qualification ledger; further work requires its own scope.
+
 ## Common Host endpoints and direct POD connections
 
 Completed, coordinator-reviewed, user-accepted and committed through `84506a7`
-on 21 November 2026. The selected refactor is closed; no next Host increment is
-selected.
+on 21 November 2026. That increment is closed and was followed by the
+[module preamble consolidation](#module-execution-preamble-consolidation).
 
 | Commit | Delivered scope |
 | --- | --- |

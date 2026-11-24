@@ -10,13 +10,17 @@ Date:    31 Oct 2026
 This record accompanies the initial implementation of the
 [agreed Audio design](audio_module_design.md). The validation below was performed
 in the shared checkout before the implementation commit. Hosted CI has not
-validated this implementation.
+validated this implementation at that checkpoint. The current execution model
+and later real-DLL/playback evidence are in the
+[preamble qualification ledger](module_preamble_validation.md); the dated results
+below are not claims about every subsequent binary.
 
 ## Implemented boundary
 
-`MorphicAudio` uses the current version-1 bootstrap and lifecycle pump, which
-requests its service thread through the common endpoint contract (`ca8770d`).
-Direct test traffic uses the common receiver (`84506a7`). Loading it leaves
+`MorphicAudio` exports bootstrap v1 and `morphic_module_execution_v1`. The Host
+standard coordinator requests its serviced context; a module-owned execution
+class handles domain messages through the bound facade. Host owns the native
+driver and direct-connection mechanics. Loading Audio leaves
 the device closed. A `RunTestsRequest` on the Executive/Audio direct connection
 opens the default real output and
 plays middle C as float stereo: two seconds fading up, one second at peak 0.1,
@@ -32,14 +36,16 @@ construction, query and wait errors fail the run. Cancellation does not depend
 on another callback. All vendor execution is stopped before completion or a
 terminal service state is published.
 
-As of 5 November 2026, [direct POD connections](direct_pod_connections.md) carry
-test requests/results through Host-owned growable queues. Host handles connection
+Current [direct POD connections](direct_pod_connections.md) carry test
+requests/results through Host-owned fixed 1,024-message rings. Host handles connection
 controls, not test payloads. Normal runs consume their result before closing;
 unload and shutdown cancel unfinished work and wait for device cleanup before
 endpoint quiescence. The initial validation record below predates this migration.
 
 Executive runs Rendering, then Audio, then the existing acceptance flow. Its
-generic module-test watchdog uses a 30-second awake-time deadline. Audio success
+generic module-test watchdog remains a stall detector; the
+[execution design](module_preamble_design.md) records bounded timing retries and
+the separate sustained timing-unavailability failure policy. Audio success
 requires exactly `success` with `1/0/0`; a backend that genuinely enumerates no
 output (or returns `MA_NO_DEVICE`) can report `unavailable` with `0/0/1`. Allocation,
 backend initialization, device-start, runtime, timing and cleanup failures do

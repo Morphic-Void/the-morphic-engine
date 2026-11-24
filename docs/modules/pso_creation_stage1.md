@@ -1509,8 +1509,8 @@ are the basis; the report handlers and their retirement accounting do not exist 
 Measure Platform build and Host copy/validation/adoption separately under the agreed
 local synchronous placement before adding any worker-specific protocol.
 
-References: [pumped POD/owner transport](../../host/runtime/pumped_client.cpp),
-[Host client inbox and credits](../../host/runtime/client_record.hpp),
+References: [pumped POD/owner transport](../../host/runtime/execution/pumped_client.cpp),
+[Host client inbox and credits](../../host/runtime/execution/client_record.hpp),
 [complete baked storage](../../foundation/data_model/baked_document.hpp),
 [Host asset backing](../../host/assets/asset_repository.hpp).
 

@@ -12,6 +12,7 @@
 #pragma once
 
 #include "tests/support/endpoint_fixture.hpp"
+#include "tests/support/test_context.hpp"
 
 namespace tests
 {
@@ -31,6 +32,8 @@ public:
                 break;
             }
             m_pending = true;
+            host::CRetainedReplies::CDispatch dispatch{ *provider.pending_replies, 1u };
+            if (!dispatch) break;
             services::ProviderOperationResult result;
             services::CompleteServiceRequest complete;
             services::CommitServiceResource commit;
@@ -48,20 +51,15 @@ public:
             else
             {
                 operation = false;
-                if (m_message.is_payload_a<threading::CloseProviderAdmission>())
-                {
-                    fixture.router.close_provider_admission(provider);
-                    (void)provider.post(threading::make_pod_message(m_message.query_async_slot(), threading::ProviderAdmissionClosed{}));
-                }
-                else if (m_message.is_payload_a<threading::SealEndpoint>())
-                {
-                    (void)provider.post(threading::make_pod_message(-1, threading::EndpointSealed{}));
-                }
-                else if (Fixture::post(&fixture, &m_message) == services::EServiceStatus::busy) break;
+                if (Fixture::post(&fixture, &m_message) == services::EServiceStatus::busy) break;
             }
             //  Busy is an asynchronous result too. The provider decides whether
             //  to retry its retained operation on a later module invocation.
-            if (operation) (void)provider.post(threading::make_pod_message(m_message.query_async_slot(), result));
+            if (operation)
+            {
+                TEST_EXPECT(fixture.tests, (provider.reserve_replies(1u) &&
+                    provider.reply(threading::make_pod_message(m_message.query_async_slot(), result))));
+            }
             provider.accounted_pod();
             m_pending = false;
             work = true;

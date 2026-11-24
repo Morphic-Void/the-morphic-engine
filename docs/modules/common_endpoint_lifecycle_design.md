@@ -1,5 +1,12 @@
 # Common endpoints and module lifecycle
 
+This is the earlier design/delivery record. The completed
+[module preamble consolidation](module_preamble_design.md) supersedes its pump,
+ordinary lifecycle and direct-client API descriptions, including the earlier
+statement that no private lifecycle lane was selected. Current execution uses
+[Host-owned preambles](host_pump_foundation.md). Deferred topology and asset-policy
+items below remain separate; historical completion evidence is unchanged.
+
 Design and delivery status reconciled 21 November 2026. The
 [first pass](common_endpoint_first_pass.md) and consolidation are complete in
 `ca8770d`; the [direct POD endpoint increment](direct_endpoint_increment.md) is
@@ -17,7 +24,8 @@ validation belong to the [Host foundation](host_pump_foundation.md) and
 | System-ID direct addressing, acknowledged readiness, common receiving, explicit consent/install/activation and guarded retirement | Implemented in `84506a7`. |
 | Revision-qualified availability queries and atomic topology observation | Agreed design; deferred implementation. |
 | Receipt-free cleanup of undelivered newly created asset IDs | Agreed policy; deferred implementation. |
-| Generic provider registration, long-running work, finite-capacity alternatives and richer authority/recovery | Separate backlog/design choices. |
+| Host preamble, private lifecycle rings, fixed ordinary POD pipes and bounded pressure handling | Completed 23 November; see the [qualification ledger](module_preamble_validation.md), including the scoped 24 November follow-up. |
+| Generic provider registration, long-running work, further capacity tuning and richer authority/recovery | Separate backlog/design choices. |
 
 Every module has a pump and can request zero or more service threads. Pumps and
 service threads use the same Host communication contract. Host provides common
@@ -1030,7 +1038,7 @@ It separates agreed contracts awaiting implementation from optional future polic
   retain-if-undeliverable exception.
 - Long-running pump/Host work, including schema/report placement, and separately
   selected recovery or watchdog requirements.
-- Backpressure alternatives beyond current growable transports and bounded records.
+- Measured capacity tuning beyond the delivered fixed-ring and bounded-retention policy.
 - Optional pair-prohibition authority, lifecycle delegation, service readiness,
   bulk extensions and relaxation of seal acknowledgement timing.
 

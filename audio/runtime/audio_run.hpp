@@ -17,6 +17,7 @@
 
 namespace audio
 {
+
 class IAudioOutput
 {
 public:
@@ -51,6 +52,7 @@ public:
     [[nodiscard]] bool active() const noexcept { return m_active; }
     [[nodiscard]] modules::ETestRunStatus result() const noexcept { return m_result; }
     [[nodiscard]] const threading::CWaitDeadline& next_wait() const noexcept { return m_wait; }
+    [[nodiscard]] bool remaining_wait(std::uint64_t& nanoseconds) noexcept;
 
 private:
     bool set(threading::CWaitDeadline& deadline, const std::uint64_t milliseconds) noexcept;
@@ -63,4 +65,5 @@ private:
     bool m_active{ false };
     modules::ETestRunStatus m_result{ modules::ETestRunStatus::invalid_request };
 };
+
 }   //  namespace audio

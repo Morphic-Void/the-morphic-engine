@@ -92,16 +92,29 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And '$(FixtureRole)'!='Provider'">
+    <Link><AdditionalOptions>/EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And '$(FixtureRole)'=='Provider'">
-    <Link><AdditionalOptions>/EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 /EXPORT:morphic_module_service_provider_v1=_morphic_module_service_provider_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\host_pump\fixture.cpp" />
     <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\tests\host_pump\provider_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\executive_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\credit_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\borrow_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\notification_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\modal_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\schema_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\report_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\native_execution.hpp" />
+    <ClInclude Include="..\tests\host_pump\fixture_types.hpp" />
     <ClInclude Include="..\tests\support\host_test_paths.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def" />

@@ -12,13 +12,15 @@ Review: 04 Nov 2026
 ## Status and scope
 
 Host/module communication is now implemented by the
-[common endpoint contract](host_pump_foundation.md). Its mandatory lifecycle pump,
-requested service threads and common asynchronous queues supersede this design's
+[Host execution contract](host_pump_foundation.md). Its Host-owned preamble,
+module execution classes, private lifecycle rings and fixed ordinary POD pipes
+supersede this design's
 optional execution advertisements, pump service callbacks and consumed-prefix
 mechanics. Earlier decisions and validation below remain a historical record;
 they do not define an additional communication path.
 
-The two communication increments are complete in `ca8770d` and `84506a7`.
+The communication increments in `ca8770d` and `84506a7` were followed by the
+completed [preamble consolidation](module_preamble_validation.md).
 Remaining Host work is consolidated in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md);
 historical deferrals below are not a current to-do list.
 
@@ -47,7 +49,8 @@ describe their delivered implementations and supersede historical deferrals belo
 6 November update: the [Host timed-wait contract](host_timed_wait.md) supersedes
 the historical wait deferral below. Initial Windows/native-queue and Linux/engine
 waiting were delivered with the then-current pump ABI V2. The common endpoint
-refactor subsequently replaced it with the current version-1 pump contract;
+refactor subsequently replaced it, and the preamble consolidation now uses the
+version-1 execution contract;
 neither historical layout is a supported compatibility path. Android/macOS native
 drivers remain future work.
 
@@ -63,7 +66,7 @@ sections describe those earlier baselines, not the current checkout.
 | Borrow-bound notification registrations (`aca926f`) | [Notifications](service_notifications.md). |
 | Restriction accounting, eligible budgets and bounded modal maintenance (`078b595`) | [Restriction/maintenance contract and portable evidence](host_restriction_maintenance.md). |
 | On-demand Platform shell and first Windows window (`f55d514`) | [Window interfaces, native acceptance and limits](platform_first_window.md). |
-| Host-owned general direct messaging | [Direct POD connections](direct_pod_connections.md), using growable queues. |
+| Host-owned general direct messaging | [Direct POD connections](direct_pod_connections.md), now using fixed 1,024-message rings. |
 | Aggregate wake and anchored 120 Hz opportunities | [Host timed waiting](host_timed_wait.md), implemented on Windows and the Linux shell. |
 | Input lifetime, schema installation and mapping | [Connections](input_connections.md), [configuration installation](input_configuration_installation.md) and [mapper](input_mapping.md). |
 | Windows desktop and multiple controller acquisition | [Desktop acceptance](desktop_input.md) and [controller acceptance](controller_input.md), including the recovery fixes in `8ad2323`. |
@@ -79,12 +82,13 @@ use matching headers; the pre-release layouts are not a compatibility promise.
 The connection decision separates allocation ownership: general direct
 endpoint messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging),
 while input/HID keeps [Platform-owned producer streams](#platform-owned-desktop-and-controller-connections).
-Each direct connection groups two growable SPSC queues under one identity and
+Each direct connection groups two fixed SPSC rings under one identity and
 coordinated lifetime. Any endpoint can request a pair; both participants explicitly
 consent and install before Host authorises activation. Ordinary POD traffic and
 wake signals then pass directly.
 The implemented [direct POD contract](direct_pod_connections.md) supersedes the
-earlier producer-owned and fixed-capacity proposals for general direct messages.
+earlier module-owned connection mechanics. Capacity and private handshake details
+now follow the completed preamble contract.
 
 The [Framework layer](#shared-framework-contracts) contains public window, input and
 direct-connection contracts. Direct POD connections use system-ID endpoint addresses
@@ -238,16 +242,16 @@ newer implementation, so use Git history for the exact assessed baseline.
 | --- | --- | --- |
 | Optional capability | [module_binding.hpp](../../framework/module/module_binding.hpp) and [bound_module.cpp](../../host/module/bound_module.cpp), `query_service_thread` | Follow its optional, independently versioned export pattern. Discover a descriptor on the worker; execute host-pumped lifecycle calls on Host. |
 | Binding installation | [module_binding_context.cpp](../../framework/module/module_binding_context.cpp) | Module installation and thread-local provisioning are separate. A host-pumped call needs valid module-local TLS on the Host thread. |
-| Worker authority | [host_worker_thread.cpp](../../host/runtime/host_worker_thread.cpp), `perform_module_work` | Loading, binding, installation and unbinding belong to the I/O worker. Native window creation and destruction must not be added there. |
-| Module availability | [module_service.cpp](../../host/runtime/module_service.cpp), `complete`, `complete_thread_start`, `finish` | Readiness currently distinguishes passive bindings from service threads. Add host activation and cleanup states before returning completion. |
+| Worker authority | [host_worker_thread.cpp](../../host/runtime/workers/host_worker_thread.cpp), `perform_module_work` | Loading, binding, installation and unbinding belong to the I/O worker. Native window creation and destruction must not be added there. |
+| Module availability | [module_service.cpp](../../host/module/module_service.cpp), `complete`, `complete_thread_start`, `finish` | Readiness currently distinguishes passive bindings from service threads. Add host activation and cleanup states before returning completion. |
 | Request admission | [host.cpp](../../host/runtime/host.cpp), `receive_request` and `run` | Executive owns the current module-request route; other registered services send owning requests to the asset service. Rendering cannot yet request Platform through this route. |
-| Client lifetime | [module_service.hpp](../../host/runtime/module_service.hpp), `m_client` | A pending operation borrows a `CThreadPackage*`. General routing needs explicit requester-lifetime protection through completion or cancellation. |
+| Client lifetime | [module_service.hpp](../../host/module/module_service.hpp), `m_client` | A pending operation borrows a `CThreadPackage*`. General routing needs explicit requester-lifetime protection through completion or cancellation. |
 | Main loop | [host.cpp](../../host/runtime/host.cpp), `run` | Host drains queues and advances lifecycle, ending in `processor_relax()`. This is a spin hint, not a sleep or OS event wait. Existing queue drains are not budgeted. |
 | Thread resources | [CThreadPackage.hpp](../../host/threading/CThreadPackage.hpp) | Transport, parking and native thread state are currently bundled. A pumped module must not pretend to own a native thread just to get an endpoint. |
 | Tests | [host.cpp](../../host/runtime/host.cpp), `request_tests`, `complete_tests` | Generic test messages currently resolve only to service-thread packages. A pumped destination requires endpoint-based routing and termination handling. |
 | Existing transports | [TRingTransport.hpp](../../foundation/threading/transports/TRingTransport.hpp), [TQueueTransport.hpp](../../foundation/threading/transports/TQueueTransport.hpp) | Reuse established transport semantics; an input pipe is not an existing Platform abstraction. Fixed rings reject full writes and require quiescence before deallocation. |
 | Type admission | [erased_transport_admission.hpp](../../foundation/system/erased_transport_admission.hpp) and concrete erased transports | LOCAL identities do not become cross-module messages merely by forwarding them. Choose an explicit shared contract/transport boundary. |
-| Unload protection | [asset_service.cpp](../../host/runtime/asset_service.cpp), `CBoundModule::unbind` | Asset acquisitions, dependency bits and allocation attribution do not account for arbitrary window uses or callbacks into another DLL. |
+| Unload protection | [asset_service.cpp](../../host/assets/asset_service.cpp), `CBoundModule::unbind` | Asset acquisitions, dependency bits and allocation attribution do not account for arbitrary window uses or callbacks into another DLL. |
 | Shutdown | `CModuleService::request_shutdown` and `CHost::shutdown` | Record-order unload and emergency thread joining need additional dependency-aware quiescence. Platform must remain callable while clients release presentation resources. |
 
 At that baseline there was no production Platform module or native window/input
@@ -360,9 +364,13 @@ Local diagnostics are under `build/framework-2026-11-04/`. This checkpoint does 
 cover the separate Windows module-lifecycle runner or every hosted CI configuration.
 It introduces no native Linux backend or direct-connection implementation.
 
-## Host-pumped capability
+## Historical Host-pumped capability
 
-The implemented optional export `morphic_module_host_pump_v1` returns
+The following records the original interface. It is superseded by the mandatory
+version-1 [common execution contract](host_pump_foundation.md), with no legacy
+export or compatibility path retained.
+
+The original optional export `morphic_module_host_pump_v1` returns
 a validated, standard-layout function table, with bootstrap version 3 unchanged.
 Absence means this capability is not provided,
 while a malformed advertised descriptor fails admission.
@@ -540,6 +548,11 @@ owning reply channel already exists; keep the generic result compact or explicit
 design the necessary transport change.
 
 ### Host-owned duplex connections for general POD messaging
+
+This section preserves the original direct-connection design. Current fixed-ring
+capacity, endpoint identity, facade consent and Host-private handshake semantics
+are defined in [direct POD connections](direct_pod_connections.md). The growable
+queues and module-facing controls below are not supported alternatives.
 
 Host owns each connection record and its transport storage through the codebase's
 curated containers. A connection groups two growable SPSC queues, A-to-B and B-to-A,
@@ -2187,8 +2200,8 @@ decisions are preserved; new substantive interface choices still require review.
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
-| Shared Framework contracts | Public window/input and direct-connection interfaces are implemented. Core's dependency boundary is preserved; broader Core decomposition remains separate work. |
-| Input and direct service-thread connection ABI | Implemented separately: [input](input_connections.md) has bounded Platform-owned rings; [direct POD](direct_pod_connections.md) has Host-owned growable queues. Concrete readiness, identity, admission and retirement APIs are defined. A broader threaded routed-service provider adapter is not selected. |
+| Shared Framework contracts | Public window/input contracts and the execution facade are implemented. Foundation/Framework separation is complete; old Core decomposition notes below are historical. |
+| Input and direct service-thread connection ABI | Implemented separately: [input](input_connections.md) has bounded Platform-owned rings; [direct POD](direct_pod_connections.md) now has Host-owned fixed rings. Concrete readiness, identity, admission and retirement APIs are defined. A broader threaded routed-service provider adapter is not selected. |
 | Acquisition failure and removal mechanics | Implemented eligible-time limits, retained completion, cancellation and quiescence-based cleanup. The combined Host/consumer pass exercises these contracts; timeout is never permission to reclaim live views. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
 | Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |

@@ -15,7 +15,7 @@
 #include "framework/module/service_provider.hpp"
 #include "runtime/platform_runtime.hpp"
 #include "runtime/input_acceptance.hpp"
-#include "containers/TInstance.hpp"
+#include <new>
 
 namespace platform::module_binding
 {
@@ -32,76 +32,87 @@ static modules::EBindingResult MV_STD_ABI_CALL query_function(const system_type_
 static constexpr modules::SModuleBindingConfig k_binding_config = MV_MODULE_BINDING_CONFIG();
 static modules::CModuleBindingContext s_binding{ k_binding_config };
 
-static TInstance<runtime::CPlatformRuntime>& runtime_state() noexcept
+class CPlatformExecution
 {
-    static TInstance<runtime::CPlatformRuntime> state;
-    return state;
+public:
+    CPlatformExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept;
+
+    static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context, void** const runtime) noexcept;
+    static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept;
+    static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept;
+
+private:
+    memory::CMemoryToken m_allocation;
+    runtime::CPlatformRuntime m_runtime;
+};
+
+CPlatformExecution::CPlatformExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept
+    : m_allocation{ std::move(allocation) }, m_runtime{ context
+#if defined(MV_INPUT_ACCEPTANCE)
+        , acceptance::window_adapter(), platform::threading::SAwakeClock{},
+        acceptance::controller_adapter(), acceptance::report_adapter()
+#endif
+    }
+{
 }
 
-static modules::ECallStatus MV_STD_ABI_CALL activate(const modules::SHostPumpContext* const context,
-    void** const runtime, modules::SProgress* const progress) noexcept
+modules::EExecutionStatus MV_STD_ABI_CALL CPlatformExecution::create(const modules::SExecutionContext* const context, void** const runtime) noexcept
 {
-    if (!context || !runtime || !progress || (context->size != sizeof(*context)) || (context->version != 1u) ||
-        !context->endpoint ||
-        !s_binding.is_thread_context_ready(context) || runtime_state())
+    if (!context || !runtime || (context->size != sizeof(*context)) || (context->version != 1u) ||
+        !context->communication || !context->execution || !s_binding.is_thread_context_ready(context))
     {
-        return modules::ECallStatus::invalid_argument;
+        return modules::EExecutionStatus::invalid_argument;
     }
     *runtime = nullptr;
-#if defined(MV_INPUT_ACCEPTANCE)
-    if (!acceptance::initialise(*context)) return modules::ECallStatus::failed;
-    if (!runtime_state().emplace(*context, acceptance::window_adapter(),
-        platform::threading::SAwakeClock{}, acceptance::controller_adapter(), acceptance::report_adapter()))
+    memory::CMemoryToken allocation{ 1u, alignof(CPlatformExecution) };
+    if (!allocation.allocate(sizeof(CPlatformExecution)))
     {
-        acceptance::destroy();
-        return modules::ECallStatus::failed;
+        return modules::EExecutionStatus::failed;
     }
-#else
-    if (!runtime_state().emplace(*context)) return modules::ECallStatus::failed;
-#endif
-    if (!runtime_state()->initialise())
+#if defined(MV_INPUT_ACCEPTANCE)
+    if (!acceptance::initialise(*context))
     {
-        runtime_state().reset();
+        return modules::EExecutionStatus::failed;
+    }
+#endif
+    void* const storage = allocation.data();
+    CPlatformExecution* const self = ::new (storage) CPlatformExecution{ std::move(allocation), *context };
+    if (!self->m_runtime.initialise())
+    {
+        memory::CMemoryToken rejected{ std::move(self->m_allocation) };
+        self->~CPlatformExecution();
 #if defined(MV_INPUT_ACCEPTANCE)
         acceptance::destroy();
 #endif
-        return modules::ECallStatus::failed;
+        return modules::EExecutionStatus::failed;
     }
-    *runtime = &*runtime_state();
-    *progress = {};
-    progress->phase = modules::EPumpPhase::ready;
-    return modules::ECallStatus::success;
+    *runtime = self;
+    return modules::EExecutionStatus::success;
 }
 
-static modules::ECallStatus MV_STD_ABI_CALL pump(void* const runtime, const modules::SPumpInput* const input,
-    modules::SPumpResult* const result) noexcept
+modules::EExecutionStatus MV_STD_ABI_CALL CPlatformExecution::handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept
 {
-    if (!runtime_state() || (runtime != &*runtime_state()) || !input || !result ||
-        (input->size != sizeof(*input)) || (input->version != 1u))
-        return modules::ECallStatus::invalid_argument;
-    const bool failed = runtime_state()->failed();
-    runtime_state()->pump(*input, *result);
-    return (!failed && runtime_state()->failed()) ? modules::ECallStatus::failed : modules::ECallStatus::success;
+    if (!runtime || !invocation || !progress)
+    {
+        return modules::EExecutionStatus::invalid_argument;
+    }
+    return static_cast<CPlatformExecution*>(runtime)->m_runtime.handle(*invocation, *progress);
 }
 
-static modules::ECallStatus MV_STD_ABI_CALL begin_stop(void* const runtime, const modules::EStopReason,
-    modules::SProgress* const progress) noexcept
+modules::EExecutionStatus MV_STD_ABI_CALL CPlatformExecution::destroy(void* const runtime) noexcept
 {
-    if (!runtime_state() || (runtime != &*runtime_state()) || !progress) return modules::ECallStatus::invalid_argument;
-    runtime_state()->begin_stop(*progress);
-    return modules::ECallStatus::success;
-}
-
-static modules::ECallStatus MV_STD_ABI_CALL deactivate(void* const runtime) noexcept
-{
-    if (!runtime_state() || (runtime != &*runtime_state()) || !runtime_state()->stopped()) return modules::ECallStatus::failed;
-    runtime_state().reset();
+    CPlatformExecution* const self = static_cast<CPlatformExecution*>(runtime);
+    if (!self || !self->m_runtime.stopped())
+    {
+        return modules::EExecutionStatus::failed;
+    }
+    memory::CMemoryToken allocation{ std::move(self->m_allocation) };
+    self->~CPlatformExecution();
 #if defined(MV_INPUT_ACCEPTANCE)
     acceptance::destroy();
 #endif
-    return modules::ECallStatus::success;
+    return modules::EExecutionStatus::success;
 }
-
 }   //  namespace platform::module_binding
 
 MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v1(modules::SBootstrapFunctions* const functions) noexcept
@@ -109,17 +120,18 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
     return platform::module_binding::s_binding.bootstrap(functions);
 }
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(const std::uint32_t capacity,
-    modules::SHostPumpV1* const value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_execution_v1(const std::uint32_t capacity, modules::SExecutionV1* const execution) noexcept
 {
-    if (!value || (capacity != sizeof(*value))) return modules::EBindingResult::invalid_argument;
-    using namespace platform::module_binding;
-    *value = { sizeof(*value), 1u, modules::k_host_pump_native_events, &activate, &pump, &begin_stop, &deactivate };
+    if (!execution || (capacity != sizeof(*execution)))
+    {
+        return modules::EBindingResult::invalid_argument;
+    }
+    using platform::module_binding::CPlatformExecution;
+    *execution = { sizeof(*execution), 1u, modules::k_execution_native_events,
+        &CPlatformExecution::create, &CPlatformExecution::handle, &CPlatformExecution::destroy };
     return modules::EBindingResult::success;
 }
-
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_provider_v1(const std::uint32_t capacity,
-    modules::SServiceProviderV1* const value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_provider_v1(const std::uint32_t capacity, modules::SServiceProviderV1* const value) noexcept
 {
     if (!value || (capacity != sizeof(*value))) return modules::EBindingResult::invalid_argument;
     static constexpr services::SServiceContract contracts[]{ platform::windows::k_window_contract, platform::input::k_input_contract

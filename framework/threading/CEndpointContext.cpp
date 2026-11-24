@@ -10,7 +10,6 @@
 
 #include "framework/threading/CEndpointContext.hpp"
 #include "framework/services/provider_messages.hpp"
-#include "framework/communications/direct_connection.hpp"
 #include "framework/assets/asset_messages.hpp"
 #include "framework/assets/schema_messages.hpp"
 #include "framework/module/module_messages.hpp"
@@ -32,10 +31,7 @@ bool endpoint_settlement(const CErasedPodMsg& message) noexcept
         message.is_payload_a<services::CloseServiceRequest>() ||
         message.is_payload_a<AssetReleaseRequest>() || message.is_payload_a<AssetDisposeRequest>() ||
         message.is_payload_a<SchemaProcessCancel>() ||
-        message.is_payload_a<platform::reports::PlatformReportCaptureFailed>() ||
-        message.is_payload_a<StopThreadRequest>() || message.is_payload_a<CloseProviderAdmission>() ||
-        message.is_payload_a<connections::Close>() || message.is_payload_a<connections::Quiescent>() ||
-        message.is_payload_a<connections::Decision>() || message.is_payload_a<connections::Ready>();
+        message.is_payload_a<platform::reports::PlatformReportCaptureFailed>();
 }
 
 bool endpoint_settlement(const CErasedOwnerMsg& message) noexcept
@@ -85,19 +81,6 @@ SEndpointPost CEndpointContext::publish(const CErasedPodMsg& message) noexcept
 
 SEndpointPost CEndpointContext::post(const CErasedPodMsg& message) noexcept
 {
-    //  Only seal() may publish a trusted boundary.
-    if (message.is_payload_a<SealEndpoint>())
-    {
-        return { EEndpointPost::invalid };
-    }
-    if (m_endpoint.sealing && !endpoint_settlement(message))
-    {
-        return { EEndpointPost::closed };
-    }
-    if (m_endpoint.sealing && !m_endpoint.seal_posted)
-    {
-        return { EEndpointPost::busy };
-    }
     return publish(message);
 }
 
@@ -108,10 +91,6 @@ SEndpointPost CEndpointContext::post(CErasedOwnerMsg&& message) noexcept
         (failure != EEndpointFailure::direct_transport_poisoned))
     {
         return { EEndpointPost::transport_failed };
-    }
-    if (m_endpoint.sealing && !endpoint_settlement(message))
-    {
-        return { EEndpointPost::closed };
     }
     if (m_endpoint.published_owners == UINT64_MAX)
     {
@@ -138,23 +117,6 @@ SEndpointPost CEndpointContext::post(CErasedOwnerMsg&& message) noexcept
     ++m_endpoint.published_owners;
     (void)m_endpoint.owner_wake.signal();
     return { EEndpointPost::queued };
-}
-
-SEndpointPost CEndpointContext::seal() noexcept
-{
-    if (!m_endpoint.sealing)
-    {
-        m_endpoint.sealing = true;
-        if (m_endpoint.batch_client) m_endpoint.batch_client->close_admission();
-        m_endpoint.seal = { m_endpoint.published_pods, m_endpoint.published_owners };
-    }
-    if (m_endpoint.seal_posted)
-    {
-        return { EEndpointPost::queued };
-    }
-    const SEndpointPost result = publish(make_pod_message(-1, m_endpoint.seal));
-    if (result) m_endpoint.seal_posted = true;
-    return result;
 }
 
 }   //  namespace threading

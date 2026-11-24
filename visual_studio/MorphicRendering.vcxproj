@@ -91,12 +91,12 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\rendering\module\binding\rendering_binding.cpp" />
     <ClCompile Include="..\rendering\module\types\local_type_ids.cpp" />
-    <ClCompile Include="..\rendering\runtime\rendering_thread.cpp" />
+    <ClCompile Include="..\rendering\runtime\rendering_execution.cpp" />
     <ClCompile Include="..\rendering\runtime\texture_flow_tests.cpp" />
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp" />
     <ClCompile Include="..\rendering\runtime\texture_jobs.cpp" />
@@ -141,12 +141,11 @@
     <ClCompile Include="..\external\basis_universal\zstd\zstd.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\rendering\module\binding\rendering_binding.hpp" />
     <ClInclude Include="..\rendering\module\types\erased_owner_payloads.def" />
     <ClInclude Include="..\rendering\module\types\local_type_ids.def" />
     <ClInclude Include="..\rendering\module\types\local_type_ids.hpp" />
     <ClInclude Include="..\rendering\module\types\local_types.hpp" />
-    <ClInclude Include="..\rendering\runtime\rendering_thread.hpp" />
+    <ClInclude Include="..\rendering\runtime\rendering_execution.hpp" />
     <ClInclude Include="..\rendering\runtime\texture_flow_tests.hpp" />
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp" />
     <None Include="..\rendering\shaders\morphic_shader.hlsli" />

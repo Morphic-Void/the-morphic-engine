@@ -9,7 +9,9 @@ was completed in `84506a7`.
 
 See [completed milestones](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections)
 for delivery status and the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md)
-for remaining work. No next increment is selected.
+for remaining work. The later [preamble consolidation](module_preamble_design.md)
+is also complete; the old transport/control descriptions below are historical,
+not an alternative supported interface.
 
 ## Purpose and boundary
 

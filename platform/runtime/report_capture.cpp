@@ -26,6 +26,7 @@ void CReportCapture::fail(const SFailure failure) noexcept
     m_envelope = {};
     m_session.reset();
     m_phase = EPhase::post;
+    m_output_wait = false; //  The new failure POD may use a different writable pipe.
 }
 
 void CReportCapture::message(const ::threading::CErasedPodMsg& message) noexcept
@@ -35,7 +36,7 @@ void CReportCapture::message(const ::threading::CErasedPodMsg& message) noexcept
     PlatformReportCaptureReceipt receipt;
     if (message.copy_payload_to(request))
     {
-        if (active() || (request.capture.platform_instance.value != m_context.instance.value) ||
+        if (active() || (request.capture.platform_instance.value != instance().value) ||
             (request.capture.capture_id <= m_last_id))
         {
             return;
@@ -46,19 +47,21 @@ void CReportCapture::message(const ::threading::CErasedPodMsg& message) noexcept
         m_begin = m_max_call = m_schema_ns = m_max_pump = 0u;
         m_failure = {};
         m_phase = EPhase::start;
+        m_output_wait = false;
         if ((request.deadline.duration_ns != k_capture_limits.eligible_duration_ns) ||
-            (m_budget.resume(m_context.execution->restriction, request.deadline) == modules::EBudgetStatus::failed))
+            (m_budget.resume(execution()->restriction, request.deadline) == modules::EBudgetStatus::failed))
         {
             fail({ EStage::capture, EReason::clock_failed });
         }
     }
-    else if (message.copy_payload_to(cancel) && runnable() && (cancel.capture.platform_instance.value == m_context.instance.value) &&
+    else if (message.copy_payload_to(cancel) && active() && (m_phase != EPhase::receipt) &&
+        (cancel.capture.platform_instance.value == instance().value) &&
         (cancel.capture.capture_id == m_identity.capture_id))
     {
         fail({ EStage::lifecycle, cancel.reason });
     }
     else if (message.copy_payload_to(receipt) && (m_phase == EPhase::receipt) &&
-        (receipt.capture.platform_instance.value == m_context.instance.value) && (receipt.capture.capture_id == m_identity.capture_id))
+        (receipt.capture.platform_instance.value == instance().value) && (receipt.capture.capture_id == m_identity.capture_id))
     {
         MV_LOG(info, "Platform report {} receipt {}, calls {}, max native ns {}, schema ns {}, max Platform pump ns {}, peak staged bytes {}",
             m_last_id, static_cast<unsigned>(receipt.disposition), m_calls, m_max_call, m_schema_ns, m_max_pump, m_memory ? m_memory->peak() : 0u);
@@ -164,7 +167,12 @@ void CReportCapture::observe_pump(const std::uint64_t start) noexcept
 
 void CReportCapture::progress(const bool stopping, const std::uint64_t share_ns) noexcept
 {
-    if (!runnable()) return;
+    //  runnable() controls scheduling while capacity is unavailable. An async
+    //  service invocation after a capacity wake must still retry retained output.
+    if (!active() || (m_phase == EPhase::receipt))
+    {
+        return;
+    }
     if ((m_failure.reason == EReason::none) && (!eligible(stopping) || !share_ns))
     {
         return;
@@ -254,18 +262,19 @@ void CReportCapture::progress(const bool stopping, const std::uint64_t share_ns)
     if (m_failure.reason != EReason::none)
     {
         const auto message = ::threading::make_pod_message(-1, PlatformReportCaptureFailed{ m_identity, m_failure });
-        status = services::submission_status(m_context.endpoint->post(message));
+        status = services::submission_status(m_communication.submit({}, message));
     }
     else
     {
-        status = services::submission_status(m_context.endpoint->post(std::move(m_envelope)));
+        status = services::submission_status(m_communication.submit({}, std::move(m_envelope)));
         if ((status == services::EServiceStatus::invalid_request) && m_envelope.has_owner())
         {
             fail({ EStage::transfer, EReason::transport_failed });
             return;
         }
     }
-    if (status == services::EServiceStatus::busy) return;
+    m_output_wait = status == services::EServiceStatus::busy;
+    if (m_output_wait) return;
     //  Ambiguous delivery retains bookkeeping. Only a matching receipt or
     //  exceptional Host lifetime retention can settle a potentially exposed offer.
     m_phase = EPhase::receipt;

@@ -10,14 +10,12 @@
 //  Controlled worker completions and retained-record bundle lifetimes.
 
 #include "framework/system/system_ids.hpp"
-#include "framework/threading/CThreadContext.hpp"
 #include <cstring>
 #include <vector>
 
 #include "assets/internal/bundle_builder_io.hpp"
 #include "data_model/document_translation.hpp"
-#include "host/runtime/asset_service.hpp"
-#include "tests/support/host_client_fixture.hpp"
+#include "host/assets/asset_service.hpp"
 #include "tests/support/endpoint_fixture.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
@@ -61,19 +59,36 @@ bool make_bundle(CBakedDocumentBlock& block)
     return bundle::detail::build(inventory, inventory.root(), sources.const_view(), block, view, io).succeeded();
 }
 
+std::uint64_t next_recipient_identity() noexcept
+{
+    static std::uint64_t identity = 2000u;
+    return ++identity;
+}
+
+// These controlled recipients have no native execution or outstanding ingress.
+// Actual affine termination/join is covered by common-preamble domain fixtures.
+void end_recipient(host::SClientRecord& client) noexcept
+{
+    client.phase = host::EClientPhase::stopped;
+    client.terminal_before_drain = client.incoming_drained = true;
+    client.flush_replies();
+}
+
 struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
-    tests::CHostClientFixture package{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
+    threading::CThreadPackage worker{ threading::ThreadConfig{ thread_ids::bg_file_io, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, conversion };
+    tests::SCommonEndpointFixture client{ module_ids::executable, next_recipient_identity(), 32u };
     filesystem_image::CImage image;
     CAssetService service;
     std::uint64_t binding{ 0u };
 
     ~SFixture() noexcept
     {
-        (void)package.shutdown();
-        service.detach_client(package);
+        (void)tests::stop_and_join(worker, conversion);
+        end_recipient(client);
+        service.detach_client(client);
         service.deallocate();
     }
     bool initialise()
@@ -82,82 +97,127 @@ struct SFixture
         service.set_filesystem(image);
         return tests::parse_document(R"({"roots":{"work:":{"source":"unused","writable":true,"content":{}}}})", document) &&
             image.adopt(std::move(document)) && conversion.init() && service.initialise() &&
-            service.configure_workers(package, nullptr) && package.startup();
+            service.configure_workers(worker, nullptr) && worker.startup();
     }
-    AssetResult publish(TTestContext& ctx, tests::CHostClientFixture* owner = nullptr)
+    void progress(host::SClientRecord& recipient)
+    {
+        service.complete_disposals();
+        recipient.flush_replies();
+        for (unsigned count = 0u; (count < 8u) && recipient.output_ready(); ++count)
+        {
+            const bool asset = service.output_ready(recipient);
+            if (asset) service.retry_output(recipient);
+            const bool bundle = recipient.output_ready() && service.bundle_output_ready(recipient);
+            if (bundle) service.retry_bundle_output(recipient);
+            if (!asset && !bundle)
+            {
+                break;
+            }
+        }
+        service.complete_disposals();
+    }
+    void request_disposal(TTestContext& ctx, const AssetDisposeRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_disposal(request, slot, recipient);
+    }
+    void request_reference(TTestContext& ctx, const BundleReferenceRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_reference(request, slot, recipient);
+    }
+    void request_acquire(TTestContext& ctx, const AssetAcquireRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_acquire(request, slot, recipient);
+    }
+    void request_release(TTestContext& ctx, const AssetReleaseRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_release(request, slot, recipient);
+    }
+    AssetResult publish(TTestContext& ctx, host::SClientRecord* const owner = nullptr)
     {
         BundlePreparation prepared;
         TEST_EXPECT(ctx, make_bundle(prepared.block));
-        const void* before = prepared.block.buffer_bytes().data();
+        const void* const before = prepared.block.buffer_bytes().data();
         TEST_EXPECT(ctx, prepared.view.reset(before, prepared.block.buffer_bytes().size()).succeeded());
         TEST_EXPECT(ctx, prepared.directory.prepare(prepared.view));
         TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
-        const auto result = service.publish_bundle(prepared, binding, (owner != nullptr) ? *owner : package);
-        TEST_EXPECT(ctx, result.status == EAssetStatus::success && result.asset && !prepared.block.is_ready());
-        TEST_EXPECT(ctx, result.bundle_view().bytes().data() == before);
+        const AssetResult result = service.publish_bundle(prepared, binding, owner ? *owner : client);
+        TEST_EXPECT(ctx, ((result.status == EAssetStatus::success) && result.asset && !prepared.block.is_ready()));
+        TEST_EXPECT(ctx, (result.bundle_view().bytes().data() == before));
         return result;
     }
-    filesystem_image::SResolvedSource resolve(TTestContext& ctx, const char* path = "pack:/raw")
+    filesystem_image::SResolvedSource resolve(TTestContext& ctx, const char* const path = "pack:/raw")
     {
         filesystem_image::SResolvedSource result;
         TEST_EXPECT(ctx, image.resolve(path, false, result));
         return result;
     }
-    template<typename T> bool receive(T& result, std::int32_t expected_slot, tests::CHostClientFixture* recipient = nullptr)
+    template<typename T> bool receive(T& result, const std::int32_t expected_slot, host::SClientRecord* const recipient = nullptr)
+    {
+        host::SClientRecord& target = recipient ? *recipient : client;
+        progress(target);
+        threading::CErasedPodMsg message;
+        return target.channel->read_preamble_pod(message) && (message.query_async_slot() == expected_slot) && message.copy_payload_to(result);
+    }
+    bool receive_work(FileSaveRequest& work, const std::int32_t expected_slot)
     {
         threading::CErasedPodMsg message;
-        const bool received = tests::wait_until(conversion, [this, recipient, &message]() noexcept
-        {
-            return ((recipient != nullptr) ? *recipient : package).read(message);
-        });
-        return received && (message.query_async_slot() == expected_slot) && message.copy_payload_to(result);
+        return tests::wait_until(conversion, [&] { return worker.read(message); }) &&
+            (message.query_async_slot() == expected_slot) && message.copy_payload_to(work);
     }
-    template<typename T> void request(TTestContext& ctx, std::int32_t slot, CErasedOwner&& owner)
+    template<typename T> void request(TTestContext& ctx, const std::int32_t slot, CErasedOwner&& owner)
     {
-        TEST_EXPECT(ctx, owner.payload<T>() != nullptr);
+        TEST_EXPECT(ctx, (owner.payload<T>() != nullptr));
         threading::CErasedOwnerMsg message;
         message.set_message_type<T>();
         message.set_async_slot(slot);
         message.set_owner(std::move(owner));
-        service.request(message, package);
+        host::CRetainedReplies::CDispatch dispatch{ *client.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && client.reserve_replies(1u)));
+        service.request(message, client);
     }
-    void dispose(TTestContext& ctx, CAssetId asset)
+    void dispose(TTestContext& ctx, const CAssetId asset)
     {
-        service.request_disposal({ asset }, 7, package);
+        request_disposal(ctx, { asset }, 7, client);
         service.complete_disposals();
         AssetDisposeResult result;
-        TEST_EXPECT(ctx, receive(result, 7) && result.asset == asset && result.status == EAssetStatus::success);
+        TEST_EXPECT(ctx, (receive(result, 7) && (result.asset == asset) && (result.status == EAssetStatus::success)));
     }
-    void notification(TTestContext& ctx, CAssetId asset)
+    void notification(TTestContext& ctx, const CAssetId asset)
     {
         BundleDisposedNotification result;
-        TEST_EXPECT(ctx, receive(result, -1) && result.asset == asset);
-        TEST_EXPECT(ctx, image.root_state("pack:") == ERootState::missing);
+        TEST_EXPECT(ctx, (receive(result, -1) && (result.asset == asset)));
+        TEST_EXPECT(ctx, (image.root_state("pack:") == ERootState::missing));
         service.complete_disposals();
-        //  FIFO barrier proves no duplicate notification is queued.
-        service.request_disposal({ asset }, 8, package);
+        request_disposal(ctx, { asset }, 8, client);
         AssetDisposeResult rejected;
-        TEST_EXPECT(ctx, receive(rejected, 8) && rejected.status == EAssetStatus::invalid_asset);
+        TEST_EXPECT(ctx, (receive(rejected, 8) && (rejected.status == EAssetStatus::invalid_asset)));
     }
-    void save(TTestContext& ctx, CAssetId asset, std::int32_t slot)
+    void save(TTestContext& ctx, const CAssetId asset, const std::int32_t slot)
     {
         auto owner = CErasedOwner::create<AssetSaveRequest>();
-        auto* save = owner.payload<AssetSaveRequest>();
-        TEST_EXPECT(ctx, save != nullptr && save->file.set("work:/saved.bdl"));
-        if (save == nullptr) return;
+        AssetSaveRequest* const save = owner.payload<AssetSaveRequest>();
+        TEST_EXPECT(ctx, (save && save->file.set("work:/saved.bdl")));
+        if (!save) return;
         save->source = asset;
         save->settings.format = EAssetFileFormat::raw;
         request<AssetSaveRequest>(ctx, slot, std::move(owner));
     }
-    void complete_save(std::int32_t slot)
+    void complete_save(const std::int32_t slot)
     {
         threading::CErasedPodMsg message;
         message.set_async_slot(slot);
         message.assign_payload(FileSaveResult{ true });
-        service.complete(message, package);
+        service.complete(message, worker);
     }
 };
-
 AssetResult retain_acquisition_fixture(TTestContext& ctx, SFixture& fixture, const mount_point_ids::id_type dependency = {})
 {
     auto owner = CErasedOwner::create<RawAssetTransfer>();
@@ -172,31 +232,31 @@ AssetResult retain_acquisition_fixture(TTestContext& ctx, SFixture& fixture, con
     return result;
 }
 
-AssetAcquireResult acquire(TTestContext& ctx, SFixture& fixture, CAssetId source,
-    EAssetAcquireView view = EAssetAcquireView::bytes, EAssetStatus status = EAssetStatus::success)
+AssetAcquireResult acquire(TTestContext& ctx, SFixture& fixture, const CAssetId source,
+    const EAssetAcquireView view = EAssetAcquireView::bytes, const EAssetStatus status = EAssetStatus::success)
 {
-    fixture.service.request_acquire({ source, view }, 11, fixture.package);
+    fixture.request_acquire(ctx, { source, view }, 11, fixture.client);
     AssetAcquireResult result;
     TEST_EXPECT(ctx, fixture.receive(result, 11) && result.status == status);
     TEST_EXPECT(ctx, static_cast<bool>(result.acquisition) == (status == EAssetStatus::success));
     return result;
 }
 
-void release(TTestContext& ctx, SFixture& fixture, CAssetAcquisitionId id,
-    EAssetStatus status = EAssetStatus::success, tests::CHostClientFixture* client = nullptr)
+void release(TTestContext& ctx, SFixture& fixture, const CAssetAcquisitionId id,
+    const EAssetStatus status = EAssetStatus::success, host::SClientRecord* const client = nullptr)
 {
-    fixture.service.request_release({ id }, 12, client ? *client : fixture.package);
+    fixture.request_release(ctx, { id }, 12, client ? *client : fixture.client);
     AssetReleaseResult result;
     TEST_EXPECT(ctx, fixture.receive(result, 12, client) && result.acquisition == id && result.status == status);
 }
 
-void test_uncertain_ordinary_acquisition(TTestContext& ctx)
+void test_fixed_ordinary_acquisition(TTestContext& ctx)
 {
     tests::TAllocationFailureFixture allocation;
     memory::CMemoryAllocator allocator{ &allocation, tests::allocate_with_failure, tests::deallocate_test_memory, system_ids::host };
     memory::CMemoryContext memory{ allocator, system_ids::host };
     tests::TMemoryContextScope scope{ &memory };
-    tests::SEndpointFixture recipient{ module_ids::executable, 701u };
+    tests::SCommonEndpointFixture recipient{ module_ids::executable, 701u, 32u };
     recipient.phase = host::EClientPhase::ready;
     CAssetService service;
     TEST_EXPECT(ctx, service.initialise());
@@ -208,56 +268,81 @@ void test_uncertain_ordinary_acquisition(TTestContext& ctx)
     request.set_message_type<RawAssetTransfer>();
     request.set_async_slot(1);
     request.set_owner(std::move(owner));
-    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
-    service.request(request, recipient);
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request(request, recipient);
+    }
+    service.retry_output(recipient);
     threading::CErasedPodMsg message;
     AssetResult retained;
-    TEST_EXPECT(ctx, (recipient.endpoint->host_to_worker_msgs.read(message) && message.copy_payload_to(retained) &&
+    TEST_EXPECT(ctx, (recipient.channel->read_preamble_pod(message) && message.copy_payload_to(retained) &&
         (retained.status == EAssetStatus::success)));
-    // Prime the acquisition table so the injected allocation failure occurs in
-    // reply publication, after the ordinary view may already have escaped.
-    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
-    service.request_acquire({ retained.asset }, 2, recipient);
-    AssetAcquireResult primed;
-    TEST_EXPECT(ctx, (recipient.endpoint->host_to_worker_msgs.read(message) && message.copy_payload_to(primed)));
-    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
-    service.request_release({ primed.acquisition }, 3, recipient);
-    TEST_EXPECT(ctx, recipient.endpoint->host_to_worker_msgs.read(message));
-    const threading::CErasedPodMsg filler = threading::make_pod_message(-1, AssetResult{});
-    do { TEST_EXPECT(ctx, recipient.post(filler)); }
-    while (!recipient.endpoint->host_to_worker_msgs.post_would_reallocate(1u));
-    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
-    allocation.fail_on = allocation.attempts + 1u;
-    service.request_acquire({ retained.asset }, 4, recipient);
-    TEST_EXPECT(ctx, (allocation.failed && recipient.endpoint->host_to_worker_msgs.posting_poisoned() && service.failed()));
-    allocation.fail_on = 0u;
-    AssetAcquireResult exposed;
-    unsigned acquisitions = 0u;
-    while (recipient.endpoint->host_to_worker_msgs.read(message))
+    // Prime acquisition storage so publication pressure performs no allocation.
     {
-        if (message.copy_payload_to(exposed)) ++acquisitions;
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_acquire({ retained.asset }, 2, recipient);
     }
-    TEST_EXPECT(ctx, ((acquisitions == 1u) && exposed.acquisition && (exposed.byte_view().data()[31] == 0x5a)));
-    TEST_EXPECT(ctx, recipient.reserve_replies(1u));
-    service.request_disposal({ retained.asset }, 5, recipient);
+    AssetAcquireResult primed;
+    TEST_EXPECT(ctx, (recipient.channel->read_preamble_pod(message) && message.copy_payload_to(primed)));
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_release({ primed.acquisition }, 3, recipient);
+    }
+    TEST_EXPECT(ctx, recipient.channel->read_preamble_pod(message));
+    const threading::CErasedPodMsg filler = threading::make_pod_message(-1, AssetResult{});
+    for (unsigned count = 0u; count < 32u; ++count) TEST_EXPECT(ctx, recipient.post(filler));
+    TEST_EXPECT(ctx, !recipient.post(filler));
+    const std::size_t attempts = allocation.attempts;
+    const std::uint64_t published = recipient.pending_replies->published();
+    allocation.fail_on = attempts;
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_acquire({ retained.asset }, 4, recipient);
+    }
+    TEST_EXPECT(ctx, (!allocation.failed && (allocation.attempts == attempts) && !service.failed() &&
+        !recipient.reserved_replies && (recipient.pending_replies->size() == 1u) &&
+        (recipient.pending_replies->published() == published)));
+    allocation.fail_on = SIZE_MAX;
+    unsigned fillers = 0u;
+    while (recipient.channel->read_preamble_pod(message))
+    {
+        TEST_EXPECT(ctx, message.is_payload_a<AssetResult>());
+        ++fillers;
+    }
+    TEST_EXPECT(ctx, (fillers == 32u));
+    recipient.flush_replies();
+    AssetAcquireResult exposed;
+    TEST_EXPECT(ctx, (recipient.channel->read_preamble_pod(message) && message.copy_payload_to(exposed) &&
+        (message.query_async_slot() == 4) && exposed.acquisition && (exposed.byte_view().data()[31] == 0x5a)));
+    TEST_EXPECT(ctx, (!recipient.channel->read_preamble_pod(message) && recipient.replies_idle()));
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_disposal({ retained.asset }, 5, recipient);
+    }
     service.release_client_acquisitions(recipient);
     service.complete_disposals();
     TEST_EXPECT(ctx, (!service.client_idle(recipient) && (exposed.byte_view().data()[0] == 0x5a)));
-    recipient.phase = host::EClientPhase::stopped;
-    service.release_client_acquisitions(recipient);
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_release({ exposed.acquisition }, 6, recipient);
+    }
+    AssetReleaseResult released;
+    TEST_EXPECT(ctx, (recipient.channel->read_preamble_pod(message) && message.copy_payload_to(released) &&
+        (released.status == EAssetStatus::success)));
     service.complete_disposals();
-    TEST_EXPECT(ctx, (!service.client_idle(recipient) && (exposed.byte_view().data()[31] == 0x5a)));
-    recipient.terminal_before_drain = recipient.incoming_drained = true;
-    recipient.invocation_active = true;
-    service.release_client_acquisitions(recipient);
-    TEST_EXPECT(ctx, !service.client_idle(recipient));
-    recipient.invocation_active = false;
-    service.release_client_acquisitions(recipient);
-    service.complete_disposals();
-    TEST_EXPECT(ctx, (service.client_idle(recipient) && service.is_idle() && recipient.replies_idle()));
+    service.retry_output(recipient);
+    AssetDisposeResult disposed;
+    TEST_EXPECT(ctx, (recipient.channel->read_preamble_pod(message) && message.copy_payload_to(disposed) &&
+        (disposed.status == EAssetStatus::success)));
+    TEST_EXPECT(ctx, (service.client_idle(recipient) && service.is_idle() && recipient.replies_idle() && !service.failed()));
     service.deallocate();
 }
-
 void test_generic_acquisitions(TTestContext& ctx)
 {
     SFixture fixture, other;
@@ -267,19 +352,19 @@ void test_generic_acquisitions(TTestContext& ctx)
     const auto second = acquire(ctx, fixture, original.asset);
     TEST_EXPECT(ctx, first.acquisition != second.acquisition);
     TEST_EXPECT(ctx, first.byte_view().data() == original.byte_view().data() && first.byte_view().align() == 32u);
-    TEST_EXPECT(ctx, fixture.service.work_idle() && !fixture.service.is_idle() && !fixture.service.client_idle(fixture.package));
+    TEST_EXPECT(ctx, fixture.service.work_idle() && !fixture.service.is_idle() && !fixture.service.client_idle(fixture.client));
     TEST_EXPECT(ctx, fixture.service.dependencies_idle(mount_point_ids::executive));
     fixture.service.dispose_dependencies(mount_point_ids::executive);
     TEST_EXPECT(ctx, second.byte_view().data()[31] == 0x5a);
-    fixture.service.release_client_acquisitions(fixture.package); // A live client cannot be reclaimed.
+    fixture.service.release_client_acquisitions(fixture.client); // A live client cannot be reclaimed.
     TEST_EXPECT(ctx, !fixture.service.is_idle());
     (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bundle, EAssetStatus::invalid_request);
     (void)acquire(ctx, fixture, original.asset, static_cast<EAssetAcquireView>(255u), EAssetStatus::invalid_request);
     (void)acquire(ctx, fixture, {}, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
     release(ctx, fixture, {}, EAssetStatus::invalid_request);
-    release(ctx, fixture, first.acquisition, EAssetStatus::invalid_request, &other.package);
+    release(ctx, fixture, first.acquisition, EAssetStatus::invalid_request, &other.client);
 
-    fixture.service.request_disposal({ original.asset }, 20, fixture.package);
+    fixture.request_disposal(ctx, { original.asset }, 20, fixture.client);
     fixture.service.complete_disposals();
     (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
     TEST_EXPECT(ctx, second.byte_view().data()[31] == 0x5a && fixture.service.work_idle());
@@ -325,7 +410,7 @@ void test_acquired_bundle_closure(TTestContext& ctx)
     const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     operation.reset();
     const auto acquired_file = acquire(ctx, fixture, file.asset);
-    fixture.service.request_disposal({ original.asset }, 20, fixture.package);
+    fixture.request_disposal(ctx, { original.asset }, 20, fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed);
     TEST_EXPECT(ctx, complete.bundle_view().lookup(CStringView{ "raw" }).status == bundle::ELookupStatus::success);
@@ -333,7 +418,7 @@ void test_acquired_bundle_closure(TTestContext& ctx)
     TEST_EXPECT(ctx, std::memcmp(acquired_file.byte_view().data(), "abc", 3u) == 0);
     (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bundle, EAssetStatus::invalid_asset);
     (void)acquire(ctx, fixture, file.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
-    fixture.service.request_disposal({ file.asset }, 21, fixture.package);
+    fixture.request_disposal(ctx, { file.asset }, 21, fixture.client);
     release(ctx, fixture, complete.acquisition);
     release(ctx, fixture, bytes.acquisition);
     fixture.service.complete_disposals();
@@ -355,10 +440,10 @@ void test_acquisition_save_and_client_exit(TTestContext& ctx)
     fixture.save(ctx, original.asset, 30);
     FileSaveRequest work;
     threading::CErasedPodMsg message;
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package.read(message); }));
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.worker.read(message); }));
     TEST_EXPECT(ctx, message.copy_payload_to(work));
     const auto work_slot = message.query_async_slot();
-    fixture.service.request_disposal({ original.asset }, 31, fixture.package);
+    fixture.request_disposal(ctx, { original.asset }, 31, fixture.client);
     release(ctx, fixture, acquired.acquisition);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, !fixture.service.work_idle());
@@ -370,27 +455,25 @@ void test_acquisition_save_and_client_exit(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.receive(disposed, 31) && disposed.status == EAssetStatus::success);
 
     const auto retained = retain_acquisition_fixture(ctx, fixture);
-    const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages };
-    auto client = TInstance<tests::CHostClientFixture>::create(config, fixture.conversion);
-    TEST_EXPECT(ctx, client && client->startup());
-    fixture.service.request_acquire({ retained.asset }, 40, *client);
+    auto client = TInstance<tests::SCommonEndpointFixture>::create(module_ids::executable, next_recipient_identity(), 32u);
+    TEST_EXPECT(ctx, static_cast<bool>(client));
+    fixture.request_acquire(ctx, { retained.asset }, 40, *client);
     AssetAcquireResult abandoned;
     TEST_EXPECT(ctx, fixture.receive(abandoned, 40, &*client) && abandoned.status == EAssetStatus::success);
-    (void)client->shutdown();
+    end_recipient(*client);
     fixture.service.detach_client(*client);
     TEST_EXPECT(ctx, fixture.service.is_idle());
-    //  Reuse the same package address. A previous instance's token stays stale.
+    //  Reuse the same recipient address. A previous instance's token stays stale.
     const auto* address = &*client;
-    TEST_EXPECT(ctx, client.emplace(config, fixture.conversion) && (&*client == address) && client->startup());
-    fixture.service.request_acquire({ retained.asset }, 41, *client);
+    TEST_EXPECT(ctx, client.emplace(module_ids::executable, next_recipient_identity(), 32u) && (&*client == address));
+    fixture.request_acquire(ctx, { retained.asset }, 41, *client);
     AssetAcquireResult fresh;
     TEST_EXPECT(ctx, fixture.receive(fresh, 41, &*client) && fresh.status == EAssetStatus::success);
     TEST_EXPECT(ctx, abandoned.acquisition != fresh.acquisition);
     release(ctx, fixture, abandoned.acquisition, EAssetStatus::invalid_request, &*client);
     release(ctx, fixture, fresh.acquisition, EAssetStatus::success, &*client);
     fixture.dispose(ctx, retained.asset);
-    (void)client->shutdown();
+    end_recipient(*client);
     fixture.service.detach_client(*client);
 }
 
@@ -421,7 +504,7 @@ void test_closure_and_retained_records(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx, "pack:/baked"), 16u, operation) == EAssetStatus::success);
     CAssetService::CBundleOperation moved{ std::move(operation) };
     TEST_EXPECT(ctx, !operation.bytes().is_ready() && moved.bytes().is_ready());
-    fixture.service.request_disposal({ original.asset }, 9, fixture.package);
+    fixture.request_disposal(ctx, { original.asset }, 9, fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed && !fixture.service.is_idle());
     TEST_EXPECT(ctx, !fixture.service.acquire_bundle(original.asset).asset);
@@ -442,7 +525,7 @@ void test_closure_and_retained_records(TTestContext& ctx)
     fixture.notification(ctx, original.asset);
     const auto replacement = fixture.publish(ctx);
     TEST_EXPECT(ctx, replacement.asset.query_value() > late.asset.query_value());
-    fixture.service.request_disposal({ replacement.asset }, 10, fixture.package);
+    fixture.request_disposal(ctx, { replacement.asset }, 10, fixture.client);
     fixture.service.complete_disposals();
     fixture.notification(ctx, replacement.asset);
     TEST_EXPECT(ctx, !fixture.service.failed());
@@ -491,7 +574,7 @@ void test_resolved_ranges(TTestContext& ctx)
     TEST_EXPECT(ctx, operation.bytes().data() == direct.bytes.data() && operation.bytes().size() == direct.bytes.bytes());
     TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx, "pack:/baked"), 128u, operation) == EAssetStatus::invalid_request);
     TEST_EXPECT(ctx, operation.bytes().data() == direct.bytes.data());
-    fixture.service.request_disposal({ original.asset }, 60, fixture.package);
+    fixture.request_disposal(ctx, { original.asset }, 60, fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed && !fixture.service.is_idle());
     CAssetService::CBundleOperation rejected;
@@ -509,7 +592,7 @@ void test_resolved_ranges(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::invalid_asset);
     TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
     operation.reset();
-    fixture.service.request_disposal({ replacement.asset }, 61, fixture.package);
+    fixture.request_disposal(ctx, { replacement.asset }, 61, fixture.client);
     fixture.service.complete_disposals();
     fixture.notification(ctx, replacement.asset);
     TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
@@ -527,14 +610,14 @@ void test_complete_views_and_saves(TTestContext& ctx)
     fixture.save(ctx, original.asset, 20);
     FileSaveRequest work;
     //  First operation gets slot zero; nothing else is outstanding.
-    TEST_EXPECT(ctx, fixture.receive(work, 0) && work.view.size() == original.byte_view().size());
+    TEST_EXPECT(ctx, fixture.receive_work(work, 0) && work.view.size() == original.byte_view().size());
     CAssetService::CBundleOperation operation;
     TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
     const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     operation.reset();
     {
         tests::TAssertionTestScope assertions(ctx);
-        assertions.expect_unconditional_assertion(ctx, [&] { fixture.service.request_disposal({ original.asset }, 9, fixture.package); });
+        assertions.expect_unconditional_assertion(ctx, [&] { fixture.request_disposal(ctx, { original.asset }, 9, fixture.client); });
     }
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, !fixture.service.acquire_bundle(retained.asset).asset);
@@ -549,8 +632,8 @@ void test_complete_views_and_saves(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.receive(saved, 20) && saved.status == EAssetStatus::success);
     fixture.dispose(ctx, retained.asset);
     fixture.save(ctx, file.asset, 23);
-    TEST_EXPECT(ctx, fixture.receive(work, 0) && work.view.size() == 3u && std::memcmp(work.view.data(), "abc", 3u) == 0);
-    fixture.service.request_disposal({ file.asset }, 24, fixture.package);
+    TEST_EXPECT(ctx, fixture.receive_work(work, 0) && work.view.size() == 3u && std::memcmp(work.view.data(), "abc", 3u) == 0);
+    fixture.request_disposal(ctx, { file.asset }, 24, fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed);
     fixture.complete_save(0);
@@ -574,7 +657,7 @@ void test_dependency_cleanup_and_recipient_exit(TTestContext& ctx)
         const auto survivor = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
         TEST_EXPECT(ctx, dependent.asset && survivor.asset);
         operation.reset();
-        fixture.service.request_disposal({ original.asset }, 9, fixture.package);
+        fixture.request_disposal(ctx, { original.asset }, 9, fixture.client);
         TEST_EXPECT(ctx, fixture.service.is_idle());
         {
             tests::TAssertionTestScope assertions(ctx);
@@ -582,19 +665,19 @@ void test_dependency_cleanup_and_recipient_exit(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, fixture.service.is_idle() && fixture.image.root_state("pack:") == ERootState::closed);
         TEST_EXPECT(ctx, std::memcmp(survivor.byte_view().data(), "abc", 3u) == 0);
-        if (detach) fixture.service.detach_client(fixture.package);
-        else (void)fixture.package.shutdown();
+        if (detach) fixture.service.detach_client(fixture.client);
+        else end_recipient(fixture.client);
         //  Disposal can be requested by a different, still-live client.
         SFixture client;
         TEST_EXPECT(ctx, client.initialise());
-        fixture.service.request_disposal({ survivor.asset }, 7, client.package);
+        fixture.request_disposal(ctx, { survivor.asset }, 7, client.client);
         fixture.service.complete_disposals();
         AssetDisposeResult disposed;
-        TEST_EXPECT(ctx, client.receive(disposed, 7) && disposed.status == EAssetStatus::success);
+        TEST_EXPECT(ctx, fixture.receive(disposed, 7, &client.client) && disposed.status == EAssetStatus::success);
         TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::missing && !fixture.service.failed());
         if (detach)
         {
-            fixture.service.request_disposal({ original.asset }, 8, fixture.package);
+            fixture.request_disposal(ctx, { original.asset }, 8, fixture.client);
             TEST_EXPECT(ctx, fixture.receive(disposed, 8) && disposed.status == EAssetStatus::invalid_asset);
         }
     }
@@ -606,72 +689,70 @@ void test_management_owner(TTestContext& ctx)
     TEST_EXPECT(ctx, owner.initialise() && borrower.initialise());
     const auto original = owner.publish(ctx);
     //  Both fixtures use the same thread role; authority belongs to the instance.
-    owner.service.request_disposal({ original.asset }, 40, borrower.package);
+    owner.request_disposal(ctx, { original.asset }, 40, borrower.client);
     AssetDisposeResult rejected;
-    TEST_EXPECT(ctx, borrower.receive(rejected, 40) && rejected.asset == original.asset &&
+    TEST_EXPECT(ctx, owner.receive(rejected, 40, &borrower.client) && rejected.asset == original.asset &&
         rejected.status == EAssetStatus::invalid_request);
     owner.service.complete_disposals();
     TEST_EXPECT(ctx, owner.image.root_state("pack:") == ERootState::open);
-    owner.service.request_reference({ original.asset }, 41, borrower.package);
+    owner.request_reference(ctx, { original.asset }, 41, borrower.client);
     AssetResult reference;
-    TEST_EXPECT(ctx, borrower.receive(reference, 41) && reference.status == EAssetStatus::success && reference.asset);
+    TEST_EXPECT(ctx, owner.receive(reference, 41, &borrower.client) && reference.status == EAssetStatus::success && reference.asset);
     TEST_EXPECT(ctx, reference.bundle_view().lookup(CStringView{ "raw" }).bytes.bytes() == 3u);
-    owner.service.request_disposal({ reference.asset }, 42, borrower.package);
+    owner.request_disposal(ctx, { reference.asset }, 42, borrower.client);
     owner.service.complete_disposals();
-    TEST_EXPECT(ctx, borrower.receive(rejected, 42) && rejected.status == EAssetStatus::success);
+    TEST_EXPECT(ctx, owner.receive(rejected, 42, &borrower.client) && rejected.status == EAssetStatus::success);
     CAssetService::CBundleOperation operation;
     TEST_EXPECT(ctx, owner.service.begin_bundle_file(owner.resolve(ctx), 128u, operation) == EAssetStatus::success);
     const auto file = owner.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     TEST_EXPECT(ctx, file.asset);
     operation.reset();
-    owner.service.request_disposal({ original.asset }, 43, owner.package);
+    owner.request_disposal(ctx, { original.asset }, 43, owner.client);
     owner.service.complete_disposals();
     TEST_EXPECT(ctx, owner.image.root_state("pack:") == ERootState::closed);
     TEST_EXPECT(ctx, std::memcmp(file.byte_view().data(), "abc", 3u) == 0);
-    owner.service.request_disposal({ file.asset }, 44, borrower.package);
+    owner.request_disposal(ctx, { file.asset }, 44, borrower.client);
     owner.service.complete_disposals();
-    TEST_EXPECT(ctx, borrower.receive(rejected, 44) && rejected.status == EAssetStatus::success);
+    TEST_EXPECT(ctx, owner.receive(rejected, 44, &borrower.client) && rejected.status == EAssetStatus::success);
     owner.notification(ctx, original.asset);
     //  A reply on the borrower's FIFO proves it did not receive the notification.
-    owner.service.request_reference({ original.asset }, 45, borrower.package);
-    TEST_EXPECT(ctx, borrower.receive(reference, 45) && reference.status == EAssetStatus::invalid_asset);
+    owner.request_reference(ctx, { original.asset }, 45, borrower.client);
+    TEST_EXPECT(ctx, owner.receive(reference, 45, &borrower.client) && reference.status == EAssetStatus::invalid_asset);
     TEST_EXPECT(ctx, !owner.service.failed());
 }
 
-void test_package_reuse(TTestContext& ctx)
+void test_recipient_reuse(TTestContext& ctx)
 {
     for (bool close : { false, true })
     {
         SFixture fixture;
         TEST_EXPECT(ctx, fixture.initialise());
-        const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages };
-        auto package = TInstance<tests::CHostClientFixture>::create(config, fixture.conversion);
-        TEST_EXPECT(ctx, package && package->startup());
+        auto package = TInstance<tests::SCommonEndpointFixture>::create(module_ids::executable, next_recipient_identity(), 32u);
+        TEST_EXPECT(ctx, static_cast<bool>(package));
         const auto original = fixture.publish(ctx, &*package);
         CAssetService::CBundleOperation operation;
         TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
         const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
         TEST_EXPECT(ctx, file.asset);
         operation.reset();
-        if (close) fixture.service.request_disposal({ original.asset }, 50, *package);
-        TEST_EXPECT(ctx, package->shutdown());
+        if (close) fixture.request_disposal(ctx, { original.asset }, 50, *package);
+        end_recipient(*package);
         fixture.service.detach_client(*package);
-        //  Reuse the exact package address and role, as a collection slot can do.
+        //  Reuse the exact recipient address and role, as a collection slot can do.
         const auto* address = &*package;
-        TEST_EXPECT(ctx, package.emplace(config, fixture.conversion) && (&*package == address) && package->startup());
-        fixture.service.request_disposal({ original.asset }, 51, *package);
+        TEST_EXPECT(ctx, package.emplace(module_ids::executable, next_recipient_identity(), 32u) && (&*package == address));
+        fixture.request_disposal(ctx, { original.asset }, 51, *package);
         AssetDisposeResult rejected;
         TEST_EXPECT(ctx, fixture.receive(rejected, 51, &*package) &&
             rejected.status == (close ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
         fixture.dispose(ctx, file.asset);
         //  An open orphan remains for full shutdown; detach does not transfer or close it.
         TEST_EXPECT(ctx, fixture.image.root_state("pack:") == (close ? ERootState::missing : ERootState::open));
-        fixture.service.request_disposal({ original.asset }, 52, *package);
+        fixture.request_disposal(ctx, { original.asset }, 52, *package);
         TEST_EXPECT(ctx, fixture.receive(rejected, 52, &*package) &&
             rejected.status == (close ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
         TEST_EXPECT(ctx, !fixture.service.failed());
-        TEST_EXPECT(ctx, package->shutdown());
+        end_recipient(*package);
         fixture.service.detach_client(*package);
     }
 }
@@ -682,7 +763,7 @@ void test_conversion_lifetime(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.initialise());
     const auto source = fixture.publish(ctx);
     const auto borrowed = acquire(ctx, fixture, source.asset);
-    fixture.service.request_disposal({ source.asset }, 31, fixture.package);
+    fixture.request_disposal(ctx, { source.asset }, 31, fixture.client);
     (void)acquire(ctx, fixture, source.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
     CByteBuffer independent;
     TEST_EXPECT(ctx, independent.resize(borrowed.byte_view().size()));
@@ -693,55 +774,38 @@ void test_conversion_lifetime(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.service.is_idle() && independent.size() != 0u);
 }
 
-std::uint32_t MV_STD_ABI_CALL blocked_recipient(void* data) noexcept
-{
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context(resources);
-    context.startup();
-    // The fixture waits for Waiting before posting into this bounded inbox.
-    resources.host_to_worker_msgs.deallocate();
-    if (!resources.host_to_worker_msgs.initialise_fixed(1u)) { context.mark_failed(1u); return 1u; }
-    context.mark_running();
-    while (!context.exit_requested())
-    {
-        const auto epoch = resources.wait_predicate.get_word();
-        if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
-    }
-    context.mark_exited();
-    return 0u;
-}
-
-void test_live_notification_failure(TTestContext& ctx)
+void test_live_notification_pressure(TTestContext& ctx)
 {
     SFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
-    tests::CHostClientFixture recipient{ threading::ThreadConfig{ thread_ids::executive, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
-    TEST_EXPECT(ctx, recipient.startup());
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]
+    tests::SCommonEndpointFixture recipient{ module_ids::executable, next_recipient_identity(), 32u };
+    const AssetResult original = fixture.publish(ctx, &recipient);
+    const threading::CErasedPodMsg filler = threading::make_pod_message(90, AssetDisposeResult{});
+    for (unsigned count = 0u; count < 32u; ++count) TEST_EXPECT(ctx, recipient.post(filler));
+    TEST_EXPECT(ctx, !recipient.post(filler));
+    const std::uint64_t published = recipient.pending_replies->published();
+    fixture.request_disposal(ctx, { original.asset }, 31, recipient);
+    fixture.progress(recipient);
+    TEST_EXPECT(ctx, (!fixture.service.failed() && fixture.service.bundle_output_ready(recipient) &&
+        (recipient.reserved_replies == 1u) && !recipient.pending_replies->reservations() &&
+        (recipient.pending_replies->published() == published) && (fixture.image.root_state("pack:") == ERootState::missing)));
+    threading::CErasedPodMsg message;
+    unsigned fillers = 0u;
+    while (recipient.channel->read_preamble_pod(message))
     {
-        return recipient.query_state() == threading::EThreadRunState::Waiting;
-    }));
-    const auto original = fixture.publish(ctx, &recipient);
-    threading::CErasedPodMsg filler;
-    filler.assign_payload(AssetDisposeResult{});
-    bool full = false;
-    for (unsigned i = 0u; i < 256u; ++i)
-    {
-        if (!recipient.post(filler)) { full = true; break; }
+        ++fillers;
+        TEST_EXPECT(ctx, (message.query_async_slot() == 90));
     }
-    TEST_EXPECT(ctx, full);
-    fixture.service.request_disposal({ original.asset }, 31, recipient);
-    {
-        tests::TAssertionTestScope diagnostics(ctx);
-        fixture.service.complete_disposals();
-    }
-    TEST_EXPECT(ctx, fixture.service.failed() && fixture.image.root_state("pack:") == ERootState::missing);
+    TEST_EXPECT(ctx, (fillers == 32u));
+    BundleDisposedNotification result;
+    TEST_EXPECT(ctx, (fixture.receive(result, -1, &recipient) && (result.asset == original.asset) && recipient.replies_idle()));
+    fixture.request_disposal(ctx, { original.asset }, 32, recipient);
+    AssetDisposeResult rejected;
+    TEST_EXPECT(ctx, (fixture.receive(rejected, 32, &recipient) && (rejected.status == EAssetStatus::invalid_asset)));
+    TEST_EXPECT(ctx, (!recipient.channel->read_preamble_pod(message) && !fixture.service.bundle_output_ready(recipient)));
+    end_recipient(recipient);
     fixture.service.detach_client(recipient);
-    (void)recipient.shutdown();
 }
-
-
 void test_acquisition_failure(TTestContext& ctx)
 {
     bool succeeded = false;
@@ -757,7 +821,7 @@ void test_acquisition_failure(TTestContext& ctx)
             TEST_EXPECT(ctx, fixture.initialise());
             const auto original = fixture.publish(ctx);
             state.fail_on = state.attempts + attempt - 1u;
-            fixture.service.request_acquire({ original.asset, EAssetAcquireView::bundle }, 40, fixture.package);
+            fixture.request_acquire(ctx, { original.asset, EAssetAcquireView::bundle }, 40, fixture.client);
             state.fail_on = SIZE_MAX;
             AssetAcquireResult result;
             TEST_EXPECT(ctx, fixture.receive(result, 40));
@@ -769,7 +833,7 @@ void test_acquisition_failure(TTestContext& ctx)
                 TEST_EXPECT(ctx, result.status == EAssetStatus::allocation_failed && !result.acquisition && !result.bundle_view().is_ready());
             }
             TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
-            fixture.service.request_disposal({ original.asset }, 41, fixture.package);
+            fixture.request_disposal(ctx, { original.asset }, 41, fixture.client);
             fixture.service.complete_disposals();
             fixture.notification(ctx, original.asset);
         }
@@ -780,32 +844,30 @@ void test_acquisition_failure(TTestContext& ctx)
     SFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
     const auto original = fixture.publish(ctx);
-    tests::CHostClientFixture recipient{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
-    TEST_EXPECT(ctx, recipient.startup());
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]
-    {
-        return recipient.query_state() == threading::EThreadRunState::Waiting;
-    }));
-    threading::CErasedPodMsg filler;
-    filler.assign_payload(AssetReleaseResult{});
-    bool full = false;
-    for (unsigned i = 0u; i < 256u; ++i)
-    {
-        if (!recipient.post(filler)) { full = true; break; }
-    }
-    TEST_EXPECT(ctx, full);
-    {
-        tests::TAssertionTestScope diagnostics(ctx);
-        fixture.service.request_acquire({ original.asset, EAssetAcquireView::bundle }, 42, recipient);
-    }
-    //  An undelivered token must not pin the source or its backing storage.
-    TEST_EXPECT(ctx, fixture.service.failed() && fixture.service.is_idle());
-    fixture.service.request_disposal({ original.asset }, 43, fixture.package);
+    tests::SCommonEndpointFixture recipient{ module_ids::executable, next_recipient_identity(), 32u };
+    const threading::CErasedPodMsg filler = threading::make_pod_message(90, AssetReleaseResult{});
+    for (unsigned count = 0u; count < 32u; ++count) TEST_EXPECT(ctx, recipient.post(filler));
+    TEST_EXPECT(ctx, !recipient.post(filler));
+    fixture.request_acquire(ctx, { original.asset, EAssetAcquireView::bundle }, 42, recipient);
+    TEST_EXPECT(ctx, (!fixture.service.failed() && !fixture.service.is_idle() &&
+        (recipient.pending_replies->size() == 1u) && !recipient.reserved_replies));
+    fixture.request_disposal(ctx, { original.asset }, 43, fixture.client);
     fixture.service.complete_disposals();
+    TEST_EXPECT(ctx, (fixture.image.root_state("pack:") == ERootState::closed));
+    const std::uint64_t published = recipient.pending_replies->published();
+    recipient.phase = host::EClientPhase::stopped;
+    fixture.service.release_client_acquisitions(recipient);
+    // For raw/bundle views the existing no-execution/no-batch proof can cancel
+    // acquisitions now. The unread result still cannot publish after termination,
+    // and its fallback storage waits for the final ingress-quiescence proof.
+    TEST_EXPECT(ctx, (fixture.service.client_idle(recipient) && !recipient.execution_quiescent() &&
+        (recipient.pending_replies->size() == 1u)));
     fixture.notification(ctx, original.asset);
-    (void)recipient.shutdown();
+    recipient.flush_replies();
+    TEST_EXPECT(ctx, ((recipient.pending_replies->published() == published) && (recipient.pending_replies->size() == 1u)));
+    end_recipient(recipient);
     fixture.service.detach_client(recipient);
+    TEST_EXPECT(ctx, (fixture.service.is_idle() && !fixture.service.failed() && recipient.replies_idle()));
 }
 
 void test_publication_failure_and_shutdown(TTestContext& ctx)
@@ -831,8 +893,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
             TEST_EXPECT(ctx, prepared.directory.prepare(prepared.view));
             std::uint64_t binding = 0u;
             TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
-            platform::system::CPerfCountConversion conversion;
-            tests::CHostClientFixture client{ {}, conversion };
+            tests::SCommonEndpointFixture client{ module_ids::executable, next_recipient_identity(), 32u };
             allocator_state.fail_on = allocator_state.attempts + attempt - 1u;
             const auto result = service.publish_bundle(prepared, binding, client);
             allocator_state.fail_on = SIZE_MAX;
@@ -868,7 +929,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
 int run_bundle_service_tests()
 {
     TTestContext ctx;
-    test_uncertain_ordinary_acquisition(ctx);
+    test_fixed_ordinary_acquisition(ctx);
     test_generic_acquisitions(ctx);
     test_acquired_bundle_closure(ctx);
     test_acquisition_save_and_client_exit(ctx);
@@ -878,9 +939,9 @@ int run_bundle_service_tests()
     test_complete_views_and_saves(ctx);
     test_dependency_cleanup_and_recipient_exit(ctx);
     test_management_owner(ctx);
-    test_package_reuse(ctx);
+    test_recipient_reuse(ctx);
     test_conversion_lifetime(ctx);
-    test_live_notification_failure(ctx);
+    test_live_notification_pressure(ctx);
     test_publication_failure_and_shutdown(ctx);
     return ctx.report("BundleService");
 }

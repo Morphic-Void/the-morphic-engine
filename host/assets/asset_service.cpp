@@ -1,0 +1,1581 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    asset_service.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    19 Sep 26
+//
+//  Compose file I/O and conditioning without transferring assets to clients.
+
+#include "host/filesystem/mount_rules.hpp"
+#include "framework/system/system_ids.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
+
+#include <local_type_ids.hpp>
+
+#include <algorithm>
+#include <cstring>
+#include <type_traits>
+#include <utility>
+
+#include "assets/asset_service.hpp"
+#include "debug/macros.hpp"
+#include "host/image/image_messages.hpp"
+#include "filesystem/logical_path.hpp"
+#include "platform/platform_defines.hpp"
+
+namespace host
+{
+
+//  Only absolute native filenames are admitted. Remaining native-path policy
+//  and UTF-8 conversion belong to the existing platform I/O boundary.
+static bool absolute_native_file(const CStringView path) noexcept
+{
+    if ((path.length() == 0u) || (std::strlen(path.cstring()) != path.length())) return false;
+#if MV_PLATFORM_WINDOWS
+    const char drive = logical_path::fold_ascii(path.cstring()[0]);
+    return (path.length() >= 3u) && (drive >= 'a') && (drive <= 'z') && (path.cstring()[1] == ':') &&
+        ((path.cstring()[2] == '/') || (path.cstring()[2] == '\\'));
+#else
+    return path.cstring()[0] == '/';
+#endif
+}
+
+static bool bundle_recipient_available(const SClientRecord& recipient) noexcept
+{
+    const auto state = recipient.query_state();
+    return (state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
+        (state != threading::EThreadRunState::Empty);
+}
+
+static bool matches_load_format(const EAssetKind kind, const EAssetFileFormat format) noexcept
+{
+    switch (format)
+    {
+        case EAssetFileFormat::raw: return kind == EAssetKind::raw;
+        case EAssetFileFormat::baked:
+        case EAssetFileFormat::json: return kind == EAssetKind::baked;
+        case EAssetFileFormat::tga: return kind == EAssetKind::image;
+        default: return false;
+    }
+}
+
+//==============================================================================
+//  Service lifetime and completion publication
+//==============================================================================
+
+bool CAssetService::initialise() noexcept
+{
+    return m_bundles.initialise() && m_assets.initialise() && m_acquisitions.initialise() &&
+        m_operations.initialise() && m_schemas.initialise() && m_schema_outputs.initialise() &&
+        m_report_backings.initialise() && m_report_deliveries.initialise();
+}
+
+EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
+{
+    if ((m_filesystem == nullptr) || !m_filesystem->document().is_ready() || (root.length() < 2u) ||
+        host::mount_rules::is_native_mount(root) ||
+        (root.cstring()[root.length() - 1u] != ':') ||
+        !logical_path::valid_component(CStringView{ root.cstring(), root.length() - 1u })) return EAssetStatus::invalid_request;
+    if (m_filesystem->root_state(root.cstring()) != filesystem_image::ERootState::missing) return EAssetStatus::busy;
+    return m_filesystem->reserve_bundle(root.cstring(), binding) ? EAssetStatus::success : EAssetStatus::allocation_failed;
+}
+
+void CAssetService::request_reference(const BundleReferenceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
+{
+    reply(client, slot, acquire_bundle(request.source));
+}
+
+bool CAssetService::is_idle() const noexcept
+{
+    return m_operations.is_empty() && m_acquisitions.is_empty() && m_schemas.is_empty() &&
+        m_report_deliveries.is_empty() && !m_capture.identity.capture_id && work_idle();
+}
+
+bool CAssetService::work_idle() const noexcept
+{
+    for (const auto& process : m_processes)
+    {
+        if (process.client) return false;
+    }
+    for (std::int32_t i = m_schema_outputs.first_live(); i >= 0; i = m_schema_outputs.next_live(i))
+    {
+        const SOutputBacking& output = *m_schema_outputs.get_object(i);
+        if (!output.asset && !output.references.records && !output.references.operations)
+        {
+            return false;
+        }
+    }
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        if (m_schemas.get_object(slot)->phase != ESchemaPhase::acquired) return false;
+    }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        if (m_operations.get_object(slot)->phase != EPhase::disposing) return false;
+    }
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        if (m_bundles.get_object(slot)->references.operations != 0u) return false;
+    }
+    return true;
+}
+
+void CAssetService::request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
+{
+    AssetAcquireResult result;
+    if ((slot < 0) || ((request.view != EAssetAcquireView::bytes) && (request.view != EAssetAcquireView::bundle)))
+    {
+        result.status = EAssetStatus::invalid_request;
+        reply(client, slot, result);
+        return;
+    }
+    auto* const source = disposal_pending(request.source) ? nullptr : m_assets.resolve(request.source);
+    if ((source == nullptr) || ((source->backing() != nullptr) && !source->backing()->open))
+    {
+        reply(client, slot, result);
+        return;
+    }
+    if (source->payload<SchemaOutputAsset>() && client.delivery_protected())
+    {
+        result.status = EAssetStatus::busy;
+        reply(client, slot, result);
+        return;
+    }
+    AssetResult described;
+    describe_views((*source), described);
+    const bool bytes = request.view == EAssetAcquireView::bytes;
+    if (bytes ? !described.byte_view().is_ready() : !described.bundle_view().is_ready())
+    {
+        result.status = EAssetStatus::invalid_request;
+        reply(client, slot, result);
+        return;
+    }
+    const std::int32_t record_slot = (m_next_acquisition != 0u) ? m_acquisitions.emplace() : -1;
+    auto* const record = (record_slot >= 0) ? m_acquisitions.get_object(record_slot) : nullptr;
+    if ((record == nullptr) || ((source->backing() != nullptr) &&
+        !record->backing.acquire(*source->backing(), EAssetBackingRole::acquisition)))
+    {
+        if (record != nullptr) (void)m_acquisitions.erase(record_slot);
+        result.status = EAssetStatus::allocation_failed;
+        reply(client, slot, result);
+        return;
+    }
+    record->identity = CAssetAcquisitionId{ m_next_acquisition++ };
+    record->client = &client;
+    record->source = request.source;
+    record->requires_quiescence = source->payload<SchemaOutputAsset>() != nullptr;
+    result.acquisition = record->identity;
+    result.view = request.view;
+    result.views = bytes ? AssetAcquiredViews{ described.byte_view() } : AssetAcquiredViews{ described.bundle_view() };
+    result.status = EAssetStatus::success;
+    if (client.terminal())
+    {
+        (void)m_acquisitions.erase(record_slot);
+        (void)client.reply(threading::make_pod_message(slot, AssetAcquireResult{}));
+    }
+    else if (!client.reply(threading::make_pod_message(slot, result)))
+    {
+        (void)m_acquisitions.erase(record_slot);
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Asset acquisition reply delivery failed");
+    }
+}
+
+void CAssetService::request_release(const AssetReleaseRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
+{
+    AssetReleaseResult result{ request.acquisition, EAssetStatus::invalid_request };
+    if (request.acquisition && release_schema(request.acquisition, client)) result.status = EAssetStatus::success;
+    if (request.acquisition)
+    {
+        for (std::int32_t index = m_acquisitions.first_live(); index >= 0; index = m_acquisitions.next_live(index))
+        {
+            const auto& record = *m_acquisitions.get_object(index);
+            if ((record.identity == request.acquisition) && (record.client == &client))
+            {
+                (void)m_acquisitions.erase(index);
+                result.status = EAssetStatus::success;
+                break;
+            }
+        }
+    }
+    if (!client.reply(threading::make_pod_message(slot, result)))
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Asset release reply delivery failed");
+    }
+}
+
+void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
+{
+    const auto state = client.query_state();
+    if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
+        (state != threading::EThreadRunState::Empty)) return;
+    if ((client.batch_client() != nullptr) &&
+        ((client.batch_client()->outstanding() != 0u) || (client.batch_client()->return_publishers() != 0u)))
+    {
+        return;
+    }
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_acquisitions.next_live(slot);
+        const SAcquisition& acquisition = *m_acquisitions.get_object(slot);
+        if ((acquisition.client == &client) && (!acquisition.requires_quiescence || client.execution_quiescent()))
+        {
+            (void)m_acquisitions.erase(slot);
+        }
+        slot = next;
+    }
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        SSchemaOperation& operation = *m_schemas.get_object(slot);
+        if ((operation.client == &client) && (operation.phase == ESchemaPhase::acquired))
+        {
+            (void)release_schema(operation.acquisition, client);
+        }
+    }
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        auto& bundle = *m_bundles.get_object(slot);
+        if ((bundle.owner == &client) && bundle.disposal_reply_reserved)
+        {
+            client.cancel_reservation(1u);
+            bundle.disposal_reply_reserved = false;
+        }
+    }
+}
+
+bool CAssetService::client_idle(const SClientRecord& client) const noexcept
+{
+    for (const auto& process : m_processes)
+    {
+        if (process.client == &client) return false;
+    }
+    if ((m_report_provider == &client) && m_capture.identity.capture_id) return false;
+    for (std::int32_t i = m_report_deliveries.first_live(); i >= 0; i = m_report_deliveries.next_live(i))
+    {
+        if (m_report_deliveries.get_object(i)->client == &client) return false;
+    }
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        if (m_schemas.get_object(slot)->client == &client) return false;
+    }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        if (m_operations.get_object(slot)->client == &client) return false;
+    }
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
+    {
+        if (m_acquisitions.get_object(slot)->client == &client) return false;
+    }
+    return true;
+}
+
+CAssetService::SBundleControl* CAssetService::find_bundle(const SAssetBackingState* const state) noexcept
+{
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        SBundleControl* const control = m_bundles.get_object(slot);
+        if (&control->references == state) return control;
+    }
+    return nullptr;
+}
+
+AssetResult CAssetService::retain_bundle_view(SBundleControl& control, const EAssetBackingRole role,
+    const AssetResult& view, const mount_point_ids::id_type dependency) noexcept
+{
+    AssetResult result;
+    result.status = EAssetStatus::allocation_failed;
+    CAssetBackingLease lease;
+    if (!lease.acquire(control.references, role)) return result;
+    CErasedOwner owner = CErasedOwner::create<BorrowedBundleAsset>();
+    BorrowedBundleAsset* const carrier = owner.payload<BorrowedBundleAsset>();
+    if (carrier == nullptr) return result;
+    if (dependency.is_valid()) owner.add_hazard(dependency);
+    carrier->view = view;
+    const CAssetId asset = m_assets.insert(std::move(owner), std::move(lease));
+    if (!asset) return result;
+    result = view;
+    result.asset = asset;
+    result.status = EAssetStatus::success;
+    return result;
+}
+
+AssetResult CAssetService::publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, SClientRecord& owner) noexcept
+{
+    AssetResult result;
+    if ((m_filesystem == nullptr) || (binding == 0u)) return result;
+    const bundle::CBundleView view = prepared.view;
+    if (!prepared.directory.is_ready() || !view.is_ready() ||
+        (view.bytes().data() != prepared.block.buffer_bytes().data()) ||
+        (view.bytes().size() != prepared.block.buffer_bytes().size()))
+    {
+        (void)m_filesystem->remove_bundle(binding);
+        return result;
+    }
+    const std::int32_t slot = m_bundles.emplace();
+    if (slot < 0)
+    {
+        result.status = EAssetStatus::allocation_failed;
+        (void)m_filesystem->remove_bundle(binding);
+        return result;
+    }
+    SBundleControl& control = *m_bundles.get_object(slot);
+    control.binding = binding;
+    control.owner = &owner;
+    control.view = view;
+    AssetResult description;
+    description.set_bundle_view(view);
+    result = retain_bundle_view(control, EAssetBackingRole::original, description);
+    if (result.asset && m_filesystem->prepare_bundle(binding, result.asset.query_value(), prepared.directory) &&
+        m_filesystem->publish_bundle(binding))
+    {
+        control.original = result.asset;
+        control.block = std::move(prepared.block);
+        prepared.view.clear();
+        return result;
+    }
+    (void)m_assets.erase(result.asset);
+    (void)m_filesystem->remove_bundle(binding);
+    (void)m_bundles.erase(slot);
+    result = {};
+    result.status = EAssetStatus::allocation_failed;
+    return result;
+}
+
+AssetResult CAssetService::acquire_bundle(const CAssetId source) noexcept
+{
+    AssetResult result;
+    result.status = EAssetStatus::invalid_asset;
+    const CAssetRecord* const record = disposal_pending(source) ? nullptr : m_assets.resolve(source);
+    if ((record == nullptr) || (record->backing() == nullptr) || !record->backing()->open ||
+        ((record->backing_role() != EAssetBackingRole::original) && (record->backing_role() != EAssetBackingRole::complete))) return result;
+    SBundleControl* const control = find_bundle(record->backing());
+    if (control == nullptr) return result;
+    AssetResult view;
+    view.set_bundle_view(control->view);
+    return retain_bundle_view(*control, EAssetBackingRole::complete, view);
+}
+
+EAssetStatus CAssetService::begin_bundle_file(const filesystem_image::SResolvedSource& source,
+    const std::size_t alignment, CBundleOperation& operation) noexcept
+{
+    if ((operation.m_backing.state() != nullptr) || (alignment > bundle::k_alignment) ||
+        (alignment == 0u) || ((alignment & (alignment - 1u)) != 0u))
+    {
+        return EAssetStatus::invalid_request;
+    }
+    const CAssetId original = m_assets.find_identity(source.bundle);
+    const CAssetRecord* const record = disposal_pending(original) ? nullptr : m_assets.resolve(original);
+    if ((record == nullptr) || (record->backing() == nullptr) || !record->backing()->open ||
+        (record->backing_role() != EAssetBackingRole::original))
+    {
+        return EAssetStatus::invalid_asset;
+    }
+    SBundleControl* const control = find_bundle(record->backing());
+    if ((control == nullptr) || (source.binding == 0u) || (control->binding != source.binding) ||
+        (control->original != original)) return EAssetStatus::invalid_asset;
+    const CByteConstView bytes = control->view.bytes();
+
+    //  The image supplies validated file extents. Check without offset+size
+    //  arithmetic so an invalid descriptor cannot overflow or expose metadata.
+    //  Strictly less leaves storage for the required zero terminator.
+    if ((source.offset < control->view.document().byte_count()) || (source.offset % bundle::k_alignment != 0u) ||
+        (source.offset >= bytes.size()) || (source.size == 0u) || (source.size >= bytes.size() - source.offset))
+    {
+        return EAssetStatus::invalid_request;
+    }
+    if (!operation.m_backing.acquire(control->references, EAssetBackingRole::operation))
+    {
+        return EAssetStatus::allocation_failed;
+    }
+    operation.m_bytes = CByteConstView{ bytes.data() + source.offset, source.size, bundle::k_alignment };
+    return EAssetStatus::success;
+}
+
+AssetResult CAssetService::retain_bundle_file(const CBundleOperation& operation,
+    const EAssetFileFormat format, const mount_point_ids::id_type dependency) noexcept
+{
+    AssetResult result;
+    SBundleControl* const control = find_bundle(operation.m_backing.state());
+    const CByteConstView bytes = operation.bytes();
+    if ((control == nullptr) || !bytes.is_ready()) return result;
+    const memory::CMemoryConstView memory{ bytes.data(), bytes.size(), 1u, bytes.align() };
+    if (format == EAssetFileFormat::raw) result.set_raw_view(memory);
+    else if (format == EAssetFileFormat::baked)
+    {
+        if (bytes.size() < sizeof(SBakedDocumentHeader)) return result;
+        SBakedDocumentHeader header;
+        std::memcpy(&header, bytes.data(), sizeof(header));
+        if (header.total_size > bytes.size()) return result;
+        CBakedDocument document;
+        if (!document.reset(bytes.data(), header.total_size)) return result;
+
+        //  Preserve the exact entry range; navigation uses only its checked prefix.
+        result.set_baked_view(BakedAssetView{ memory, document });
+    }
+    else return result;
+
+    //  An admitted operation may publish its result even after closure.
+    return retain_bundle_view(*control, EAssetBackingRole::file, result, dependency);
+}
+
+bool CAssetService::protect_asset(const CAssetRecord& record, CAssetBackingLease& lease, const bool deriving) noexcept
+{
+    SAssetBackingState* const state = record.backing();
+    if (state == nullptr) return true;
+    if (!state->open && (deriving || (record.backing_role() != EAssetBackingRole::file))) return false;
+    return lease.acquire(*state, EAssetBackingRole::operation);
+}
+
+void CAssetService::detach_client(SClientRecord& client) noexcept
+{
+    release_client_acquisitions(client);
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        SBundleControl& control = *m_bundles.get_object(slot);
+        if (control.owner == &client) control.owner = nullptr;
+    }
+}
+
+void CAssetService::close_bundle(SBundleControl& control) noexcept
+{
+    if (!control.references.open) return;
+    control.references.open = false;
+    if (control.references.complete_views != 0u)
+    {
+        MV_ASSERT_REPORT("Host: bundle closure with {} outstanding complete-view records", control.references.complete_views);
+    }
+    if ((m_filesystem == nullptr) || !m_filesystem->close_bundle(control.binding)) m_failed = true;
+    (void)m_assets.erase(control.original);
+}
+
+void CAssetService::finalise_bundles() noexcept
+{
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_bundles.next_live(slot);
+        SBundleControl& control = *m_bundles.get_object(slot);
+        if (!control.references.open && (control.references.records == 0u) && (control.references.operations == 0u))
+        {
+            if (!control.final_ready && ((m_filesystem == nullptr) || !m_filesystem->remove_bundle(control.binding)))
+            {
+                m_failed = true;
+                return;
+            }
+            if (!control.final_ready)
+            {
+                control.binding = 0u;
+                control.view = {};
+                control.block.deallocate();
+                control.final_ready = true;
+            }
+            SClientRecord* const recipient = control.owner;
+            if (!recipient || (!control.disposal_reply_reserved && !bundle_recipient_available(*recipient)))
+            {
+                (void)m_bundles.erase(slot); //  No recipient obligation remains.
+            }
+        }
+        slot = next;
+    }
+}
+
+bool CAssetService::bundle_output_ready(const SClientRecord& client) const noexcept
+{
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        const SBundleControl& control = *m_bundles.get_object(slot);
+        if ((control.owner == &client) && control.final_ready)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void CAssetService::retry_bundle_output(SClientRecord& client) noexcept
+{
+    std::int32_t& cursor = client.output_cursors[static_cast<std::uint32_t>(EOutputProducer::bundle)];
+    std::int32_t first = -1, following = -1;
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        const SBundleControl& control = *m_bundles.get_object(slot);
+        if ((control.owner != &client) || !control.final_ready)
+        {
+            continue;
+        }
+        if ((first < 0) || (slot < first)) first = slot;
+        if ((slot > cursor) && ((following < 0) || (slot < following))) following = slot;
+    }
+    const std::int32_t selected = (following >= 0) ? following : first;
+    if (selected < 0) return;
+    cursor = selected;
+    const SBundleControl& control = *m_bundles.get_object(selected);
+    const threading::CErasedPodMsg message = threading::make_pod_message(threading::k_uncorrelated_slot,
+        BundleDisposedNotification{ control.original });
+    const bool settled = control.disposal_reply_reserved ?
+        (client.publish_reply(message) != EReplyPublication::busy) : (!bundle_recipient_available(client) || client.post(message));
+    if (settled) (void)m_bundles.erase(selected);
+}
+
+bool CAssetService::configure_workers(threading::CThreadPackage& file_io, threading::CThreadPackage* const conditioning) noexcept
+{
+    if (!is_idle())
+    {
+        return false;
+    }
+    m_file_io = &file_io;
+    m_conditioning = (conditioning != nullptr) ? conditioning : &file_io;
+    m_workers_stopped = false;
+    return true;
+}
+
+void CAssetService::deallocate() noexcept
+{   //  Workers and clients must have stopped before their borrowed storage dies.
+    if (m_filesystem != nullptr)
+    {
+        (void)m_filesystem->clear_cache();
+    }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const auto binding = m_operations.get_object(slot)->reserved_binding;
+        if ((binding != 0u) && (m_filesystem != nullptr)) (void)m_filesystem->remove_bundle(binding);
+    }
+    for (auto& process : m_processes) process = SProcess{};
+    m_operations.deallocate();
+    m_schemas.deallocate();
+    m_acquisitions.deallocate();
+    m_report_deliveries.deallocate();
+    m_report_backings.deallocate();
+    m_assets.deallocate();
+    m_schema_outputs.deallocate();
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        SBundleControl& control = *m_bundles.get_object(slot);
+        MV_ASSERT(control.references.operations == 0u);
+        if (m_filesystem != nullptr)
+        {
+            if (control.references.open) (void)m_filesystem->close_bundle(control.binding);
+            if (control.binding) (void)m_filesystem->remove_bundle(control.binding);
+        }
+    }
+    m_bundles.deallocate(); //  Full shutdown retires notifications after users stop.
+    m_file_io = nullptr;
+    m_conditioning = nullptr;
+}
+
+void CAssetService::fail_pending() noexcept
+{
+    m_workers_stopped = true;
+    fail_processes();
+    //  Workers have stopped: no callback or schema view can still be produced.
+    //  Existing acquired results remain protected until their readers retire.
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        SSchemaOperation& operation = *m_schemas.get_object(slot);
+        if (operation.phase == ESchemaPhase::preparing)
+        {
+            operation.work.source = {};
+            operation.backing.reset();
+            operation.source = {};
+            operation.work.diagnostic.status = schema::EPreparationStatus::invalid_request;
+            operation.phase = ESchemaPhase::publishing;
+        }
+        else if (operation.phase == ESchemaPhase::reclaiming)
+        {
+            operation.phase = ESchemaPhase::retiring;
+        }
+    }
+    progress_schemas();
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_operations.next_live(slot);
+        finish_operation(slot, EAssetStatus::delivery_failed);
+        slot = next;
+    }
+}
+
+template<typename TOwner>
+void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
+{
+    if (SchemaOutputAsset* const schema = source.template payload<SchemaOutputAsset>())
+    {
+        const CByteConstView bytes = schema->descriptor->bytes;
+        result.set_raw_view(memory::CMemoryConstView{ bytes.data(), bytes.size(), 1u, bytes.align() });
+    }
+    else if (BorrowedBundleAsset* const borrowed = source.template payload<BorrowedBundleAsset>())
+    {
+        result = borrowed->view;
+    }
+    else if (ByteStorage* const raw = source.template payload<ByteStorage>())
+    {
+        result.set_raw_view(memory::CMemoryConstView{ raw->buffer.data(), raw->buffer.size(), 1u, raw->buffer.align() });
+    }
+    else if (DecodedTga* const image = source.template payload<DecodedTga>())
+    {
+        result.set_image_view(&image->view);
+    }
+    else if (BakedDocumentAsset* const baked = source.template payload<BakedDocumentAsset>())
+    {
+        const CByteConstView bytes = static_cast<const CBakedDocumentBlock&>(baked->block).buffer_bytes();
+        result.set_baked_view(BakedAssetView{
+            memory::CMemoryConstView{ bytes.data(), bytes.size(), 1u, bytes.align() }, baked->block.document() });
+    }
+    else if (LiveDocumentAsset* const live = source.template payload<LiveDocumentAsset>())
+    {
+        result.set_live_view(&live->document);
+    }
+}
+
+template<typename TResult>
+void CAssetService::reply(SClientRecord& client, const std::int32_t slot, const TResult& result) noexcept
+{
+    const auto message = threading::make_pod_message(slot, result);
+    if (!client.reply(message))
+    {   //  A broken completion transport is terminal, never a silent success.
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Asset completion delivery failed for slot {}", slot);
+    }
+}
+
+void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    if (operation.phase == EPhase::publishing) return;
+    if (operation.reserved_binding != 0u)
+    {
+        if ((m_filesystem == nullptr) || !m_filesystem->remove_bundle(operation.reserved_binding)) m_failed = true;
+        operation.reserved_binding = 0u;
+    }
+    if (operation.phase == EPhase::disposing)
+    {
+        MV_DETAIL("Host asset disposal completed at client slot {}", operation.client_slot);
+        operation.completion = threading::make_pod_message(operation.client_slot, AssetDisposeResult{ operation.retained_asset, status });
+        operation.phase = EPhase::publishing;
+        return;
+    }
+
+    if ((status == EAssetStatus::success) && (m_filesystem != nullptr))
+    {
+        bool updated = true;
+        if (operation.load_requested && (operation.logical_file != nullptr))
+        {
+            updated = m_filesystem->loaded(operation.logical_file, operation.retained_asset.query_value(),
+                static_cast<std::uint64_t>(operation.load_format), operation.working_views.document_findings,
+                operation.admission_serial, operation.source_binding);
+        }
+        else if (operation.save_requested && (operation.phase == EPhase::saving))
+        {
+            //  Keep associations only for representations that satisfy the load.
+            //  JSON output needs fresh parsing; complete bundles are not raw assets.
+            const bool load_representation =
+                ((operation.working_views.kind == EAssetKind::raw) && (operation.save_settings.format == EAssetFileFormat::raw)) ||
+                ((operation.working_views.kind == EAssetKind::baked) && (operation.save_settings.format == EAssetFileFormat::baked)) ||
+                ((operation.working_views.kind == EAssetKind::image) && (operation.save_settings.format == EAssetFileFormat::tga));
+            const CAssetId cached = load_representation ? operation.retained_asset : CAssetId{};
+            updated = m_filesystem->written(operation.logical_file, operation.file, cached.query_value(),
+                static_cast<std::uint64_t>(operation.save_settings.format));
+        }
+        if (!updated)
+        {
+            m_failed = true;
+            MV_CRITICAL_EVENT("Host: Filesystem cache update failed");
+        }
+    }
+    AssetResult result = operation.retained_asset ? operation.working_views : AssetResult{};
+    result.asset = operation.retained_asset;
+    result.status = status;
+    result.document_policy = operation.working_views.document_policy;
+    result.document_findings = operation.working_views.document_findings;
+    operation.completion = threading::make_pod_message(operation.client_slot, result);
+    operation.phase = EPhase::publishing;
+}
+
+bool CAssetService::output_ready(const SClientRecord& client) const noexcept
+{
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.client == &client) && (operation.phase == EPhase::publishing))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void CAssetService::publish_operation(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    if (operation.client->publish_reply(operation.completion) != EReplyPublication::busy)
+    {
+        (void)m_operations.erase(slot);
+    }
+}
+
+void CAssetService::retry_output(SClientRecord& client) noexcept
+{
+    //  Resume after the last attempted operation, including a full-pipe attempt.
+    //  Collection indices remain stable while live; an erased index is only a
+    //  numerical cursor and is never dereferenced.
+    std::int32_t first = -1, following = -1;
+    std::int32_t& cursor = client.output_cursors[static_cast<std::uint32_t>(EOutputProducer::asset)];
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.client != &client) || (operation.phase != EPhase::publishing))
+        {
+            continue;
+        }
+        if ((first < 0) || (slot < first)) first = slot;
+        if ((slot > cursor) && ((following < 0) || (slot < following))) following = slot;
+    }
+    const std::int32_t selected = (following >= 0) ? following : first;
+    if (selected < 0) return;
+    cursor = selected;
+    publish_operation(selected);
+}
+
+bool CAssetService::retain_candidate(SOperation& operation) noexcept
+{
+    const CAssetId asset = m_assets.insert(std::move(operation.candidate_owner));
+    if (!asset)
+    {
+        return false;
+    }
+
+    operation.retained_asset = asset;
+    return true;
+}
+
+//==============================================================================
+//  Retained asset disposal
+//  Pending disposal closes admission, then waits only for existing borrowers.
+//==============================================================================
+
+bool CAssetService::disposal_pending(const CAssetId asset) const noexcept
+{
+    const CAssetRecord* const record = m_assets.resolve(asset);
+    if (record && record->payload<SchemaOutputAsset>() && !record->backing()->open)
+    {
+        return true;
+    }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.phase == EPhase::disposing) && (operation.retained_asset == asset))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
+{
+    const CAssetRecord* const record = m_assets.resolve(asset);
+    if (record && record->payload<SchemaOutputAsset>() && record->backing()->operations)
+    {
+        return true;
+    }
+    for (std::int32_t slot = m_schemas.first_live(); slot >= 0; slot = m_schemas.next_live(slot))
+    {
+        if (m_schemas.get_object(slot)->source == asset) return true;
+    }
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
+    {
+        if (m_acquisitions.get_object(slot)->source == asset) return true;
+    }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.phase != EPhase::disposing) && (operation.retained_asset == asset))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void CAssetService::request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
+{
+    MV_DETAIL("Host asset disposal request at client slot {}", slot);
+    if ((m_assets.resolve(request.asset) == nullptr) || disposal_pending(request.asset))
+    {
+        reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::invalid_asset });
+        return;
+    }
+
+    CAssetRecord& record = *m_assets.resolve(request.asset);
+    if (record.backing_role() == EAssetBackingRole::original)
+    {
+        SBundleControl* const control = find_bundle(record.backing());
+        if ((control == nullptr) || (control->owner != &client))
+        {
+            reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::invalid_request });
+            return;
+        }
+        control->disposal_reply_reserved = client.reserved_replies != 0u;
+        close_bundle(*control);
+        return; //  Only final disposal is notified; no correlated success.
+    }
+
+    const std::int32_t operation_slot = m_operations.emplace();
+    if (operation_slot < 0)
+    {
+        reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::allocation_failed });
+        return;
+    }
+
+    SOperation& operation = *m_operations.get_object(operation_slot);
+    operation.client = &client;
+    operation.client_slot = slot;
+    operation.phase = EPhase::disposing;
+    operation.retained_asset = request.asset;
+    if (record.payload<SchemaOutputAsset>()) record.backing()->open = false;
+    if (asset_in_use(request.asset))
+    {
+        MV_DETAIL("Host asset disposal deferred for accepted borrowers at client slot {}", slot);
+    }
+}
+
+void CAssetService::complete_disposals() noexcept
+{
+    progress_schemas();
+    progress_processes();
+    //  Save the next slot before erasing this operation. Disposal replies never
+    //  publish the views that ordinary load/save completions may carry.
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_operations.next_live(slot);
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.phase == EPhase::disposing) && !asset_in_use(operation.retained_asset))
+        {
+            if ((m_filesystem != nullptr) && !m_filesystem->forget_asset(operation.retained_asset.query_value()))
+            {
+                m_failed = true;
+            }
+            const CAssetRecord* const record = m_assets.resolve(operation.retained_asset);
+            if (record && record->payload<SchemaOutputAsset>())
+            {
+                for (std::int32_t i = m_schema_outputs.first_live(); i >= 0; i = m_schema_outputs.next_live(i))
+                {
+                    SOutputBacking& backing = *m_schema_outputs.get_object(i);
+                    if (backing.asset == operation.retained_asset)
+                    {
+                        backing.asset = {};
+                        break;
+                    }
+                }
+            }
+            const bool erased = m_assets.erase(operation.retained_asset);
+            finish_operation(slot, (erased ? EAssetStatus::success : EAssetStatus::invalid_asset));
+        }
+        slot = next;
+    }
+    progress_schema_outputs();
+    finalise_bundles();
+}
+
+bool CAssetService::dependencies_idle(const mount_point_ids::id_type mount) const noexcept
+{
+    if (!work_idle()) return false;
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
+    {
+        const auto* const source = m_assets.resolve(m_acquisitions.get_object(slot)->source);
+        if ((source != nullptr) && source->has_dependency(mount)) return false;
+    }
+    return true;
+}
+
+void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) noexcept
+{
+    if (!dependencies_idle(mount))
+    {
+        MV_ASSERT_REPORT("Host: dependency disposal attempted with active borrowers");
+        return;
+    }
+    if (m_assets.has_dependency(mount))
+    {
+        //  A module should release its assets before stopping. Log the violated
+        //  contract, then destroy remaining owners while their DLL is still bound.
+        MV_ASSERT_REPORT("Host: disposing retained assets dependent on module mount {}", mount.raw_value());
+        m_assets.erase_dependencies(mount);
+        if ((m_filesystem != nullptr) && !m_filesystem->clear_cache())
+        {
+            m_failed = true;
+        }
+    }
+    finalise_bundles();
+}
+
+//==============================================================================
+//  Asset admission and worker submission
+//==============================================================================
+
+template<typename TRequest, typename TAsset>
+bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexcept
+{
+    TRequest* const request = operation.request_owner.payload<TRequest>();
+    if (request == nullptr)
+    {
+        return false;
+    }
+    operation.candidate_owner = CErasedOwner::create<TAsset>();
+    //  Moving backing storage into a Host carrier does not remove explicit code/data dependencies.
+    for (std::uint32_t index = 0u; index < mount_point_ids::k_count; ++index)
+    {
+        const auto mount = mount_point_ids::ops::make_id(mount_point_ids::ops::make_index(index));
+        if (operation.request_owner.has_hazard(mount))
+        {
+            operation.candidate_owner.add_hazard(mount);
+        }
+    }
+    TAsset* const source = operation.candidate_owner.payload<TAsset>();
+    if (source == nullptr)
+    {
+        operation.working_views.status = EAssetStatus::allocation_failed;
+        return true;
+    }
+    if constexpr (std::is_same_v<TAsset, BakedDocumentAsset>)
+    {
+        source->block = std::move(request->storage.value);
+    }
+    else if constexpr (std::is_same_v<TAsset, LiveDocumentAsset>)
+    {
+        source->document = std::move(request->storage.value);
+    }
+    else
+    {
+        source->buffer = std::move(request->storage.value);
+        if constexpr (std::is_same_v<TAsset, DecodedTga>)
+        {
+            source->desc = request->description;
+            source->storage_bottom_up = request->storage_bottom_up;
+
+            //  Prepare once, before retention or publication. Moving the erased owner
+            //  never relocates this object, and later descriptions do not modify it.
+            if (!source->view.set(source->buffer.view(), source->desc, source->storage_bottom_up))
+            {
+                operation.working_views.status = EAssetStatus::invalid_request;
+                return true;
+            }
+        }
+    }
+    operation.file = request->storage.file.cstring();
+    operation.save_settings = request->settings;
+    operation.retention = request->retention;
+    operation.save_requested = request->save;
+    describe_views(operation.candidate_owner, operation.working_views);
+    const bool live = (operation.working_views.live_document() != nullptr);
+    const bool ready = live ? operation.working_views.live_document()->is_ready() :
+        (operation.working_views.byte_view().is_ready() ||
+            ((operation.working_views.kind == EAssetKind::image) && operation.working_views.views.image->is_ready()));
+    const bool valid_retention = (operation.retention == EAssetRetention::source) ||
+        (operation.retention == EAssetRetention::discard) ||
+        (live && (operation.retention == EAssetRetention::baked));
+    operation.working_views.status = (ready && valid_retention &&
+        (operation.save_requested || (operation.retention != EAssetRetention::discard)) &&
+        (!operation.save_requested || ((operation.file != nullptr) && (*operation.file != '\0')))) ?
+        EAssetStatus::success : EAssetStatus::invalid_request;
+    return true;
+}
+
+void CAssetService::request(threading::CErasedOwnerMsg& message, SClientRecord& client) noexcept
+{
+    const std::int32_t slot = m_operations.emplace();
+    if (slot < 0)
+    {
+        AssetResult result;
+        result.status = EAssetStatus::allocation_failed;
+        reply(client, message.query_async_slot(), result);
+        return;
+    }
+    SOperation& operation = *m_operations.get_object(slot);
+    operation.client = &client;
+    operation.client_slot = message.query_async_slot();
+    operation.request_owner = message.take_owner();
+    if (operation.request_owner.query_type_id() != message.query_message_type_id())
+    {
+        finish_operation(slot, EAssetStatus::invalid_request);
+        return;
+    }
+
+    const BundleBakeRequest* const bake = operation.request_owner.payload<BundleBakeRequest>();
+    const BundleLoadRequest* const bundle_load = operation.request_owner.payload<BundleLoadRequest>();
+    if ((bake != nullptr) || (bundle_load != nullptr))
+    {
+        if (m_file_io == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::busy);
+            return;
+        }
+        const auto status = reserve_bundle(((bake != nullptr) ? bake->paths.root.view() : bundle_load->paths.root.view()),
+            operation.reserved_binding);
+        if (status != EAssetStatus::success)
+        {
+            finish_operation(slot, status);
+            return;
+        }
+        threading::CErasedPodMsg outbound;
+        if (bake != nullptr)
+        {
+            const char* const directory = (bake->paths.subdirectory.length() == 0u) ? "" : bake->paths.subdirectory.cstring();
+            if (!m_filesystem->capture_bake(bake->paths.source_root.cstring(), directory, operation.bake_input))
+            {
+                finish_operation(slot, EAssetStatus::invalid_request);
+                return;
+            }
+            operation.phase = EPhase::bundle_building;
+            outbound = threading::make_pod_message(slot, BundleBuildWork{ &operation.bake_input });
+        }
+        else
+        {
+            //  A load-and-bind source is a physical file; nested bundles are outside this format's scope.
+            if (!m_filesystem->resolve(bundle_load->paths.file.cstring(), false, operation.physical_file))
+            {
+                finish_operation(slot, EAssetStatus::read_failed);
+                return;
+            }
+            operation.phase = EPhase::bundle_loading;
+            outbound = threading::make_pod_message(slot, FileLoadRequest{ operation.physical_file.cstring(), bundle::k_alignment });
+        }
+        if (!m_file_io->post(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
+        return;
+    }
+
+    if (const AssetLoadRequest* const load = operation.request_owner.payload<AssetLoadRequest>())
+    {
+        operation.load_requested = true;
+        operation.file = load->file.cstring();
+        operation.load_format = load->format;
+        if ((load->file.length() == 0u) || (load->format > EAssetFileFormat::tga))
+        {
+            finish_operation(slot, EAssetStatus::invalid_request);
+            return;
+        }
+        if ((load->file.length() >= 7u) &&
+            host::mount_rules::is_native_mount(CStringView{ operation.file, 7u }))
+        {
+            const CStringView native{ operation.file + 7u, load->file.length() - 7u };
+            if (!absolute_native_file(native))
+            {
+                finish_operation(slot, EAssetStatus::invalid_request);
+                return;
+            }
+            if (!operation.physical_file.set(native.cstring()))
+            {
+                finish_operation(slot, EAssetStatus::allocation_failed);
+                return;
+            }
+            operation.file = operation.physical_file.cstring();
+        }
+        else
+        {
+            operation.logical_file = operation.file;
+            filesystem_image::SResolvedSource resolved;
+            if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, false, resolved))
+            {
+                finish_operation(slot, EAssetStatus::read_failed);
+                return;
+            }
+            operation.source_binding = resolved.binding;
+            operation.physical_file = std::move(resolved.physical_path);
+            if ((resolved.binding != 0u) && (load->alignment > bundle::k_alignment))
+            {
+                finish_operation(slot, EAssetStatus::invalid_request);
+                return;
+            }
+            if (resolved.binding == 0u) operation.file = operation.physical_file.cstring();
+            operation.admission_serial = m_filesystem->write_serial();
+            const CAssetId cached = m_assets.find_identity(m_filesystem->cached_asset(operation.logical_file, static_cast<std::uint64_t>(load->format)));
+            if (CAssetRecord* const record = disposal_pending(cached) ? nullptr : m_assets.resolve(cached))
+            {
+                AssetResult views;
+                describe_views((*record), views);
+                const std::uint32_t findings = m_filesystem->cached_findings(operation.logical_file);
+                const bool json = (load->format == EAssetFileFormat::json);
+                const std::size_t minimum_alignment = (load->format == EAssetFileFormat::baked) ? 32u : 16u;
+                const bool adequate_alignment = !views.byte_view().is_ready() ||
+                    (views.byte_view().align() >= std::max(load->alignment, minimum_alignment));
+                if (matches_load_format(views.kind, load->format) && adequate_alignment && (!json || (findings != UINT32_MAX)))
+                {
+                    if (json)
+                    {
+                        const CDocumentPolicyResult policy = document_policy::evaluate(findings, load->policy);
+                        operation.working_views.document_policy = policy.status;
+                        operation.working_views.document_findings = findings;
+                        if (!policy.accepted())
+                        {
+                            finish_operation(slot, EAssetStatus::policy_rejected);
+                            return;
+                        }
+                        views.document_policy = policy.status;
+                        views.document_findings = findings;
+                    }
+                    operation.retained_asset = cached;
+                    operation.working_views = views;
+                    finish_operation(slot, EAssetStatus::success);
+                    return;
+                }
+            }
+            if (resolved.binding != 0u)
+            {
+                const auto status = begin_bundle_file(resolved, memory::condition_alignment(std::max(load->alignment, std::size_t{ 16u })), operation.bundle_input);
+                if (status != EAssetStatus::success)
+                {
+                    finish_operation(slot, status);
+                    return;
+                }
+                if ((load->format == EAssetFileFormat::raw) || (load->format == EAssetFileFormat::baked))
+                {
+                    operation.working_views = retain_bundle_file(operation.bundle_input, load->format);
+                    operation.retained_asset = operation.working_views.asset;
+                    const auto result = operation.working_views.status;
+                    finish_operation(slot, (result == EAssetStatus::invalid_request) ? EAssetStatus::conditioning_failed : result);
+                }
+                else begin_conditioning_load(slot, operation.bundle_input.bytes());
+                return;
+            }
+        }
+        FileLoadRequest request{ operation.file, ((load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment) };
+        const auto outbound = threading::make_pod_message(slot, request);
+        if ((m_file_io == nullptr) || !m_file_io->post(outbound))
+        {
+            finish_operation(slot, EAssetStatus::delivery_failed);
+        }
+        return;
+    }
+    if (const AssetSaveRequest* const save = operation.request_owner.payload<AssetSaveRequest>())
+    {
+        operation.file = save->file.cstring();
+        operation.save_settings = save->settings;
+        operation.save_requested = true;
+        CAssetRecord* const source = disposal_pending(save->source) ? nullptr : m_assets.resolve(save->source);
+        if ((source == nullptr) || (save->file.length() == 0u))
+        {
+            finish_operation(slot, ((source == nullptr) ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
+            return;
+        }
+        if (!protect_asset(*source, operation.backing, false))
+        {
+            finish_operation(slot, EAssetStatus::invalid_asset);
+            return;
+        }
+        operation.retained_asset = save->source;
+        describe_views((*source), operation.working_views);
+    }
+    else
+    {
+        const bool recognised =
+            handle_transfer_if_type_matches<RawAssetTransfer, ByteStorage>(operation) ||
+            handle_transfer_if_type_matches<ImageAssetTransfer, DecodedTga>(operation) ||
+            handle_transfer_if_type_matches<BakedAssetTransfer, BakedDocumentAsset>(operation) ||
+            handle_transfer_if_type_matches<LiveAssetTransfer, LiveDocumentAsset>(operation);
+        if (!recognised || (operation.working_views.status != EAssetStatus::success))
+        {
+            finish_operation(slot, operation.working_views.status);
+            return;
+        }
+        if ((operation.retention == EAssetRetention::source) && !retain_candidate(operation))
+        {
+            finish_operation(slot, EAssetStatus::allocation_failed);
+            return;
+        }
+    }
+    begin_save_or_bake(slot);
+}
+
+void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    const bool live = (operation.working_views.live_document() != nullptr);
+    if (!operation.save_requested && (!live || (operation.retention != EAssetRetention::baked)))
+    {
+        finish_operation(slot, EAssetStatus::success);
+        return;
+    }
+    threading::CErasedPodMsg outbound;
+    if ((operation.working_views.kind == EAssetKind::image) && (operation.save_settings.format == EAssetFileFormat::tga))
+    {
+        operation.phase = EPhase::encoding;
+        outbound = threading::make_pod_message(slot, TgaEncodeRequest{ operation.working_views.views.image->buffer_view(), operation.save_settings.image });
+    }
+    else if ((live || operation.working_views.document_view().is_ready()) &&
+        (!operation.save_requested || (operation.save_settings.format == EAssetFileFormat::baked) ||
+            (operation.save_settings.format == EAssetFileFormat::json)))
+    {
+        if (!live && (operation.save_settings.format == EAssetFileFormat::baked))
+        {
+            begin_file_save(slot, operation.working_views.byte_view());
+            return;
+        }
+        operation.phase = EPhase::conditioning;
+        DocumentConditionRequest request;
+        if (live)
+        {
+            request.set_live_source(operation.working_views.live_document());
+        }
+        else
+        {
+            request.set_baked_source(operation.working_views.document_view());
+        }
+        request.write_json = operation.save_requested && (operation.save_settings.format == EAssetFileFormat::json);
+        request.options = &operation.save_settings.document;
+        outbound = threading::make_pod_message(slot, request);
+    }
+    else if (((operation.working_views.kind == EAssetKind::raw) || (operation.working_views.kind == EAssetKind::bundle)) &&
+        (operation.save_settings.format == EAssetFileFormat::raw))
+    {
+        begin_file_save(slot, operation.working_views.byte_view());
+        return;
+    }
+    else
+    {
+        finish_operation(slot, EAssetStatus::invalid_request);
+        return;
+    }
+    if (!post_conditioning(outbound))
+    {
+        finish_operation(slot, EAssetStatus::delivery_failed);
+    }
+}
+
+void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstView& bytes) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    operation.logical_file = operation.file;
+    if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, true, operation.physical_file))
+    {
+        finish_operation(slot, EAssetStatus::write_failed);
+        return;
+    }
+    operation.file = operation.physical_file.cstring();
+    operation.phase = EPhase::saving;
+    const auto outbound = threading::make_pod_message(slot, FileSaveRequest{ operation.file, bytes });
+    if ((m_file_io == nullptr) || !m_file_io->post(outbound))
+    {
+        finish_operation(slot, EAssetStatus::delivery_failed);
+    }
+}
+
+//==============================================================================
+//  Worker completion dispatch and operation continuation
+//==============================================================================
+
+bool CAssetService::post_conditioning(const threading::CErasedPodMsg& message) noexcept
+{
+    return (m_conditioning != nullptr) && m_conditioning->post(message);
+}
+
+void CAssetService::complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept
+{
+    SchemaProcessDone processed;
+    if (message.copy_payload_to(processed))
+    {
+        complete_process(processed, message.query_async_slot(), worker);
+        return;
+    }
+    SchemaConditionResult schema;
+    if (message.copy_payload_to(schema))
+    {
+        complete_schema(schema, message.query_async_slot(), worker);
+        return;
+    }
+    const std::int32_t slot = message.query_async_slot();
+    SOperation* const operation = m_operations.get_object(slot);
+    FileSaveResult result{};
+    BundlePrepareResult prepared;
+    if ((operation != nullptr) && (operation->phase == EPhase::saving) &&
+        (&worker == m_file_io) && message.copy_payload_to(result))
+    {
+        finish_operation(slot, (result.success ? EAssetStatus::success : EAssetStatus::write_failed));
+    }
+    else if ((operation != nullptr) && (operation->phase == EPhase::bundle_preparing) &&
+        (&worker == m_conditioning) && message.copy_payload_to(prepared))
+    {
+        if (prepared.status != EAssetStatus::success)
+        {
+            finish_operation(slot, prepared.status);
+            return;
+        }
+
+        //  The requester package stays alive until accepted operations drain.
+        //  Publication rechecks the reservation and commits only this subtree.
+        const auto binding = std::exchange(operation->reserved_binding, 0u);
+        operation->working_views = publish_bundle(operation->bundle_preparation, binding, *operation->client);
+        operation->retained_asset = operation->working_views.asset;
+        finish_operation(slot, operation->working_views.status);
+    }
+    else
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Unexpected asset worker completion at slot {}", slot);
+    }
+}
+
+template<typename TMessage>
+bool CAssetService::accept_worker_result(SOperation& operation, threading::CErasedOwnerMsg& message,
+    threading::CThreadPackage& worker, threading::CThreadPackage* const expected_worker) noexcept
+{
+    const auto inspected = threading::inspect_owner_message<TMessage>(message);
+    if ((&worker != expected_worker) || (inspected.state == threading::EOwnerMessageState::invalid))
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Rejected asset completion at slot {}, phase {}, expected {}, message {}, payload {}, worker_match {}",
+            message.query_async_slot(), static_cast<std::uint32_t>(operation.phase), k_type_id_v<TMessage>.raw_value(),
+            message.query_message_type_id().raw_value(), message.query_owner_type_id().raw_value(), (&worker == expected_worker));
+        return false;
+    }
+    //  Each owning worker protocol permits an empty allocation-failure reply.
+    //  Domain handlers preserve their existing ordinary failure/status mapping.
+    operation.worker_result_owner = message.take_owner();
+    return true;
+}
+
+void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept
+{
+    const std::int32_t slot = message.query_async_slot();
+    SOperation* const pending = m_operations.get_object(slot);
+    if (pending == nullptr)
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Unknown asset worker slot {}", slot);
+        return;
+    }
+    SOperation& operation = *pending;
+    switch (operation.phase)
+    {
+        case EPhase::bundle_loading:
+        {
+            if (accept_worker_result<FileLoadResult>(operation, message, worker, m_file_io))
+                complete_bundle(slot);
+            return;
+        }
+        case EPhase::bundle_building:
+        {
+            if (accept_worker_result<BundleBuildResult>(operation, message, worker, m_file_io))
+                complete_bundle(slot);
+            return;
+        }
+        case EPhase::loading:
+        {
+            if (accept_worker_result<FileLoadResult>(operation, message, worker, m_file_io))
+                complete_file_load(slot);
+            return;
+        }
+        case EPhase::decoding:
+        {
+            if (accept_worker_result<TgaDecodeResult>(operation, message, worker, m_conditioning))
+                complete_image_decode(slot);
+            return;
+        }
+        case EPhase::encoding:
+        {
+            if (accept_worker_result<TgaEncodeResult>(operation, message, worker, m_conditioning))
+                complete_image_encode(slot);
+            return;
+        }
+        case EPhase::conditioning:
+        {
+            if (accept_worker_result<DocumentConditionResult>(operation, message, worker, m_conditioning))
+                complete_document_conditioning(slot);
+            return;
+        }
+        default: break;
+    }
+    m_failed = true;
+    MV_CRITICAL_EVENT("Host: Asset completion does not match the active phase at slot {}", slot);
+}
+
+void CAssetService::complete_file_load(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    ByteStorage* const loaded = operation.worker_result_owner.payload<ByteStorage>();
+    if ((loaded == nullptr) || !loaded->buffer.is_ready())
+    {
+        finish_operation(slot, EAssetStatus::read_failed);
+        return;
+    }
+    if (operation.load_format == EAssetFileFormat::raw)
+    {
+        operation.candidate_owner = std::move(operation.worker_result_owner);
+    }
+    else if (operation.load_format == EAssetFileFormat::baked)
+    {
+        operation.candidate_owner = CErasedOwner::create<BakedDocumentAsset>();
+        BakedDocumentAsset* const source = operation.candidate_owner.payload<BakedDocumentAsset>();
+        if ((source == nullptr) || !source->block.adopt_buffer(std::move(loaded->buffer)))
+        {
+            finish_operation(slot, ((source == nullptr) ? EAssetStatus::allocation_failed : EAssetStatus::conditioning_failed));
+            return;
+        }
+    }
+    else
+    {
+        const CByteConstView bytes = loaded->buffer.const_view();
+        operation.conditioning_input_owner = std::move(operation.worker_result_owner);
+        begin_conditioning_load(slot, bytes);
+        return;
+    }
+    describe_views(operation.candidate_owner, operation.working_views);
+    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
+    return;
+}
+
+void CAssetService::begin_conditioning_load(const std::int32_t slot, const CByteConstView bytes) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    const AssetLoadRequest& load = *operation.request_owner.payload<AssetLoadRequest>();
+    threading::CErasedPodMsg outbound;
+    if (operation.load_format == EAssetFileFormat::tga)
+    {
+        operation.phase = EPhase::decoding;
+        outbound = threading::make_pod_message(slot, TgaDecodeRequest{ bytes, load.decode_top_down });
+    }
+    else
+    {
+        operation.phase = EPhase::conditioning;
+        DocumentConditionRequest request;
+        request.set_text_source(bytes);
+        request.policy = load.policy;
+        outbound = threading::make_pod_message(slot, request);
+    }
+    if (!post_conditioning(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
+}
+
+void CAssetService::complete_bundle(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    if (operation.phase == EPhase::bundle_loading)
+    {
+        ByteStorage* const loaded = operation.worker_result_owner.payload<ByteStorage>();
+        if ((loaded == nullptr) || !loaded->buffer.is_ready())
+        {
+            finish_operation(slot, EAssetStatus::read_failed);
+            return;
+        }
+        operation.bundle_preparation.loaded = std::move(loaded->buffer);
+    }
+    else
+    {
+        BundleBuildResult* const built = operation.worker_result_owner.payload<BundleBuildResult>();
+        if (built == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::allocation_failed);
+            return;
+        }
+        if (!built->result.succeeded())
+        {
+            EAssetStatus status = EAssetStatus::conditioning_failed;
+            switch (built->result.status)
+            {
+                case bundle::EBuildStatus::allocation_failed: status = EAssetStatus::allocation_failed; break;
+                case bundle::EBuildStatus::size_query_failed:
+                case bundle::EBuildStatus::read_failed: status = EAssetStatus::read_failed; break;
+                case bundle::EBuildStatus::invalid_input:
+                case bundle::EBuildStatus::no_content:
+                case bundle::EBuildStatus::too_large: status = EAssetStatus::invalid_request; break;
+                default: break;
+            }
+            finish_operation(slot, status);
+            return;
+        }
+        operation.bundle_preparation.block = std::move(built->block);
+        operation.bundle_preparation.view = built->view;
+    }
+
+    operation.worker_result_owner.destroy();
+    operation.phase = EPhase::bundle_preparing;
+    const auto outbound = threading::make_pod_message(slot, BundlePrepareWork{ &operation.bundle_preparation });
+    if (!post_conditioning(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
+}
+
+void CAssetService::complete_image_decode(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    DecodedTga* const decoded = operation.worker_result_owner.payload<DecodedTga>();
+    if ((decoded == nullptr) || !decoded->buffer.is_ready())
+    {
+        finish_operation(slot, EAssetStatus::conditioning_failed);
+        return;
+    }
+
+    //  Decoder output has reached its stable Host allocation. Prepare the
+    //  published metadata here, before clients can borrow its address.
+    if (!decoded->view.set(decoded->buffer.view(), decoded->desc, decoded->storage_bottom_up))
+    {
+        finish_operation(slot, EAssetStatus::conditioning_failed);
+        return;
+    }
+    operation.candidate_owner = std::move(operation.worker_result_owner);
+    describe_views(operation.candidate_owner, operation.working_views);
+    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
+    return;
+}
+
+void CAssetService::complete_image_encode(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    const ByteStorage* const encoded = operation.worker_result_owner.payload<ByteStorage>();
+    if ((encoded == nullptr) || !encoded->buffer.is_ready())
+    {
+        finish_operation(slot, EAssetStatus::conditioning_failed);
+        return;
+    }
+    begin_file_save(slot, encoded->buffer.const_view());
+    return;
+}
+
+void CAssetService::complete_document_conditioning(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    DocumentConditionResult* const conditioned = operation.worker_result_owner.payload<DocumentConditionResult>();
+    if (conditioned == nullptr)
+    {
+        finish_operation(slot, EAssetStatus::allocation_failed);
+        return;
+    }
+    operation.working_views.document_policy = conditioned->policy;
+    operation.working_views.document_findings = conditioned->findings;
+
+    //  Preserve a requested baked snapshot even when later JSON writing fails.
+    if ((operation.load_requested || (operation.retention == EAssetRetention::baked)) && conditioned->storage.baked.is_ready())
+    {
+        CErasedOwner owner = CErasedOwner::create<BakedDocumentAsset>();
+        BakedDocumentAsset* const baked = owner.payload<BakedDocumentAsset>();
+        if (baked == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::allocation_failed);
+            return;
+        }
+        baked->block = std::move(conditioned->storage.baked);
+        operation.candidate_owner = std::move(owner);
+        describe_views(operation.candidate_owner, operation.working_views);
+        if (!retain_candidate(operation))
+        {
+            finish_operation(slot, EAssetStatus::allocation_failed);
+            return;
+        }
+    }
+    if ((conditioned->status != EAssetStatus::success) || !operation.save_requested)
+    {
+        finish_operation(slot, conditioned->status);
+        return;
+    }
+    if (operation.save_settings.format == EAssetFileFormat::json)
+    {
+        begin_file_save(slot, conditioned->storage.text.const_view());
+    }
+    else
+    {   //  Baked retention moved the block into the repository. Otherwise the
+        //  worker reply still owns it. Both owners outlive the file save.
+        const CByteConstView binary = conditioned->storage.baked.is_ready() ?
+            conditioned->storage.baked.bytes() : operation.working_views.byte_view();
+        begin_file_save(slot, binary);
+    }
+    return;
+}
+
+}   //  namespace host

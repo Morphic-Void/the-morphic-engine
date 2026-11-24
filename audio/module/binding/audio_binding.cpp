@@ -14,9 +14,8 @@
 #include "framework/module/module_binding.hpp"
 
 #include "module/types/local_type_ids.hpp"
-#include "runtime/audio_thread.hpp"
+#include "runtime/audio_execution.hpp"
 #include "framework/module/module_binding_context.hpp"
-#include "framework/module/service_thread_pump.hpp"
 
 namespace audio::module_binding
 {
@@ -54,18 +53,16 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
     return audio::module_binding::s_binding.bootstrap(functions);
 }
 
-static std::uint32_t MV_STD_ABI_CALL requested_entry(threading::CThreadContext& context, void* const module_context) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_execution_v1(
+    const std::uint32_t capacity, modules::SExecutionV1* const execution) noexcept
 {
-    return audio::audio_thread_entry_point()(context, module_context);
-}
-
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(
-    const std::uint32_t capacity, modules::SHostPumpV1* const pump) noexcept
-{
-    if (!pump || (capacity != sizeof(*pump)))
+    if (!execution || (capacity != sizeof(*execution)))
     {
         return modules::EBindingResult::invalid_argument;
     }
-    *pump = modules::TServiceThreadPump<&requested_entry, &thread_ids::audio>::capability();
+    static const modules::SExecutionV1 service = audio::audio_execution();
+    static const modules::SChildExecution child{ &service, nullptr, thread_ids::audio };
+    *execution = {};
+    execution->initial_child = &child;
     return modules::EBindingResult::success;
 }

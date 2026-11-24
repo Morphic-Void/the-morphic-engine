@@ -30,10 +30,9 @@ bool CPlatformRuntime::configuration_used(const input::SInstallationToken token)
     return false;
 }
 
-bool CPlatformRuntime::configuration_command(const services::SDispatchedCommand& command,
-    const std::int32_t completion) noexcept
+bool CPlatformRuntime::configuration_command(const services::SDispatchedCommand& command, const std::int32_t completion) noexcept
 {
-    if (!m_context.endpoint)
+    if (!m_context.communication)
     {
         complete(completion, EServiceStatus::unavailable);
         return true;

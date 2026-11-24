@@ -124,13 +124,13 @@ Release, quiescence and cancellation are typed settlement submissions with no re
 They are idempotent for the exact tracked identity; stale or foreign identities
 cannot affect another record. The sender retries definite temporary pressure, never an uncertain publication.
 
-## Pump adapter and protocol boundary
+## Execution facade and protocol boundary
 
-`CEndpointContext` queues POD and owning requests for both execution modes.
+`CCommunication` submits POD and owning requests for both execution modes.
 Providers use `CProviderClient` for asynchronous completion, resource commit,
 borrow preparation/retirement and notification binding. Native restriction and
 maintenance callbacks remain in the authenticated `SHostExecutionContext`.
-Host and modules require matching version-1 bootstrap/pump layouts and a coordinated
+Host and modules require matching version-1 bootstrap/execution layouts and a coordinated
 rebuild, including SYSTEM catalogue changes. Unsupported layouts are rejected.
 
 Generic settlement messages share each endpoint's ordinary FIFO. There is no

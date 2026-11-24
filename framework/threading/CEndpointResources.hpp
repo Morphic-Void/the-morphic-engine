@@ -12,7 +12,7 @@
 
 #include "framework/module/host_execution_context.hpp"
 #include "framework/threading/CBatchWork.hpp"
-#include "framework/threading/endpoint_messages.hpp"
+#include "framework/services/service_protocol.hpp"
 #include "framework/threading/messages/CErasedMessageTransports.hpp"
 #include "foundation/containers/TInstance.hpp"
 
@@ -21,8 +21,7 @@ namespace threading
 
 enum class EEndpointFailure : std::uint32_t
 {
-    none, transport_poisoned, publication_overflow, accounting_failure, execution_failed, lifecycle_failure, wake_failed,
-    direct_transport_poisoned
+    none, transport_poisoned, publication_overflow, accounting_failure, execution_failed, lifecycle_failure, wake_failed, direct_transport_poisoned
 };
 
 struct SModuleEndpointState
@@ -100,10 +99,9 @@ public:
     std::atomic<EEndpointFailure> failure{ EEndpointFailure::none };
     std::uint32_t notification_pins{ 0u }; //  Host owned; all publishers relinquish before the final unpin.
 
-    //  Producer-owned publication boundaries. Host learns them through SealEndpoint.
+    //  Producer-owned publication boundaries, observed through the private lifecycle lane.
     std::uint64_t published_pods{ 0u }, published_owners{ 0u };
-    SealEndpoint seal;
-    bool sealing{ false }, seal_posted{ false }, sealed{ false };
+    bool sealing{ false }, sealed{ false };
 };
 
 }   //  namespace threading

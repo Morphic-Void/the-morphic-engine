@@ -15,8 +15,8 @@
 
 #include "entry/bootstrap_config.hpp"
 #include "platform/module/binding.hpp"
-#include "runtime/batch_pool.hpp"
-#include "runtime/worker_policy.hpp"
+#include "runtime/workers/batch_pool.hpp"
+#include "runtime/workers/worker_policy.hpp"
 
 namespace host
 {

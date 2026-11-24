@@ -1,0 +1,388 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    module_service.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    20 Sep 26
+//
+//  Host admission, notification and storage for worker-owned binding transitions.
+
+#include "framework/system/system_ids.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
+
+#include <local_type_ids.hpp>
+
+#include "module/module_service.hpp"
+#include "system/system_id_definitions.hpp"
+#include "debug/macros.hpp"
+#include "runtime/host_payloads.hpp"
+
+namespace host
+{
+
+//==============================================================================
+//  Stable module records and client notifications
+//==============================================================================
+
+CModuleService::CModuleService(memory::CMemoryAllocator& allocator) noexcept
+    : m_allocator{ allocator }
+{
+}
+
+CModuleService::SModuleRecord::SModuleRecord(memory::CMemoryAllocator& allocator, const module_ids::id_type identity) noexcept
+    : memory_context{ allocator, system_ids::ops::make_system_id(identity, thread_ids::host) }
+    , identity{ identity }
+{
+}
+
+CModuleService::SModuleRecord* CModuleService::find(const mount_point_ids::id_type mount) noexcept
+{
+    for (auto& record : m_records)
+    {
+        if (record && record->binding.is_bound() && (module_ids::ops::get_mount_point_id(record->identity) == mount))
+        {
+            return record.operator->();
+        }
+    }
+
+    return nullptr;
+}
+
+void CModuleService::reply(SClientRecord& client, const std::int32_t slot, const modules::ModuleResult& result) noexcept
+{
+    const auto message = threading::make_pod_message(slot, result);
+    if (!client.reply(message))
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: module notification delivery failed at slot {}", slot);
+    }
+}
+
+//==============================================================================
+//  Admission and worker dispatch
+//==============================================================================
+
+void CModuleService::request(CErasedOwner&& owner, const std::int32_t slot, SClientRecord* const client, const EPurpose purpose) noexcept
+{
+    const modules::ModuleRequest* const request = owner.payload<modules::ModuleRequest>();
+
+    //  Acknowledge receipt even when validation or the single pending slot rejects
+    //  the request. Internal Executive transitions never notify the outgoing client.
+    if ((purpose == EPurpose::client) && (client != nullptr))
+    {
+        modules::ModuleResult acknowledgement;
+        acknowledgement.module = (request != nullptr) ? request->module : module_ids::id_type{};
+        acknowledgement.notice = modules::EModuleNotice::acknowledged;
+        acknowledgement.status = modules::EModuleStatus::success;
+        reply(*client, slot, acknowledgement);
+    }
+
+    if (m_pending || m_internal_result_ready)
+    {
+        if ((purpose == EPurpose::client) && (client != nullptr))
+        {
+            modules::ModuleResult result;
+            result.module = (request != nullptr) ? request->module : module_ids::id_type{};
+            result.status = modules::EModuleStatus::busy;
+            reply(*client, slot, result);
+        }
+        else
+        {
+            //  Internal lifecycle transitions are issued only after the previous job completes.
+            m_failed = true;
+            MV_CRITICAL_ASSERT_MSG(false, "Host issued overlapping internal module operations");
+        }
+        return;
+    }
+
+    m_request_owner = std::move(owner);
+    m_client = client;
+    m_client_slot = slot;
+    m_purpose = purpose;
+    m_pending = true;
+    m_work = {};
+    m_work.request = request;
+
+    if ((request == nullptr) || !module_ids::ops::is_valid_id(request->module) ||
+        (system_id_registry::lookup_module_name(request->module) == nullptr) ||
+        (module_ids::ops::get_mount_point_id(request->module) == mount_point_ids::executable) ||
+        (request->action > modules::EModuleAction::replace) ||
+        ((purpose == EPurpose::client) &&
+            (module_ids::ops::get_mount_point_id(request->module) == mount_point_ids::executive) &&
+            (request->action != modules::EModuleAction::load)) ||
+        ((client != nullptr) && (request->action != modules::EModuleAction::load) &&
+            (module_ids::ops::get_mount_point_id(client->module_id()) == module_ids::ops::get_mount_point_id(request->module))) ||
+        ((request->action != modules::EModuleAction::unload) && (request->file.length() == 0u)))
+    {
+        finish(modules::EModuleStatus::invalid_request);
+        return;
+    }
+
+    SModuleRecord* const previous = find(pending_mount_point());
+    if ((request->action == modules::EModuleAction::load) && (previous != nullptr))
+    {
+        finish(modules::EModuleStatus::already_loaded);
+        return;
+    }
+
+    if ((request->action != modules::EModuleAction::load) &&
+        ((previous == nullptr) || ((request->action == modules::EModuleAction::unload) && (previous->identity != request->module))))
+    {
+        finish(modules::EModuleStatus::not_loaded);
+        return;
+    }
+
+    //  Prepare stable records here; binding changes belong to the worker.
+    m_work.previous = (previous != nullptr) ? &previous->binding : nullptr;
+    if (request->action != modules::EModuleAction::unload)
+    {
+        //  A failed replacement still tears down the previous binding, matching
+        //  the existing lifecycle contract, but never attempts an unknown file.
+        m_physical_file.deallocate();
+        if ((m_filesystem != nullptr) && m_filesystem->resolve(request->file.cstring(), false, m_physical_file))
+        {
+            m_work.physical_file = m_physical_file.cstring();
+        }
+        const auto index = module_ids::ops::decode_id(request->module).raw_value();
+        if ((index >= module_ids::k_count) || (!m_records[index] && !m_records[index].emplace(m_allocator, request->module)))
+        {
+            finish(modules::EModuleStatus::allocation_failed);
+            return;
+        }
+
+        m_work.next = &m_records[index]->binding;
+        m_work.memory_context = &m_records[index]->memory_context;
+    }
+}
+
+mount_point_ids::id_type CModuleService::pending_mount_point() const noexcept
+{
+    return (m_work.request != nullptr) ? module_ids::ops::get_mount_point_id(m_work.request->module) : mount_point_ids::id_type{};
+}
+
+void CModuleService::dispatch(threading::CThreadPackage& worker, debug_system::CDebugServiceState* const debug_service) noexcept
+{
+    if (!needs_dispatch())
+    {
+        return;
+    }
+
+    m_work.registry = &system_registry_view();
+    m_work.debug_service = debug_service;
+
+    //  One outstanding module operation; the message identity separates this
+    //  correlation space from asset-worker slots.
+    m_worker_slot = (m_worker_slot == INT32_MAX) ? 0 : m_worker_slot + 1;
+    const auto message = threading::make_pod_message(m_worker_slot, ModuleWorkRequest{ &m_work });
+    if (!worker.post(message))
+    {
+        finish(modules::EModuleStatus::delivery_failed);
+        return;
+    }
+
+    m_in_flight = true;
+}
+
+//==============================================================================
+//  Completion routing
+//==============================================================================
+
+void CModuleService::complete(const threading::CErasedPodMsg& message) noexcept
+{
+    ModuleWorkResult result;
+    if (!m_in_flight || (message.query_async_slot() != m_worker_slot) || !message.copy_payload_to(result))
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: unexpected module-worker completion");
+        return;
+    }
+
+    m_in_flight = false;
+    if (m_work.cleanup_only)
+    {
+        finish((result.status == modules::EModuleStatus::success) ? modules::EModuleStatus::installation_failed : result.status);
+        return;
+    }
+    if ((result.status == modules::EModuleStatus::success) && (m_work.next != nullptr))
+    {
+        //  Keep the request and client correlation until the module coordinator is ready.
+        m_start_pending = true;
+        return;
+    }
+    finish(result.status);
+}
+
+void CModuleService::complete_thread_start(const bool started) noexcept
+{
+    MV_ASSERT(m_start_pending);
+    m_start_pending = false;
+    if (started)
+    {
+        SModuleRecord* const record = find(pending_mount_point());
+        MV_ASSERT(record != nullptr);
+        record->thread_started = true;
+        finish(modules::EModuleStatus::success);
+        return;
+    }
+
+    //  Startup has joined any failed thread. Release the installed DLL on the
+    //  same worker before reporting failure to the ordinary client.
+    m_work.previous = m_work.next;
+    m_work.next = nullptr;
+    m_work.cleanup_only = true;
+}
+
+void CModuleService::thread_stopped(const mount_point_ids::id_type mount) noexcept
+{
+    if (SModuleRecord* const record = find(mount))
+    {
+        record->thread_started = false;
+    }
+}
+
+void CModuleService::finish(const modules::EModuleStatus status) noexcept
+{
+    if (m_result_pending) return;
+    modules::ModuleResult result;
+    result.status = status;
+    result.module = (m_work.request != nullptr) ? m_work.request->module : module_ids::id_type{};
+
+    //  Report what remains available, including an old binding whose unload failed.
+    SModuleRecord* const current = find(pending_mount_point());
+    if (current != nullptr)
+    {
+        if ((status == modules::EModuleStatus::success) && (m_work.next == &current->binding))
+        {
+            current->function = m_work.function;
+        }
+
+        result.available = current->binding.is_ready() &&
+            current->thread_started;
+        result.module = current->identity;
+        result.function = result.available ? current->function : nullptr;
+    }
+
+    if ((m_purpose == EPurpose::client) && (m_client != nullptr))
+    {
+        m_completed_result = result;
+        m_result_pending = true;
+        m_start_pending = false;
+        return;
+    }
+    else
+    {
+        m_internal_result = result;
+        m_internal_result_ready = true;
+    }
+
+    settle();
+}
+
+void CModuleService::retry_output() noexcept
+{
+    if (!m_result_pending) return;
+    if (m_client->publish_reply(threading::make_pod_message(m_client_slot, m_completed_result)) == EReplyPublication::busy)
+    {
+        return;
+    }
+    m_result_pending = false;
+    settle();
+}
+
+void CModuleService::settle() noexcept
+{
+    m_pending = false;
+    m_start_pending = false;
+    m_work = {};
+    m_request_owner.destroy();
+    m_client = nullptr;
+}
+
+bool CModuleService::take_internal_result(modules::ModuleResult& result, EPurpose& purpose) noexcept
+{
+    if (!m_internal_result_ready)
+    {
+        return false;
+    }
+
+    result = m_internal_result;
+    purpose = m_purpose;
+    m_internal_result_ready = false;
+    return true;
+}
+
+//==============================================================================
+//  Shutdown and terminal cleanup
+//==============================================================================
+
+bool CModuleService::request_shutdown() noexcept
+{
+    while (m_shutdown_index < module_ids::k_count)
+    {
+        const auto& record = m_records[m_shutdown_index++];
+        if (!record || !record->binding.is_bound())
+        {
+            continue;
+        }
+
+        CErasedOwner owner = CErasedOwner::create<modules::ModuleRequest>();
+        modules::ModuleRequest* const request = owner.payload<modules::ModuleRequest>();
+        if (request == nullptr)
+        {
+            m_failed = true;
+            --m_shutdown_index;
+            return false;
+        }
+
+        request->action = modules::EModuleAction::unload;
+        request->module = record->identity;
+        this->request(std::move(owner), -1, nullptr, EPurpose::shutdown);
+        return true;
+    }
+
+    return false;
+}
+
+void CModuleService::cancel_pending() noexcept
+{
+    //  Only before dispatch or after the worker has been joined.
+    m_in_flight = false;
+    if (m_pending)
+    {
+        finish(modules::EModuleStatus::delivery_failed);
+    }
+}
+
+modules::CBoundModule* CModuleService::executive_binding() noexcept
+{
+    SModuleRecord* const record = find(mount_point_ids::executive);
+    return (record != nullptr) ? &record->binding : nullptr;
+}
+
+bool CModuleService::release_records() noexcept
+{
+    bool unloaded = true;
+    for (auto& record : m_records)
+    {
+        if (record && record->binding.is_bound())
+        {
+            unloaded = false;
+            record->binding.retain_until_process_exit();
+            MV_LOG(error, "Host retained a DLL after worker unload could not complete");
+        }
+
+        record.reset();
+    }
+
+    return unloaded;
+}
+
+modules::FModuleFunction CModuleService::executive_function() const noexcept
+{
+    const auto& record = m_records[module_ids::executive_index.raw_value()];
+    return record ? record->function : nullptr;
+}
+
+}   //  namespace host

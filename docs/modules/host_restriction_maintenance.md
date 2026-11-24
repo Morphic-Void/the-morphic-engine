@@ -21,22 +21,26 @@ cannot enter a scope, and ordinary work admission stays closed.
 ## Current common-endpoint integration
 
 The [common endpoint reference](host_pump_foundation.md) supersedes the historical
-pump array, consumed-prefix and inline-service descriptions below. Pumps now read
-their own ordinary FIFO; Host never supplies an input array or validates a
-consumed count. Native execution callbacks retain restriction and maintenance
-authority only. Provider service calls are asynchronous ordinary POD exchanges.
+pump array, consumed-prefix and inline-service descriptions below. The Host-owned
+preamble consumes each context's fixed ordinary rings and invokes module handlers;
+modules do not read transport FIFOs. Private lifecycle uses separate rings and
+publication frontiers. Native restriction/maintenance hooks remain authenticated
+execution facilities. Provider service calls use asynchronous ordinary POD exchanges.
 
 Nested maintenance retains invocation-protected operation and resource records.
 It may account for bounded endpoint submissions and stage work whose effects
 require the outer Host loop. It does not invoke another pump or reclaim storage
-accessible to the suspended invocation. Deferred messages replay through the same
-endpoint dispatcher in FIFO order, including registration before child readiness.
-Owning envelopes remain retained until safe outer processing or quiescent drain.
-The independent POD/owner seal boundaries replace consumed-prefix confirmation;
-no separate priority inbox or cleanup queue remains.
+accessible to the suspended invocation. Module capture retains at most one head
+per ordinary POD/owning lane without dispatch or reply-storage reservation. Native
+worker capture keeps its bounded deferred storage. Private lifecycle may progress
+without reentering a module callback; child creation/readiness uses that private
+lane. Owning envelopes remain retained until safe outer processing or quiescent
+drain. Independent POD/owner seal frontiers replace consumed-prefix confirmation;
+there is no generic cleanup queue.
 
-Reply reservations now count outstanding obligations on the common FIFO. There
-are no separate control credits or control-publication methods. Native invocation
+Logical reply credits count obligations; dispatch-local fallback reservations
+separately guarantee storage for immediate replies. Retained asynchronous output
+stays in operation records. Private controls use their own retained transitions. Native invocation
 protection and bounded maintenance capture remain necessary to prevent reentrant
 dispatch or reclamation while a module invocation is suspended.
 
@@ -59,15 +63,14 @@ Public boundaries:
 | `foundation/platform/threading/awake_clock.hpp`, `platform::threading` | Checked observation of the existing awake clock, without a Host dependency. |
 | `framework/module/host_restriction.hpp`, `modules` | Restriction reason/scope identities, atomic publication layout, non-owning snapshot reader and local snapshot value. |
 | `framework/module/host_eligible_budget.hpp`, `modules` | A budget measured in Host-eligible awake time; depends on the clock and restriction reader. |
-| `framework/module/host_execution_context.hpp`, `modules` | Immutable, non-owning exact-client restriction subscription and permitted Host stop signalling endpoint. |
-| `framework/module/host_pump.hpp`, `modules` | Authenticated restriction enter/leave and bounded maintenance callbacks, with their results. |
+| `framework/module/host_execution_context.hpp`, `modules` | Immutable exact-client restriction subscription, permitted Host stop endpoint, authenticated restriction/maintenance callbacks and results. |
 | `host/runtime/host_restrictions.hpp/.cpp`, `host` | Sole writer, bounded scope ledger and publication/fanout policy. |
 | `host/runtime/host_maintenance.hpp/.cpp`, `host` | Invocation guard, deferred ingress, fairness cursors and safe-boundary replay. |
 
 These are execution facilities. They introduce no service route, synthetic
 Platform borrow or provider advertisement. Existing service protocols stay in
 `framework/services/`; notification ownership remains in `threading::CNotification`.
-Use the current complete pump interface with coordinated Host/module rebuilds.
+Use the current complete execution interface with coordinated Host/module rebuilds.
 Do not retain an older layout, add a compatibility adapter or silently substitute
 ordinary awake timing when the restriction interface is absent.
 
@@ -96,7 +99,7 @@ quiescence.
 ## Reporting authority and scope lifetime
 
 Implemented callback shapes (the ABI-annotated function pointers are in
-`modules::SHostPumpServices`):
+`modules::SHostExecutionContext`):
 
 ```cpp
 SRestrictionEnterResult enter_restriction(void* const context, const SRestrictionReason reason) noexcept;
@@ -115,8 +118,8 @@ client, Host thread and currently active outer invocation serial. Scope tokens
 also bind to that invocation. No other thread, worker, stale instance, arbitrary
 callback pointer or retained context may publish restriction state.
 
-Entry is permitted from `activate`, `pump` and `begin_stop`, including native
-callbacks reached synchronously from them. It is refused during `deactivate`,
+Entry is permitted from execution creation and handler invocations, including
+stop handling and synchronous native callbacks. It is refused during destruction,
 another provider's invocation or maintenance itself. Sticky shutdown alone does
 not reject an authenticated cleanup scope; Platform separately closes admission
 to new native work. The provider must successfully enter before starting
@@ -285,7 +288,7 @@ again when a timeout is reported.
 ## Exact-client restriction subscriptions
 
 **Install one subscription with every executing Host
-client, before its thread starts or pumped `activate` is called.** This removes a
+client, before its thread starts or pumped creation is called.** This removes a
 bootstrap gap in watchdog timing and avoids a new asynchronous registration
 protocol solely to reach Host-owned state. Passive modules have no reader or wake
 endpoint until execution is installed. Workers are not implicit Host clients.
@@ -293,8 +296,8 @@ endpoint until execution is installed. Workers are not implicit Host clients.
 An immutable `SHostExecutionContext` contains the exact instance/client tokens,
 monotonic `SHostRestrictionSubscription` token, snapshot reader, notification
 reader and permitted stop endpoint. It is stored inline in the stable client
-record. Thread resources borrow its address; `CThreadContext` exposes it read-only.
-`SHostPumpContext` borrows the same view for pumped execution. No caller may retain
+record. Both module execution modes borrow it through `SExecutionContext`;
+Host worker resources retain their separate internal access. No caller may retain
 it beyond the exact client's execution lifetime or hand it to an untracked thread.
 
 Host owns the subscription's `CNotification` inline in that client. The snapshot
@@ -416,10 +419,10 @@ for a safe outer boundary.
 
 Relevant current code makes the exclusions concrete:
 
-- [CPumpedClient::pump](../../host/runtime/pumped_client.cpp) offers copied
+- [CPumpedClient::pump](../../host/runtime/execution/pumped_client.cpp) offers copied
   commands/messages before invoking the provider, then validates consumed
   prefixes only after return. General router progress must not run in between.
-- [CServiceRouter](../../host/runtime/service_router.cpp) progress can publish
+- [CServiceRouter](../../host/runtime/services/service_router.cpp) progress can publish
   terminal replies and erase operations/routes; borrow progress can erase
   registrations and unpin packages. Capture intent instead of calling them.
 - [CHost::receive_request / receive_message](../../host/runtime/host.cpp) include
@@ -427,10 +430,10 @@ Relevant current code makes the exclusions concrete:
   They are not safe wholesale. Even the POD asset-release path erases an
   acquisition. Existing emergency/debug shutdown helpers also mutate lifecycle
   state or destroy the retained Executive request.
-- [CModuleService::complete / finish](../../host/runtime/module_service.cpp) can
+- [CModuleService::complete / finish](../../host/module/module_service.cpp) can
   destroy its owning request and arm thread startup. A POD worker result is not
   thereby safe to complete during maintenance.
-- [CAssetService](../../host/runtime/asset_service.cpp) completion, release,
+- [CAssetService](../../host/assets/asset_service.cpp) completion, release,
   disposal and bundle finalisation can process owners, release backing storage,
   publish dependent work and erase records. Capture the result intact.
 - Filesystem scan completion/refresh dispatch can adopt documents, post work and
@@ -580,7 +583,7 @@ The implementation applies eligible budgets to these explicit logical operations
 | Audio internal test watchdogs | Existing 15-second overall / 2-second progress budgets remain ordinary awake `CWaitDeadline` budgets. Audio continues independently during Host restriction/application pause. |
 
 The performance-counter fallback in
-[executive_thread.cpp](../../executive/runtime/executive_thread.cpp) has been
+[executive_execution.cpp](../../executive/runtime/executive_execution.cpp) has been
 removed from these Host-dependent waits. Budgets are checked at every
 operation-loop iteration before unrelated traffic, using validated correlations
 for completion. Intermediate replies do not renew them, and a busy inbox cannot

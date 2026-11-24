@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Tests"><UniqueIdentifier>{6c72a8a2-9ba2-5cd3-9bd0-38a562e3fc03}</UniqueIdentifier></Filter>
+    <Filter Include="Tests\module_lifecycle"><UniqueIdentifier>{09663c73-6c6f-5c0a-8c5a-52046fc2d4c2}</UniqueIdentifier></Filter>
+    <Filter Include="Tests\support"><UniqueIdentifier>{62e2876b-17ca-5d9a-9a82-29ddcb448921}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\tests\module_lifecycle\fixture.cpp"><Filter>Tests\module_lifecycle</Filter></ClCompile>
+    <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp"><Filter>Tests\module_lifecycle</Filter></ClCompile>
+    <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\service_execution.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\fixture_io.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\executive_execution.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\save_execution.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\bundle_execution.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_types.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\erased_owner_payloads.def"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+  </ItemGroup>
+</Project>

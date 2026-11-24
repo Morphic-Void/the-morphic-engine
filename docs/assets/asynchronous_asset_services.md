@@ -348,11 +348,11 @@ until process exit; see the module lifecycle notes for that fallback.
 - `host/runtime/host_payloads.hpp`: private worker exchanges and retained wrappers.
   These and the TGA worker protocols use component-local identities. Adjacent
   owner fragments feed the Host and service-test LOCAL operation tables.
-- `host/runtime/asset_service.*`: admission, retained storage, operation lifetimes,
+- `host/assets/asset_service.*`: admission, retained storage, operation lifetimes,
   worker dispatch and correlated completion.
-- `host/runtime/host_worker_thread.cpp`: file and conditioning execution.
+- `host/runtime/workers/host_worker_thread.cpp`: file and conditioning execution.
 - `host/runtime/host.cpp`: runtime routing, draining and shutdown order.
-- `executive/runtime/executive_thread.cpp`: 50 named sequential scenarios plus 32
+- `executive/runtime/executive_execution.cpp`: 50 named sequential scenarios plus 32
   concurrent saves through the actual Host, file, conditioning and rendering threads.
 
 The Executive exercise checks raw byte equality and alignment, TGA pixel equality,

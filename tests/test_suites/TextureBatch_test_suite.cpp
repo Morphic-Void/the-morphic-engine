@@ -7,8 +7,8 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    10 Oct 26
 //
-//  Drive the real rendering DLL with a controlled batch queue. Holding a
-//  dequeued item makes discard and exit ordering deterministic.
+//  Common-preamble real-DLL protocol checks and controlled local batch work.
+//  Holding a dequeued item makes discard and exit ordering deterministic.
 
 #include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
@@ -21,7 +21,7 @@
 #include "foundation/system/system_context.hpp"
 
 #include "debug/service.hpp"
-#include "host/runtime/asset_service.hpp"
+#include "host/assets/asset_service.hpp"
 #include "host/module/bound_module.hpp"
 #include "platform/path/native_path.hpp"
 #include "platform/threading/processor_relax.hpp"
@@ -33,9 +33,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
-#include "tests/support/direct_connection_fixture.hpp"
 #include "tests/test_suites/TextureBatch_test_suite.hpp"
-#include "host/threading/CThreadPackage.hpp"
 #include "types/fp16data_t.hpp"
 
 namespace texture_batch_tests
@@ -46,308 +44,9 @@ static_assert(!std::is_copy_constructible_v<rendering::CTextureEncodeJob> &&
 static_assert(!std::is_copy_constructible_v<rendering::CTextureDecodeJob> &&
     !std::is_move_constructible_v<rendering::CTextureDecodeJob>);
 
-struct SRealFixture
-{
-    platform::system::CPerfCountConversion conversion;
-    TInstance<debug_system::CDebugServiceState> debug_service;
-    modules::CBoundModule module;
-    threading::SBatchShared shared;
-    tests::SDirectHostFixture direct;
-    TInstance<threading::CThreadPackage> package;
-    TInstance<host::SClientRecord> client;
-    TInstance<tests::SDirectPeerFixture> executive;
-    connections::SToken connection;
-    threading::CErasedPodMsg host_message;
-    bool host_pending{ false };
-    threading::SBatchWork held;
-    threading::FEndpointThreadEntry entry{ nullptr };
-
-    ~SRealFixture() noexcept
-    {
-        if (!stop())
-        {
-            std::abort();
-        } // Preserve native borrowers until process exit on failed teardown.
-        if (debug_service) (void)debug_service->stop();
-        (void)module.unbind();
-        shared.wake.release_control();
-    }
-
-    bool initialise() noexcept
-    {
-        constexpr modules::SAdvertisedIdentity identity{
-            module_ids::executable, { modules::k_binding_abi_major, 0u },
-            modules::k_binding_abi_major, modules::k_binding_abi_major };
-        debug_service = TInstance<debug_system::CDebugServiceState>::create();
-        if (!debug_service || !conversion.init() || !shared.wake.acquire_control())
-        {
-            return false;
-        }
-        const std::string log = test_environment::test_log_path("texture_batch");
-        const std::string direct_log = test_environment::test_log_path("texture_batch_direct");
-        const std::string filename = test_environment::binary_path(test_environment::module_filename("MorphicRendering").c_str());
-        const platform::path::NativePath path = platform::path::makeNativePath(filename.c_str());
-        modules::FModuleFunction function = nullptr;
-        if (!debug_service->configure_log_paths(log.c_str(), direct_log.c_str()) ||
-            !debug_service->open_logs() || !debug_service->start({ thread_ids::debug_service, "debug_service" }) || !path.is_ready() ||
-            !module.bind(path, module_ids::rendering, identity) ||
-            !module.install(test_environment::system_registry_view(), module_ids::rendering,
-                test_environment::rendering_memory_context(), system_context::sequence_counter, debug_service.operator->()) ||
-            !module.query_function(system_type_ids::rendering_thread_function, function))
-        {
-            return false;
-        }
-        entry = reinterpret_cast<threading::FEndpointThreadEntry>(function);
-        return true;
-    }
-
-    bool start(const bool queued) noexcept
-    {
-        shared.runner_count = queued ? 1u : 0u;
-        threading::ThreadConfig config{ thread_ids::rendering, module_ids::rendering,
-            platform::threading::EThreadPriority::Normal, nullptr, (&modules::CBoundModule::prepare_thread), (&module) };
-        config.endpoint_entry = entry;
-        if (!package.emplace(config, conversion) || !client.emplace(module_ids::rendering, 101u, &*package, modules::SModuleInstance{ 1101u }) ||
-            !direct.attach(*client) || !client->install_host_execution(direct.restrictions.reader()) ||
-            !executive.emplace(direct, conversion, module_ids::executive, 102u) || !executive->ready ||
-            !package->install_batch_client(shared, module_ids::rendering, (&module)) || !package->startup())
-        {
-            return false;
-        }
-        if (!tests::wait_until(conversion, [&]
-        {
-            pump();
-            return client->direct_connections == host::EDirectConnectionState::available;
-        }))
-        {
-            return false;
-        }
-        if (!executive->client.open(modules::test_connections::address(module_ids::rendering), 100))
-        {
-            return false;
-        }
-        connections::Result result;
-        std::int32_t slot = -1;
-        if (!tests::wait_until(conversion, [&]
-        {
-            pump();
-            return executive->results.read(result, slot);
-        }) ||
-            (result.status != connections::EStatus::success) || (slot != 100))
-        {
-            return false;
-        }
-        connection = result.token;
-        return true;
-    }
-
-    void pump() noexcept
-    {
-        if (client && !host_pending)
-        {
-            host_pending = direct.read_other(*client, host_message);
-        }
-        direct.progress();
-        if (executive) executive->pump();
-        direct.progress();
-    }
-    bool read_host(threading::CErasedPodMsg& message) noexcept
-    {
-        pump();
-        if (!host_pending) return false;
-        message = host_message; host_pending = false;
-        return true;
-    }
-
-    bool acquire() noexcept
-    {
-        threading::transports::TAcquiredArenaSlot<threading::SBatchWork,
-            threading::k_batch_channel_capacity> acquired(shared.work);
-        if (!acquired) return false;
-        held = *acquired;
-        return acquired.recycle();
-    }
-
-    bool complete(const threading::EBatchCompletion completion) noexcept
-    {
-        if (held.requester == nullptr) return false;
-        const bool delivered = held.requester->complete({ held.correlation, completion });
-        held = {};
-        return delivered;
-    }
-
-    bool stop() noexcept
-    {
-        if (!package) return true;
-        if (client)
-        {
-            direct.connections.close_client(*client);
-        }
-        package->request_exit();
-        //  Also release work held when a preceding assertion could not proceed.
-        if (held.requester != nullptr)
-        {
-            (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
-        }
-        const bool stopped = tests::wait_until(conversion, [this]() noexcept
-        {
-            while (acquire())
-            {
-                (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
-            }
-            if (client)
-            {
-                client->terminal_before_drain = client->terminal();
-            }
-            pump();
-            const threading::EThreadRunState state = package->query_state();
-            if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
-                (state != threading::EThreadRunState::Empty))
-            {
-                return false;
-            }
-            threading::CErasedOwnerMsg response;
-            while (package->read(response)) response = {};
-            if (client)
-            {
-                client->incoming_drained = client->terminal_before_drain && !host_pending;
-            }
-            direct.progress();
-            return direct.connections.empty() && !host_pending && (!client || client->execution_quiescent());
-        });
-        if (!stopped || direct.failed)
-        {
-            return false;
-        }
-        //  Transport owners must be destroyed before unbinding the real DLL.
-        threading::CErasedOwnerMsg response;
-        while (package->read(response)) response = {};
-        pump();
-        if (client && !client->retire_host_execution(false))
-        {
-            return false;
-        }
-        if (!package->shutdown() && package->retains_execution())
-        {
-            return false;
-        }
-        if (client && !direct.detach(*client))
-        {
-            return false;
-        }
-        if (executive && !executive->shutdown())
-        {
-            return false;
-        }
-        executive.reset(); client.reset();
-        package.reset();
-        return true;
-    }
-
-
-};
-
-struct SStopRealRendering
-{
-    SRealFixture& fixture;
-    ~SStopRealRendering() noexcept
-    {
-        if (!fixture.stop())
-        {
-            std::abort();
-        }
-    }
-};
-
-static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fixture)
-{
-    SStopRealRendering stop{ fixture };
-    const bool started = fixture.start(false);
-    TEST_EXPECT(ctx, started);
-    if (!started) return;
-    auto send = [&fixture](const std::int32_t slot, const module_ids::id_type module) noexcept
-    {
-        return fixture.executive->client.post(fixture.connection,
-            threading::make_pod_message(slot, modules::RunTestsRequest{ module })) == connections::EPost::queued;
-    };
-    auto receive = [&fixture](threading::CErasedPodMsg& message) noexcept
-    {
-        return tests::wait_until(fixture.conversion, [&]() noexcept {
-            fixture.pump();
-            return fixture.executive->read(fixture.connection, message);
-        });
-    };
-    threading::CErasedPodMsg reply;
-    modules::RunTestsResult result;
-    TEST_EXPECT(ctx, send(80, module_ids::executive));
-    TEST_EXPECT(ctx, (receive(reply) && reply.copy_payload_to(result)));
-    TEST_EXPECT(ctx, ((reply.query_async_slot() == 80) && (result.status == modules::ETestRunStatus::invalid_request)));
-
-    // Test callers may use the full positive correlation range; resource
-    // acquisition replies are distinguished by type, not the caller's slot.
-    constexpr std::int32_t run_slot = INT32_MAX;
-    constexpr std::int32_t busy_slot = INT32_MAX - 1;
-    TEST_EXPECT(ctx, send(run_slot, module_ids::rendering));
-    threading::CErasedOwnerMsg input;
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
-    {
-        fixture.pump();
-        return fixture.package->read(input);
-    }));
-    TEST_EXPECT(ctx, input.is_message_a<RawAssetTransfer>());
-    TEST_EXPECT(ctx, send(busy_slot, module_ids::rendering));
-    TEST_EXPECT(ctx, (receive(reply) && reply.copy_payload_to(result)));
-    TEST_EXPECT(ctx, ((reply.query_async_slot() == busy_slot) && (result.status == modules::ETestRunStatus::busy)));
-
-    //  Failed setup reports a terminal result and permits another run.
-    AssetResult failed;
-    failed.status = EAssetStatus::allocation_failed;
-    TEST_EXPECT(ctx, fixture.package->post(threading::make_pod_message(input.query_async_slot(), failed)));
-    input = {};
-    TEST_EXPECT(ctx, (receive(reply) && reply.copy_payload_to(result)));
-    TEST_EXPECT(ctx, ((reply.query_async_slot() == run_slot) && (result.status == modules::ETestRunStatus::failed) &&
-        (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 23u)));
-
-    TEST_EXPECT(ctx, send(83, module_ids::rendering));
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
-    {
-        fixture.pump();
-        return fixture.package->read(input);
-    }));
-    fixture.direct.connections.close_client(*fixture.client);
-    fixture.package->request_exit();
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
-    {
-        fixture.pump();
-        return fixture.package->query_state() == threading::EThreadRunState::Exiting;
-    }));
-    host::CAssetService service;
-    auto& client = *fixture.client;
-    TEST_EXPECT(ctx, service.initialise());
-    //  The fixture reply arrives after exit. Rendering must release the new
-    //  retained asset and wait for disposal before quiescence and termination.
-    service.request(input, client);
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&] { return fixture.read_host(reply); }));
-    AssetDisposeRequest disposal;
-    TEST_EXPECT(ctx, (reply.copy_payload_to(disposal) && disposal.asset));
-    threading::CErasedPodMsg premature;
-    TEST_EXPECT(ctx, (!fixture.read_host(premature) && !fixture.direct.connections.empty()));
-    TEST_EXPECT(ctx, (fixture.package->query_state() == threading::EThreadRunState::Exiting));
-    service.request_disposal(disposal, reply.query_async_slot(), client);
-    service.complete_disposals();
-    TEST_EXPECT(ctx, (service.is_idle() && !service.failed()));
-    service.deallocate();
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
-    {
-        fixture.pump();
-        return (fixture.package->query_state() == threading::EThreadRunState::Exited) && fixture.direct.connections.empty();
-    }));
-    TEST_EXPECT(ctx, !fixture.executive->read(fixture.connection, premature));
-    TEST_EXPECT(ctx, fixture.stop());
-    TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
-}
-
 } // namespace texture_batch_tests
+
+void run_rendering_preamble_protocol(tests::TTestContext& ctx);
 
 #include "tests/support/rendering_service_fixture.hpp"
 
@@ -615,9 +314,7 @@ int run_texture_batch_tests()
     tests::TTestContext ctx;
     //  Module installation is once per binding lifetime, including on loaders
     //  that retain the native image after dlclose. Restart only its thread.
-    texture_batch_tests::SRealFixture real;
-    TEST_EXPECT(ctx, real.initialise());
-    texture_batch_tests::test_module_test_protocol(ctx, real);
+    run_rendering_preamble_protocol(ctx);
     texture_batch_tests::SFixture fixture;
     const bool ready = fixture.initialise();
     TEST_EXPECT(ctx, ready);

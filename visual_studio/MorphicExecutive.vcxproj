@@ -88,22 +88,21 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\executive\module\binding\executive_binding.cpp" />
     <ClCompile Include="..\executive\module\types\local_type_ids.cpp" />
-    <ClCompile Include="..\executive\runtime\executive_thread.cpp" />
+    <ClCompile Include="..\executive\runtime\executive_execution.cpp" />
     <ClCompile Include="..\executive\runtime\request_preparation.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\executive\module\binding\executive_binding.hpp" />
     <ClInclude Include="..\executive\module\types\erased_owner_payloads.def" />
     <ClInclude Include="..\executive\module\types\local_type_ids.def" />
     <ClInclude Include="..\executive\module\types\local_type_ids.hpp" />
     <ClInclude Include="..\executive\module\types\local_types.hpp" />
-    <ClInclude Include="..\executive\runtime\executive_thread.hpp" />
-    <ClInclude Include="..\executive\runtime\module_test_watchdog.hpp" />
+    <ClInclude Include="..\executive\runtime\executive_execution.hpp" />
+    <ClInclude Include="..\executive\runtime\execution_timing.hpp" />
     <ClInclude Include="..\executive\runtime\request_preparation.hpp" />
     <ClInclude Include="..\tests\support\host_test_paths.hpp" />
   </ItemGroup>

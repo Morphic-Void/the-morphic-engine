@@ -122,7 +122,7 @@ void concurrent_lifetimes(tests::TTestContext& ctx, SFixture& rendering)
         TEST_EXPECT(ctx, fixture.submit(input(ctx, false, 12u), 202));
         TEST_EXPECT(ctx, fixture.submit(TextureEncodeRequest{}, 203));
         TEST_EXPECT(ctx, jobs.acquire(fixture));
-        fixture.assets.request_disposal({ sources[0] }, 204, *fixture.client);
+        fixture.dispose(ctx, sources[0], 204);
         fixture.assets.complete_disposals();
         TEST_EXPECT(ctx, fixture.submit(TextureDecodeRequest{ sources[0] }, 205));
         rendering::SResourceResult rejected;
@@ -166,7 +166,7 @@ void release_protocol(tests::TTestContext& ctx, SFixture& rendering)
     TEST_EXPECT(ctx, fixture.acquire_job());
     const auto held = rendering.held;
     rendering.held = {};
-    fixture.assets.request_disposal({ source }, 41, *fixture.client);
+    fixture.dispose(ctx, source, 41);
     fixture.hold_release = true;
     { tests::TMemoryContextScope memory{ held.memory_context }; held.function(held.object); }
     TEST_EXPECT(ctx, held.requester->complete({ held.correlation, threading::EBatchCompletion::executed }));
@@ -184,7 +184,7 @@ void release_protocol(tests::TTestContext& ctx, SFixture& rendering)
     std::int32_t slot = -1;
     TEST_EXPECT(ctx, !fixture.receive(premature, slot) && fixture.messages.empty() && !fixture.assets.is_idle());
     fixture.hold_release = false;
-    TEST_EXPECT(ctx, SResourceFixture::post(&fixture, fixture.deferred_release));
+    TEST_EXPECT(ctx, modules::accepted(SResourceFixture::post(&fixture, fixture.deferred_release)));
     TEST_EXPECT(ctx, receive(ctx, fixture, premature, 40) && premature.status == EAssetStatus::invalid_request);
     TEST_EXPECT(ctx, !fixture.requests->complete(threading::make_pod_message(identity, AssetReleaseResult{ release.acquisition, EAssetStatus::success })));
     TEST_EXPECT(ctx, !fixture.requests->complete(threading::SBatchResponse{ held.correlation, threading::EBatchCompletion::executed }));
@@ -210,7 +210,7 @@ void delivery_failures(tests::TTestContext& ctx, SFixture& rendering)
         std::memset(bytes.data(), 0x5a, bytes.size());
         const auto source = fixture.raw(ctx, std::move(bytes));
         TEST_EXPECT(ctx, fixture.submit(TextureDecodeRequest{ source }, 71));
-        fixture.assets.request_disposal({ source }, 72, *fixture.client);
+        fixture.dispose(ctx, source, 72);
         if (exiting)
         {
             // The acquisition has been accepted, but no batch work is admitted
@@ -234,6 +234,43 @@ void delivery_failures(tests::TTestContext& ctx, SFixture& rendering)
             // Terminal teardown owns the abandoned acquisition after jobs drain.
         }
     }
+}
+
+void publication_pressure(tests::TTestContext& ctx, SFixture& rendering)
+{
+    SResourceFixture fixture{ rendering };
+    TEST_EXPECT(ctx, fixture.initialise());
+    CByteBuffer bytes;
+    TEST_EXPECT(ctx, bytes.resize(16u));
+    std::memset(bytes.data(), 0x5a, bytes.size());
+    const CAssetId source = fixture.raw(ctx, std::move(bytes));
+    fixture.busy_acquire = true;
+    TEST_EXPECT(ctx, fixture.submit(TextureDecodeRequest{ source }, 90));
+    rendering::SResourceResult result;
+    std::int32_t slot = -1;
+    for (unsigned turn = 0u; turn < 5u; ++turn)
+    {
+        fixture.pump();
+        TEST_EXPECT(ctx, (fixture.requests->pending() && !fixture.requests->failed() &&
+            !fixture.requests->jobs_pending() && !fixture.receive(result, slot)));
+    }
+    fixture.busy_acquire = false;
+    TEST_EXPECT(ctx, fixture.acquire_job());
+    fixture.dispose(ctx, source, 91);
+    fixture.busy_release = true;
+    TEST_EXPECT(ctx, rendering.complete(threading::EBatchCompletion::discarded_context_install_failed));
+    for (unsigned turn = 0u; turn < 5u; ++turn)
+    {
+        fixture.pump();
+        TEST_EXPECT(ctx, (fixture.requests->pending() && !fixture.requests->failed() &&
+            !fixture.requests->jobs_pending() && !fixture.receive(result, slot) && fixture.messages.empty()));
+    }
+    fixture.busy_release = false;
+    TEST_EXPECT(ctx, (receive(ctx, fixture, result, 90) && (result.status == EAssetStatus::conditioning_failed)));
+    AssetDisposeResult disposed;
+    TEST_EXPECT(ctx, tests::wait_until(rendering.conversion, [&]() noexcept { return fixture.receive_host(disposed, slot); }));
+    TEST_EXPECT(ctx, ((slot == 91) && (disposed.status == EAssetStatus::success) && fixture.assets.is_idle() &&
+        !fixture.requests->pending() && !fixture.receive(result, slot)));
 }
 
 void allocation_failures(tests::TTestContext& ctx, SFixture& rendering)
@@ -276,6 +313,7 @@ int run_texture_service_tests()
     concurrent_lifetimes(ctx, rendering);
     release_protocol(ctx, rendering);
     delivery_failures(ctx, rendering);
+    publication_pressure(ctx, rendering);
     allocation_failures(ctx, rendering);
     return ctx.report("TextureService");
 }

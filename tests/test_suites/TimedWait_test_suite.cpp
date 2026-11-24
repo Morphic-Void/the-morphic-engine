@@ -309,10 +309,12 @@ bool MV_STD_ABI_CALL prepare_timed_service(void* const state,
     return true;
 }
 
-std::uint32_t MV_STD_ABI_CALL timed_service(threading::CThreadContext& context, void* const) noexcept
+std::uint32_t MV_STD_ABI_CALL timed_service(void* const data) noexcept
 {
+    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(data);
+    threading::CThreadContext context{ resources };
     ServiceProbe& probe = tests::TThreadFixtureState<ServiceProbe>::get();
-    probe.exact_provisioning = probe.prepared_resources == &context;
+    probe.exact_provisioning = probe.prepared_resources == &resources;
     context.startup();
     context.mark_running();
     CWaitDeadline limit;
@@ -348,8 +350,7 @@ void test_service_message_and_exit(TTestContext& ctx)
     TEST_EXPECT(ctx, conversion.init());
     ServiceProbe probe;
     threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-        EThreadPriority::Normal, nullptr, &prepare_timed_service, &probe };
-    config.endpoint_entry = &timed_service;
+        EThreadPriority::Normal, &timed_service, &prepare_timed_service, &probe };
     threading::CThreadPackage package(config, conversion);
     probe.resources = &package.resources();
     const bool started = package.startup();

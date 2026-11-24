@@ -14,10 +14,9 @@
 #define RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 
 #include "framework/communications/module_tests.hpp"
-#include "framework/communications/direct_client.hpp"
+#include "framework/module/module_execution.hpp"
 #include "framework/module/module_messages.hpp"
 #include "runtime/resource_requests.hpp"
-#include "framework/threading/CThreadContext.hpp"
 
 namespace rendering
 {
@@ -34,9 +33,9 @@ struct STextureInput
 class CTextureFlowTests final
 {
 public:
-    CTextureFlowTests(threading::CThreadContext& context, const module_ids::id_type module,
-        CResourceRequests& requests, connections::CClient& connection) noexcept :
-        m_context{ context }, m_module{ module }, m_requests{ requests }, m_connection{ connection } {}
+    CTextureFlowTests(const modules::CCommunication& communication, const module_ids::id_type module,
+        CResourceRequests& requests) noexcept : m_communication{ communication }, m_module{ module }, m_requests{ requests } {}
+    void stop() noexcept { m_stopping = true; }
 
     [[nodiscard]] bool pending() const noexcept { return m_active || m_completion_pending || m_rejection_pending; }
     [[nodiscard]] bool can_read() const noexcept { return !m_completion_pending && !m_rejection_pending; }
@@ -48,24 +47,26 @@ public:
 
 private:
     enum class EPhase : std::uint8_t { fixture = 0, scenarios, publication, disposal };
-    [[nodiscard]] bool prepare_scenario(STextureInput& pending,
-        const texture_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
-    [[nodiscard]] bool prepare_texture_fixture(STextureInput& pending,
-        const std::int32_t slot, const texture_acceptance::EScenario scenario) noexcept;
+    [[nodiscard]] bool prepare_scenario(STextureInput& pending, const texture_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
+    [[nodiscard]] bool prepare_texture_fixture(STextureInput& pending, const std::int32_t slot, const texture_acceptance::EScenario scenario) noexcept;
     [[nodiscard]] bool check(const texture_acceptance::SScenario& scenario, const SResourceResult& result) noexcept;
     [[nodiscard]] bool next() noexcept;
     [[nodiscard]] bool dispose_next() noexcept;
     [[nodiscard]] bool finish() noexcept;
-    [[nodiscard]] bool cancelled() const noexcept { return m_context.exit_requested() || !m_connection.active(m_token); }
+    [[nodiscard]] bool cancelled() const noexcept { return stopping() || !active(m_token); }
+    [[nodiscard]] bool stopping() const noexcept { return m_stopping; }
+    [[nodiscard]] bool active(const connections::SToken token) const noexcept;
+    [[nodiscard]] modules::ESubmission post(const connections::SToken token, const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] modules::ESubmission post_host(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] modules::ESubmission post_host(threading::CErasedOwnerMsg&& message) noexcept;
 
-    threading::CThreadContext& m_context;
+    const modules::CCommunication m_communication;
     const module_ids::id_type m_module;
     modules::RunTestsResult m_result;
     AssetResult m_raw;
     CAssetId m_ldr_texture;
     CAssetId m_hdr_texture;
     CResourceRequests& m_requests;
-    connections::CClient& m_connection;
     connections::SToken m_token, m_rejection_token;
     threading::CErasedPodMsg m_rejection;
     bool m_completion_pending{ false }, m_rejection_pending{ false };
@@ -77,6 +78,8 @@ private:
     std::int32_t m_pending_slot{ 0 };
     EPhase m_phase{ EPhase::fixture };
     bool m_active{ false };
+    bool m_stopping{ false }, m_disposal_pending{ false };
+    threading::CErasedOwnerMsg m_transfer;
 };
 
 }   //  namespace rendering

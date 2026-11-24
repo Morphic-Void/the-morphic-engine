@@ -11,14 +11,14 @@ Date:   02 Nov 2026
 ## Scope and status
 
 The [common endpoint contract](host_pump_foundation.md) now defines Host/module
-communication. Every module has a lifecycle pump and requests zero or more service
-threads. Each pump/thread uses its own POD FIFO in each direction and an owning
-queue towards Host. Provider operations use asynchronous POD requests/results;
+communication. Host owns each pumped/serviced preamble; module execution classes
+use the bound facade. Private lifecycle and ordinary POD use separate fixed rings,
+with a separate owning queue towards Host. Provider operations use asynchronous POD requests/results;
 only native restriction/maintenance hooks remain synchronous execution facilities.
 The identity and pump sections below preserve the earlier design, including the
 superseded optional-pump, callback-table and consumed-prefix mechanisms. They are
 not current interface specifications. Use the common endpoint reference and current
-headers for implementation; the current pre-release pump and bootstrap versions
+headers for implementation; the current pre-release execution and bootstrap versions
 are both 1 after the coordinated rebuild.
 
 The original contract pass for the [Platform design](platform_host_pumped_design.md)
@@ -53,7 +53,7 @@ modules and fixtures require matching headers and coordinated rebuilds.
 Input lifetimes/transports and [direct POD connections](direct_pod_connections.md)
 between module service threads are implemented. The agreed
 [general direct-message architecture](platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging)
-uses Host-owned duplex connections: two growable SPSC queues under one identity and
+uses Host-owned duplex connections: two fixed ordinary POD rings under one identity and
 coordinated lifetime, initiated by either participant through Host. Every new offer
 requires an explicit receiving service-thread accept/reject response; advertised
 contract support does not replace it. Host coordinates complementary endpoint and
@@ -84,10 +84,10 @@ protected resource obligations still requiring cleanup.
 
 The [shared Framework project](platform_host_pumped_design.md#shared-framework-contracts),
 `MorphicFramework`, now contains Platform's public window contract and published
-state for Host and module consumers. Framework may use Core; Core does not depend on
-Framework and retains its current include boundary. Core-consumed definitions stay
-there until safely separable. Registration and dependency review precedes further moves;
-broader Core decomposition is separate work, and module-private messages stay local.
+state for Host and module consumers. Framework may use Foundation; Foundation
+does not depend on Framework. The 11 November source-layout separation is complete;
+see the [include policy](../project/policy_validator.md#central-policy).
+Module-private messages stay local; older Core references below are historical.
 
 General direct pipes reuse the existing 64-byte `CErasedPodMsg`, with its 16-byte
 header, 48-byte payload, type identity and `async_slot`; no new per-record wrapper
@@ -97,7 +97,7 @@ require SYSTEM identities and agreed contract/version/direction checks; the carr
 alone does not supply them.
 
 The [direct POD contract](direct_pod_connections.md) defines the implemented
-role/version representation, controls, admission APIs and growable transport.
+current endpoint/version representation, consent, private controls and fixed-ring transport.
 A broader threaded routed-service provider adapter remains outside that scope.
 Owning transfers stay via Host; this older design document does not override the
 implemented endpoint ABI.
@@ -117,16 +117,16 @@ above; the original absence statements below are not a current backlog.
 
 | Existing code | Consequence |
 | --- | --- |
-| [Binding ABI](../../core/module/module_binding.hpp), [binding preparation](../../core/module/bound_module.cpp) | Bootstrap v3 has the required thread identity, provisioning and memory-context setters. Add an optional pumped export and Host-call preparation helper; do not extend `SCoreFunctions` or fabricate `CThreadResources`. |
-| [Module service](../../host/runtime/module_service.hpp) | Requester state is per-operation; record readiness is currently tied to optional thread startup. Add pumped activation/stop states and module-instance identities. |
+| [Binding ABI](../../framework/module/module_binding.hpp), [binding preparation](../../host/module/bound_module.cpp) | Bootstrap v3 has the required thread identity, provisioning and memory-context setters. Add an optional pumped export and Host-call preparation helper; do not extend `SCoreFunctions` or fabricate `CThreadResources`. |
+| [Module service](../../host/module/module_service.hpp) | Requester state is per-operation; record readiness is currently tied to optional thread startup. Add pumped activation/stop states and module-instance identities. |
 | [Host routing and shutdown](../../host/runtime/host.cpp) | Ordinary module requests currently enter through Executive; other service owners are sent to asset handling. Generalise requester routing and replace blocking join-before-progress cleanup for pumped dependencies. |
-| [Asset client state](../../host/runtime/asset_service.hpp) | Operations/acquisitions retain `CThreadPackage*`. A genuine pumped client needs a stable Host client record and generic reply delivery. |
-| [POD messages](../../core/threading/messages/CErasedPodMsg.hpp) | Inline payload capacity is 48 bytes, aligned to at most 16 bytes. New generic transport messages must fit; large descriptors are lifetime-protected borrowed views. |
-| [Identity admission](../../core/system/erased_transport_admission.cpp) | Cross-component LOCAL identities are rejected. Platform commands need a registered generic SYSTEM envelope with provider-scoped opcodes, not relaxed LOCAL admission. |
-| [Typed ring](../../core/threading/transports/TRingTransport.hpp) | `TRing<T>` provides fixed SPSC storage and role endpoints. Its occupied-count ledger uses every slot; requests of 256/64 already produce those usable capacities. |
-| [Thread wakeup](../../core/threading/CThreadPackage.hpp) | `post()` and registered external notification endpoints wake the same package predicate. `observe_epoch()` supports the clear/recheck/wait protocol without posting a dummy message for every input event. |
-| [Deadline clock](../../core/platform/threading/wait_word.cpp) | The awake clock query is private; the performance counter is not its substitute. Expose a checked awake-clock observation for pause accounting while preserving existing wait semantics. |
-| [Schema aggregate](../../core/schema/schema.hpp), [layout generation](../schema/runtime-api.md) | Existing validation/materialisation and generated declarations suffice. Foreign-key and binding checks belong to Platform. Physical layouts must be checked, not inferred from C++ casts. |
+| [Asset client state](../../host/assets/asset_service.hpp) | Operations/acquisitions retain `CThreadPackage*`. A genuine pumped client needs a stable Host client record and generic reply delivery. |
+| [POD messages](../../framework/threading/messages/CErasedPodMsg.hpp) | Inline payload capacity is 48 bytes, aligned to at most 16 bytes. New generic transport messages must fit; large descriptors are lifetime-protected borrowed views. |
+| [Identity admission](../../foundation/system/erased_transport_admission.cpp) | Cross-component LOCAL identities are rejected. Platform commands need a registered generic SYSTEM envelope with provider-scoped opcodes, not relaxed LOCAL admission. |
+| [Typed ring](../../foundation/threading/transports/TRingTransport.hpp) | `TRing<T>` provides fixed SPSC storage and role endpoints. Its occupied-count ledger uses every slot; requests of 256/64 already produce those usable capacities. |
+| [Thread wakeup](../../host/threading/CThreadPackage.hpp) | `post()` and registered external notification endpoints wake the same package predicate. `observe_epoch()` supports the clear/recheck/wait protocol without posting a dummy message for every input event. |
+| [Deadline clock](../../foundation/platform/threading/wait_word.cpp) | The awake clock query is private; the performance counter is not its substitute. Expose a checked awake-clock observation for pause accounting while preserving existing wait semantics. |
+| [Schema aggregate](../../foundation/schema/schema.hpp), [layout generation](../schema/runtime-api.md) | Existing validation/materialisation and generated declarations suffice. Foreign-key and binding checks belong to Platform. Physical layouts must be checked, not inferred from C++ casts. |
 
 ## Identity and Host client records
 
@@ -169,10 +169,12 @@ is required. Availability follows execution readiness, not DLL binding alone.
 
 The description below records the original V1 design and its later V2 transition.
 Both were superseded by the [common endpoint contract](host_pump_foundation.md).
-The current mandatory `SHostPumpV1` contains lifecycle callbacks; it has no service
-callback table or borrowed input arrays. Its version-1 marker does not make an
-earlier version-1 layout compatible. Host validates the current descriptor layout,
-and all consumers must be rebuilt together.
+The current mandatory `SExecutionV1` uses the distinct export
+`morphic_module_execution_v1`, thin create/handle/destroy adapters and a bound
+`CCommunication` facade. Host owns the common preamble in both execution modes.
+An entirely absent callback set selects the standard coordinator. The historical
+ABI details below are retained as design history, not implemented compatibility.
+Host rejects unsupported layouts; all affected consumers must be rebuilt together.
 
 Export `morphic_module_host_pump_v1`, queried by `CBoundModule::query_host_pump` on
 the binding worker. Its query accepts the caller's descriptor size and returns

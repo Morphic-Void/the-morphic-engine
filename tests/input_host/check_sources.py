@@ -60,6 +60,7 @@ def check_sources(repository):
     expected_extra = {
         ("ClCompile", "tests/input_host/platform_fixture.cpp"),
         ("ClInclude", "tests/input_host/control.hpp"),
+        ("ClInclude", "tests/input_host/platform_access.hpp"),
     }
     if not production or not all(name.startswith("platform/") for _, name in production):
         raise ValueError("MorphicPlatform must own its Platform source/header entries directly")

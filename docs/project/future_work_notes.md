@@ -86,7 +86,10 @@ is a separate architectural decision, not unfinished sandwich-refactor work.
 ## Cross-Platform Validation
 
 Common endpoint/thread provisioning is complete in `ca8770d`, and direct endpoint
-messaging is complete in `84506a7`. Further TLS requirements, formal threading
+messaging is complete in `84506a7`. The subsequent
+[preamble consolidation](completed_milestones.md#module-execution-preamble-consolidation)
+is complete with Windows and GCC/Clang validation and explicit qualification
+limits. Further TLS requirements, formal threading
 stress and sanitizer-backed validation can be selected as consumers require;
 Linux GCC/Clang build paths already exist. Additional MPMC stress is validation
 expansion, not a completion condition for the existing transport family. Remaining

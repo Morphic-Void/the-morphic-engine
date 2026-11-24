@@ -9,7 +9,6 @@
     type_macro(string_buffer) \
     type_macro(stable_strings) \
     type_macro(unrecognised_msg) \
-    type_macro(executive_thread_function) \
     type_macro(raw_asset_transfer) \
     type_macro(image_asset_transfer) \
     type_macro(baked_asset_transfer) \
@@ -21,7 +20,6 @@
     type_macro(asset_result) \
     type_macro(module_request) \
     type_macro(module_result) \
-    type_macro(rendering_thread_function) \
     type_macro(filesystem_refresh_request) \
     type_macro(filesystem_refresh_result) \
     type_macro(bundle_disposed_notification) \
@@ -46,18 +44,6 @@
     type_macro(service_request_cancelled) \
     type_macro(register_service_notification) \
     type_macro(service_notification_registered) \
-    type_macro(direct_register) \
-    type_macro(direct_request) \
-    type_macro(direct_offer) \
-    type_macro(direct_decision) \
-    type_macro(direct_install) \
-    type_macro(direct_ready) \
-    type_macro(direct_activate) \
-    type_macro(direct_close) \
-    type_macro(direct_closing) \
-    type_macro(direct_quiescent) \
-    type_macro(direct_retired) \
-    type_macro(direct_result) \
     type_macro(schema_prepare_request) \
     type_macro(schema_prepare_result) \
     type_macro(platform_report_request) \
@@ -72,15 +58,6 @@
     type_macro(schema_process_accepted) \
     type_macro(schema_process_cancel) \
     type_macro(schema_process_result) \
-    type_macro(create_thread_request) \
-    type_macro(create_thread_result) \
-    type_macro(endpoint_lifecycle) \
-    type_macro(stop_thread_request) \
-    type_macro(stop_thread_result) \
-    type_macro(close_provider_admission) \
-    type_macro(provider_admission_closed) \
-    type_macro(seal_endpoint) \
-    type_macro(endpoint_sealed) \
     type_macro(service_command) \
     type_macro(complete_service_request) \
     type_macro(commit_service_resource) \
@@ -88,6 +65,4 @@
     type_macro(begin_service_borrow_retirement) \
     type_macro(finish_service_borrow_retirement) \
     type_macro(bind_service_notification) \
-    type_macro(provider_operation_result) \
-    type_macro(endpoint_ready) \
-    type_macro(direct_registered)
+    type_macro(provider_operation_result)

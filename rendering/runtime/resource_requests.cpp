@@ -64,12 +64,66 @@ bool CResourceRequests::submit(ShaderCompileRequest&& request, const std::int32_
 
 void CResourceRequests::acquire(SOperation& operation, const CAssetId source, const EAssetAcquireView view) noexcept
 {
-    const auto message = threading::make_pod_message(operation.identity, AssetAcquireRequest{ source, view });
-    if ((m_assets.post == nullptr) || !m_assets.post(m_assets.context, message))
+    operation.source = source;
+    operation.view = view;
+    operation.phase = EPhase::acquire_pending;
+    (void)publish(operation);
+}
+
+bool CResourceRequests::publish(SOperation& operation) noexcept
+{
+    const bool acquiring = operation.phase == EPhase::acquire_pending;
+    const threading::CErasedPodMsg message = acquiring ?
+        threading::make_pod_message(operation.identity, AssetAcquireRequest{ operation.source, operation.view }) :
+        threading::make_pod_message(operation.identity, AssetReleaseRequest{ operation.acquired.acquisition });
+    const modules::ESubmission status = m_assets.post ? m_assets.post(m_assets.context, message) : modules::ESubmission::invalid;
+    if (status == modules::ESubmission::busy) return false;
+    if (modules::accepted(status))
+    {
+        operation.phase = acquiring ? EPhase::acquiring : EPhase::releasing;
+    }
+    else if (acquiring)
     {
         operation.result.status = EAssetStatus::delivery_failed;
         operation.phase = EPhase::ready;
     }
+    else m_failed = true; //  Losing an accepted acquisition's release is fatal.
+    return true;
+}
+
+bool CResourceRequests::progress() noexcept
+{
+    for (unsigned count = 0u; count < 8u; ++count)
+    {
+        SOperation* first = nullptr;
+        SOperation* successor = nullptr;
+        for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+        {
+            SOperation& operation = *m_operations.get_object(slot);
+            if ((operation.phase != EPhase::acquire_pending) && (operation.phase != EPhase::release_pending))
+            {
+                continue;
+            }
+            if (!first || (operation.identity < first->identity)) first = &operation;
+            if ((operation.identity > m_output_cursor) && (!successor || (operation.identity < successor->identity)))
+            {
+                successor = &operation;
+            }
+        }
+        SOperation* const operation = successor ? successor : first;
+        if (!operation || m_failed) return false;
+        m_output_cursor = operation->identity;
+        if (!publish(*operation)) return false;
+    }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const EPhase phase = m_operations.get_object(slot)->phase;
+        if ((phase == EPhase::acquire_pending) || (phase == EPhase::release_pending))
+        {
+            return !m_failed;
+        }
+    }
+    return false;
 }
 
 bool CResourceRequests::complete(const threading::CErasedPodMsg& message) noexcept
@@ -124,9 +178,8 @@ void CResourceRequests::finish(SOperation& operation) noexcept
 {
     if (operation.acquired.acquisition)
     {
-        operation.phase = EPhase::releasing;
-        const auto message = threading::make_pod_message(operation.identity, AssetReleaseRequest{ operation.acquired.acquisition });
-        if (!m_assets.post(m_assets.context, message)) m_failed = true;
+        operation.phase = EPhase::release_pending;
+        (void)publish(operation);
     }
     else operation.phase = EPhase::ready;
 }

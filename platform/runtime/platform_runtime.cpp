@@ -20,6 +20,37 @@
 namespace platform::runtime
 {
 
+bool CPlatformRuntime::failed() const noexcept
+{
+    return m_failed;
+}
+
+std::uint64_t CPlatformRuntime::desktop_epoch() noexcept
+{
+    m_desktop.synchronise();
+    return m_desktop.epoch();
+}
+
+bool CPlatformRuntime::desktop_needs_baseline() const noexcept
+{
+    return m_desktop.needs_baseline();
+}
+
+std::uint64_t CPlatformRuntime::desktop_text_epoch() const noexcept
+{
+    return m_desktop.text_epoch();
+}
+
+bool CPlatformRuntime::desktop_text_pending() const noexcept
+{
+    return m_desktop.text_pending();
+}
+
+void CPlatformRuntime::native_stop() noexcept
+{
+    m_host_stop = true;
+}
+
 using services::EServiceStatus;
 using windows::EWindowCommand;
 using windows::EWindowPhase;
@@ -32,10 +63,11 @@ static bool payload(const services::ServiceRequest& command, T& value) noexcept
     return true;
 }
 
-CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
+CPlatformRuntime::CPlatformRuntime(const modules::SExecutionContext& context,
     const native::SWindowAdapter& adapter, const platform::threading::SAwakeClock clock,
     const native::SControllerAdapter& controllers, const native::SReportAdapter& reports) noexcept
-    : m_context{ context }, m_services{ *context.endpoint }, m_adapter{ adapter }, m_clock{ clock }, m_report{ context, clock, reports },
+    : m_context{ context }, m_communication{ *context.communication }, m_services{ m_communication },
+      m_adapter{ adapter }, m_clock{ clock }, m_report{ context, clock, reports },
       m_controller_adapter{ controllers }, m_preparation{ clock }
 {
     m_window.native.runtime = this;
@@ -46,7 +78,7 @@ CPlatformRuntime::CPlatformRuntime(const modules::SHostPumpContext& context,
 bool CPlatformRuntime::initialise() noexcept
 {
     catalogue_changed();
-    return m_context.endpoint && m_context.execution && m_context.execution->restriction.is_valid() &&
+    return m_context.communication && m_context.execution && m_context.execution->restriction.is_valid() &&
         m_adapter.create && m_adapter.dispatch && m_adapter.destroy && m_uses.initialise() && m_input_installations.initialise();
 }
 
@@ -602,8 +634,9 @@ void CPlatformRuntime::leave_native(const modules::SRestrictionScope scope) noex
     }
 }
 
-void CPlatformRuntime::enter_callback() noexcept { ++m_callback_depth; }
-void CPlatformRuntime::leave_callback() noexcept
+void CPlatformRuntime::enter_native_callback() noexcept { ++m_callback_depth; }
+
+void CPlatformRuntime::leave_native_callback() noexcept
 {
     if (!m_callback_depth) native_failure(UINT32_MAX);
     else --m_callback_depth;
@@ -727,13 +760,12 @@ bool CPlatformRuntime::stopped() const noexcept
     return true;
 }
 
-void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
+void CPlatformRuntime::progress(modules::SExecutionProgress& progress) const noexcept
 {
     progress = {};
-    progress.phase = (stopped() && m_context.endpoint->sealed()) ? modules::EPumpPhase::stopped :
-        (m_stopping ? modules::EPumpPhase::stopping : modules::EPumpPhase::ready);
-    progress.work_pending = (m_window.native.handle && m_window.native.work_pending &&
-        !m_window.destruction_failed) ? 1u : 0u;
+    progress.ready = (!m_stopping && !m_failed) ? 1u : 0u;
+    progress.work_complete = stopped() ? 1u : 0u;
+    progress.work_pending = (m_window.native.handle && m_window.native.work_pending && !m_window.destruction_failed) ? 1u : 0u;
     if (m_configuration_runnable) progress.work_pending = 1u;
     if (m_report.runnable()) progress.work_pending = 1u;
     if (m_desktop.runnable()) progress.work_pending = 1u;
@@ -752,7 +784,7 @@ void CPlatformRuntime::progress(modules::SProgress& progress) const noexcept
     progress.error_code = m_failed ? 1u : 0u;
 }
 
-void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
+void CPlatformRuntime::begin_stop(modules::SExecutionProgress& result) noexcept
 {
     m_stopping = true;
 #if defined(MV_INPUT_ACCEPTANCE)
@@ -774,7 +806,7 @@ void CPlatformRuntime::begin_stop(modules::SProgress& result) noexcept
     progress(result);
 }
 
-void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResult& result) noexcept
+void CPlatformRuntime::service_async(const std::uint64_t time_budget_ns, modules::SExecutionProgress& result) noexcept
 {
 #if defined(MV_INPUT_ACCEPTANCE)
     acceptance::pump_begin(*this);
@@ -783,7 +815,7 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     std::uint64_t start = 0u;
     const bool clock_valid = m_clock.read(start).code == platform::threading::EWaitError::none;
     if (!clock_valid) native_failure(UINT32_MAX);
-    const auto limit = (input.time_budget_ns < 2000000u) ? input.time_budget_ns : 2000000u;
+    const auto limit = (time_budget_ns < 2000000u) ? time_budget_ns : 2000000u;
     const auto remaining = [&]() noexcept -> std::uint64_t
     {
         std::uint64_t now = 0u;
@@ -795,33 +827,6 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
         return ((now - start) < limit) ? (limit - (now - start)) : 0u;
     };
     flush_completions();
-    for (std::uint32_t count = 0u; (count < 64u) && remaining(); ++count)
-    {
-        ::threading::CErasedPodMsg incoming;
-        if (!m_context.endpoint->read(incoming)) break;
-        if (m_services.receive(incoming))
-        {
-            progress_uses();
-            progress_inputs();
-            progress_catalogues();
-            progress_configurations(remaining());
-            flush_completions();
-            continue;
-        }
-        services::ServiceCommand dispatched;
-        if (incoming.copy_payload_to(dispatched))
-        {
-            if (!dispatched.operation || !dispatched.descriptor || (m_command_count == 256u))
-            {
-                m_context.endpoint->fail(::threading::EEndpointFailure::lifecycle_failure);
-                break;
-            }
-            m_pending_commands[(m_command_head + m_command_count) & 255u] = *dispatched.descriptor;
-            ++m_command_count;
-        }
-        else if (incoming.is_payload_a<::threading::ProviderAdmissionClosed>()) m_admission_closed = true;
-        else (void)message(incoming);
-    }
     progress_uses();
     progress_inputs();
     const auto dispatch = [&]() noexcept
@@ -845,10 +850,12 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     if (!m_native_first) progress_controllers(std::min((remaining() >> 1u), UINT64_C(500000)));
     if (!m_native_first) progress_mappers(std::min(remaining(), UINT64_C(250000)));
     if (m_native_first) dispatch();
+    bool command_blocked = false;
     for (std::uint32_t count = 0u; (count < 64u) && m_command_count && remaining(); ++count)
     {
         if (!command(m_pending_commands[m_command_head]))
         {
+            command_blocked = true;
             break;
         }
         m_pending_commands[m_command_head] = {};
@@ -867,21 +874,73 @@ void CPlatformRuntime::pump(const modules::SPumpInput& input, modules::SPumpResu
     progress_configurations(remaining());
     m_report.progress((m_stopping || m_host_stop), std::min(remaining(), UINT64_C(500000)));
     progress_catalogues();
-    if (m_stopping && !m_admission_closing)
+    progress(result);
+    if (m_command_count && !command_blocked)
     {
-        m_admission_closing = m_context.endpoint->post(::threading::make_pod_message(-1, ::threading::CloseProviderAdmission{}));
+        result.work_pending = 1u;
     }
-    if (stopped())
-    {
-        if (m_admission_closed) (void)m_context.endpoint->seal();
-    }
-    progress(result.progress);
-    if (m_command_count || !m_services.idle()) result.progress.work_pending = 1u;
 #if defined(MV_INPUT_ACCEPTANCE)
     acceptance::progress(*this, m_stopping);
     acceptance::pump_end();
 #endif
     if (clock_valid) m_report.observe_pump(start);
+}
+
+void CPlatformRuntime::receive(const ::threading::CErasedPodMsg& incoming) noexcept
+{
+    if (m_services.receive(incoming)) return;
+    services::ServiceCommand dispatched;
+    if (incoming.copy_payload_to(dispatched))
+    {
+        if (!dispatched.operation || !dispatched.descriptor || (m_command_count == 256u))
+        {
+            m_failed = true;
+            return;
+        }
+        m_pending_commands[(m_command_head + m_command_count) & 255u] = *dispatched.descriptor;
+        ++m_command_count;
+    }
+    else (void)message(incoming);
+}
+
+modules::EExecutionStatus CPlatformRuntime::handle(const modules::SInvocation& invocation, modules::SExecutionProgress& result) noexcept
+{
+    const bool failed_before = m_failed;
+    result = {};
+    switch (invocation.event)
+    {
+        case modules::EExecutionEvent::start:
+        case modules::EExecutionEvent::service_async:
+        {
+            service_async(invocation.time_budget_ns, result);
+            break;
+        }
+        case modules::EExecutionEvent::message:
+        {
+            if (!invocation.source.is_host() || !invocation.message) m_failed = true;
+            else receive(*invocation.message);
+            progress(result);
+            result.work_pending = 1u;
+            break;
+        }
+        case modules::EExecutionEvent::stop:
+        {
+            begin_stop(result);
+            result.work_pending = 1u;
+            break;
+        }
+        case modules::EExecutionEvent::provider_admission_closed:
+        {
+            progress(result);
+            break;
+        }
+        default:
+        {
+            progress(result);
+            break;
+        }
+    }
+    return (!failed_before && m_failed) ? modules::EExecutionStatus::failed : modules::EExecutionStatus::success;
 }
 
 }   //  namespace platform::runtime

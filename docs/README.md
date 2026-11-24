@@ -45,8 +45,15 @@ ordering are unchanged by this source-layout reconfiguration.
   bounded startup file and checked-in flow-test presets.
 - [Asynchronous module lifecycle](modules/asynchronous_module_lifecycle.md):
   Executive bootstrap, service startup, replacement, shutdown and lifecycle tests.
-- [Host pump foundation](modules/host_pump_foundation.md): common pump/thread
-  endpoints, module lifecycle coordination, service routing and safe retirement.
+- [Host module execution foundation](modules/host_pump_foundation.md): Host-owned
+  pumped/serviced preambles, authenticated facade, private lifecycle channels,
+  fixed POD rings, service routing and safe retirement.
+- [Module preamble design](modules/module_preamble_design.md),
+  [implementation decisions](modules/module_preamble_proposal.md) and
+  [qualification ledger](modules/module_preamble_validation.md): completed
+  consolidation and the 24 November fixture correction, with explicit validation
+  limits and physical observations. See the
+  [completion record](project/completed_milestones.md#module-execution-preamble-consolidation).
 - [Common endpoint first pass](modules/common_endpoint_first_pass.md): completed
   scope record for `ca8770d`; current APIs are in the Host foundation.
 - [Borrowed services](modules/service_borrow_lifetimes.md) and
@@ -70,8 +77,9 @@ ordering are unchanged by this source-layout reconfiguration.
   keyboard/text/mouse acquisition, native cutover, pointer packets and capture.
 - [Controller acquisition](modules/controller_input.md): device catalogue, exclusive
   assignment, four independent pipes, source clocks and Windows GameInput acceptance.
-- [Audio implementation and validation](modules/audio_module_validation.md):
-  on-demand tone acceptance and callback/shutdown ownership.
+- [Audio implementation and validation](modules/audio_module_validation.md), with
+  the completed [tone-service design](modules/audio_module_design.md): on-demand
+  tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of
   coarse module work, return channels and requester lifetime rules.
 - [Direct POD connections](modules/direct_pod_connections.md): explicit pump/thread
@@ -110,7 +118,7 @@ ordering are unchanged by this source-layout reconfiguration.
   broader design with implemented common/direct endpoints distinguished from
   deferred contracts. The [Host and endpoint backlog](backlog/host_endpoint_follow_on.md)
   consolidates remaining registration, availability/topology, asset-abandonment,
-  execution and capacity work. No next Host increment is selected.
+  work placement and capacity tuning beyond the completed preamble consolidation.
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)
@@ -120,10 +128,6 @@ ordering are unchanged by this source-layout reconfiguration.
   historical decisions and current references for delivered foundation/window,
   input, configuration, mapping and direct messaging; modes and later native
   backends/extensions remain separate work.
-- [Audio module: one requested tone test](modules/audio_module_design.md):
-  a single Executive test request, miniaudio containment, finite tone/fade,
-  callback and shutdown ownership; see also the
-  [implementation and validation record](modules/audio_module_validation.md).
 - [Shader compilation direction](modules/shader_compilation_design.md): DXC
   integration findings, source bundles, renderer-owned reports, publication,
   agreed defaults and configurable limits, the current compile/reflection boundary,
@@ -154,6 +158,7 @@ ordering are unchanged by this source-layout reconfiguration.
   [completed milestones](project/completed_milestones.md) and
   [attribution policy](project/attribution_policy.md).
 
-Completed consolidation plans and task handoffs have been retired. Their final
-contracts live in the references above, future ideas remain in the design
-documents, and the original discussions remain available in Git history.
+Completed work is indexed in the milestone record. Retained design and checkpoint
+documents are labelled as decisions or historical evidence, not outstanding tasks.
+Current contracts live in the subsystem references; deferred ideas remain in the
+backlog and do not authorise implementation.

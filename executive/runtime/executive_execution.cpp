@@ -1,0 +1,1799 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    executive_execution.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    7 Aug 26
+//
+//  Module-owned Executive execution and asynchronous asset-service acceptance.
+
+#include "framework/system/system_ids.hpp"
+#include "framework/communications/module_tests.hpp"
+#include "framework/module/module_execution.hpp"
+#include "framework/system/storage_type_bindings.hpp"
+#include "framework/filesystem/filesystem_messages.hpp"
+#include "framework/module/module_messages.hpp"
+#include "framework/threading/messages/message_helpers.hpp"
+
+#include <cstdint>      //  std::int32_t, std::uint32_t, std::uint64_t
+#include <cstring>      //  std::strcmp
+#include <utility>      //  std::move
+
+#include "runtime/executive_execution.hpp"
+#include "runtime/request_preparation.hpp"
+#include "runtime/execution_timing.hpp"
+#include "framework/module/module_binding_context.hpp"
+
+#include "debug/macros.hpp"
+#include "image/codec/tga.hpp"
+#include "data_model/document_parser.hpp"
+#include "data_model/document_translation.hpp"
+#include "data_model/document_writer.hpp"
+#include "platform/system/performance_counter.hpp"
+#include "platform/module/binding.hpp"
+#include <new>
+#include "system/system_id_registry.hpp"
+#include "framework/assets/asset_messages.hpp"
+#include "foundation/platform/threading/wait_deadline.hpp"
+#include "tests/support/host_test_paths.hpp"
+
+namespace executive
+{
+
+namespace asset_acceptance
+{
+
+enum class EScenario : std::uint8_t
+{
+    retain_raw = 0,
+    save_retained_raw,
+    load_saved_raw,
+    save_discarded_raw,
+    load_discarded_raw_output,
+    load_tga,
+    save_retained_image,
+    reload_tga,
+    save_cached_image,
+    load_cached_image,
+    save_retained_greyscale,
+    save_discarded_rgba,
+    retain_live,
+    save_live_binary,
+    load_live_binary,
+    save_live_json,
+    load_live_json,
+    mutate_live_and_save_binary,
+    load_mutated_live_binary,
+    save_live_json_retain_baked,
+    save_retained_baked_binary,
+    load_retained_baked_binary,
+    save_discarded_baked_json,
+    load_baked_json,
+    retain_baked,
+    retain_baked_from_live,
+    retain_raw_on_save_failure,
+    save_raw_after_failure,
+    discard_raw_on_save_failure,
+    retain_baked_on_save_failure,
+    reject_invalid_asset,
+    write_malformed_json,
+    reject_malformed_json,
+    reject_missing_file,
+    write_policy_rejected_json,
+    reject_disallowed_features,
+    write_invalid_binary,
+    reject_invalid_binary,
+    retain_baked_on_json_failure,
+    save_discarded_live_binary,
+    save_discarded_live_json,
+    reject_invalid_tga,
+    write_invalid_encoding,
+    reject_invalid_encoding,
+    write_numeric_overflow,
+    reject_numeric_overflow,
+    reject_invalid_policy,
+    write_unterminated_string,
+    reject_unterminated_string,
+    load_tga_bottom_up,
+
+};
+
+struct SScenario
+{
+    EScenario identity;
+    const char* name;
+    EAssetStatus status;
+    EAssetKind retained_kind; //  none explicitly expects no retained asset or views.
+    EDocumentPolicyStatus policy;
+    std::uint32_t findings;
+};
+
+//  Order records fixture dependencies only. Every outcome is stated independently.
+static constexpr SScenario scenarios[]{
+    { EScenario::retain_raw,                   "retain_raw",                   EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_raw,            "save_retained_raw",            EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_saved_raw,               "load_saved_raw",               EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_raw,           "save_discarded_raw",           EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_discarded_raw_output,    "load_discarded_raw_output",    EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_tga,                     "load_tga",                     EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_image,          "save_retained_image",          EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reload_tga,                   "reload_tga",                   EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_cached_image,            "save_cached_image",            EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_cached_image,            "load_cached_image",            EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_greyscale,      "save_retained_greyscale",      EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_rgba,          "save_discarded_rgba",          EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_live,                  "retain_live",                  EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_live_binary,             "save_live_binary",             EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_live_binary,             "load_live_binary",             EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_live_json,               "save_live_json",               EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_live_json,               "load_live_json",               EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::accepted,        0u },
+    { EScenario::mutate_live_and_save_binary,  "mutate_live_and_save_binary",  EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_mutated_live_binary,     "load_mutated_live_binary",     EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_live_json_retain_baked,  "save_live_json_retain_baked",  EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_baked_binary,   "save_retained_baked_binary",   EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_retained_baked_binary,   "load_retained_baked_binary",   EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_baked_json,    "save_discarded_baked_json",    EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_baked_json,              "load_baked_json",              EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::accepted,        0u },
+    { EScenario::retain_baked,                 "retain_baked",                 EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_baked_from_live,       "retain_baked_from_live",       EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_raw_on_save_failure,   "retain_raw_on_save_failure",   EAssetStatus::write_failed,        EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_raw_after_failure,       "save_raw_after_failure",       EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::discard_raw_on_save_failure,  "discard_raw_on_save_failure",  EAssetStatus::write_failed,        EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_baked_on_save_failure, "retain_baked_on_save_failure", EAssetStatus::write_failed,        EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_asset,         "reject_invalid_asset",         EAssetStatus::invalid_asset,       EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::write_malformed_json,         "write_malformed_json",         EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_malformed_json,        "reject_malformed_json",        EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      document_finding_bit(EDocumentFinding::unquoted_names) },
+    { EScenario::reject_missing_file,          "reject_missing_file",          EAssetStatus::read_failed,         EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::write_policy_rejected_json,   "write_policy_rejected_json",   EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_disallowed_features,   "reject_disallowed_features",   EAssetStatus::policy_rejected,     EAssetKind::none,            EDocumentPolicyStatus::rejected,        document_finding_bit(EDocumentFinding::unquoted_names) },
+    { EScenario::write_invalid_binary,         "write_invalid_binary",         EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_binary,        "reject_invalid_binary",        EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_baked_on_json_failure, "retain_baked_on_json_failure", EAssetStatus::conditioning_failed, EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_live_binary,   "save_discarded_live_binary",   EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_live_json,     "save_discarded_live_json",     EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_tga,           "reject_invalid_tga",           EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::write_invalid_encoding,       "write_invalid_encoding",       EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_encoding,      "reject_invalid_encoding",      EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      (EDocumentFinding::utf8_attempt_failed | EDocumentFinding::cp1252) },
+    { EScenario::write_numeric_overflow,       "write_numeric_overflow",       EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_numeric_overflow,      "reject_numeric_overflow",      EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_policy,        "reject_invalid_policy",        EAssetStatus::policy_rejected,     EAssetKind::none,            EDocumentPolicyStatus::invalid_options, 0u },
+    { EScenario::write_unterminated_string,    "write_unterminated_string",    EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_unterminated_string,   "reject_unterminated_string",   EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_tga_bottom_up,           "load_tga_bottom_up",           EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+};
+
+static constexpr std::uint32_t scenario_count = sizeof(scenarios) / sizeof(scenarios[0]);
+static constexpr std::uint32_t concurrent_save_count{ 32u };
+static_assert((concurrent_save_count <= 100u), "Concurrent filenames reserve two decimal digits.");
+
+static constexpr char fixture[] = R"({"null":null,"bool":true,"signed":-123,"unsigned":18446744073709551615,"float":1.25,"text":"line\ntext","object":{},"mixed":[null,true,3,"text"],"bools":[true,false],"ints":[-1,-2],"uints":[18446744073709551615,18446744073709551614],"floats":[1.25,2.5],"strings":["a","b"],"empty":[]})";
+static constexpr char raw_file[] = "test-output:/asset-acceptance.raw";
+static constexpr char binary_file[] = "test-output:/asset-acceptance.bin";
+static constexpr char json_file[] = "test-output:/asset-acceptance.json";
+static constexpr char image_file[] = "test-output:/asset-acceptance.tga";
+static constexpr char failure_file[] = "test-output:/asset-acceptance-missing-directory/output.bin";
+static constexpr char cached_image_file[] = "dev-workspace:/acceptance/cached-image.tga";
+
+static bool prepare_output_load(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
+    const EAssetFileFormat format, const char* const file, const CDocumentParseOptions policy = {}) noexcept
+{
+    static constexpr char prefix[] = "test-output:/";
+    CSimpleString native;
+    return (std::strncmp(file, prefix, (sizeof(prefix) - 1u)) == 0) &&
+        host_test_paths::native_output((file + sizeof(prefix) - 1u), native) &&
+        request_preparation::prepare_load_request(pending, slot, format, native.cstring(), policy);
+}
+
+static bool fixture_document(CLiveDocument& document) noexcept
+{
+    return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(fixture), (sizeof(fixture) - 1u) }, document).accepted() &&
+        document.append_child(document.root(), document.create_empty(
+            CStringView{ reinterpret_cast<const std::uint8_t*>("empty_value"), 11u })).succeeded();
+}
+
+static bool equal_bytes(const CByteConstView& left, const CByteConstView& right) noexcept
+{
+    return (left.size() == right.size()) && left.is_ready() && right.is_ready() &&
+        (std::memcmp(left.data(), right.data(), left.size()) == 0);
+}
+
+static bool equal_documents(const CBakedDocument& left, const CBakedDocument& right) noexcept
+{
+    CDocumentWriteOptions options;
+    options.mode = EDocumentWriteMode::strict_json;
+    const CDocumentWriteResult a = document_writer::write(left, options);
+    const CDocumentWriteResult b = document_writer::write(right, options);
+    return a.report.succeeded() && b.report.succeeded() && equal_bytes(a.output.const_view(), b.output.const_view());
+}
+
+
+static AssetSaveSettings save_settings(const EAssetFileFormat format) noexcept
+{
+    AssetSaveSettings settings;
+    settings.format = format;
+    return settings;
+}
+
+static bool expect(const SScenario& scenario, const bool satisfied, const char* const property) noexcept
+{
+    if (!satisfied)
+    {
+        MV_LOG_RICH(error, "Executive: %s: failed expectation: %s", scenario.name, property);
+    }
+    return satisfied;
+}
+
+}   //  namespace asset_acceptance
+
+class CExecutiveExecution
+{
+public:
+    static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context, void** const runtime) noexcept;
+    static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept;
+    static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept;
+
+private:
+    //  Failure codes start at one because zero is the successful thread exit code.
+    enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
+
+    enum class EPhase : std::uint8_t { module_acknowledgement = 0, module_completion, module_connect, module_submit,
+        module_tests, module_retire, sequential, concurrent, filesystem, bundle, acquisitions, awaiting_exit, complete };
+
+    CExecutiveExecution(const CExecutiveExecution&) noexcept = delete;
+    CExecutiveExecution& operator=(const CExecutiveExecution&) noexcept = delete;
+    CExecutiveExecution(CExecutiveExecution&&) noexcept = delete;
+    CExecutiveExecution& operator=(CExecutiveExecution&&) noexcept = delete;
+    CExecutiveExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept;
+    ~CExecutiveExecution() noexcept = default;
+    modules::EExecutionStatus dispatch(const modules::SInvocation& invocation, modules::SExecutionProgress& progress) noexcept;
+    void service() noexcept;
+    void receive(const connections::SSource& source, const threading::CErasedPodMsg& message) noexcept;
+    void connection_event(const modules::SInvocation& invocation) noexcept;
+    [[nodiscard]] bool observe_timing(const modules::EBudgetStatus status) noexcept;
+    void retry_timing() noexcept;
+    struct SRequest
+    {
+        threading::CErasedOwnerMsg owner;
+        threading::CErasedPodMsg pod;
+        TExecutionBudget<>* budget{ nullptr };
+        std::uint64_t order{ 0u };
+    };
+    [[nodiscard]] SRequest* request_slot(const std::int32_t correlation) noexcept;
+    [[nodiscard]] bool retain(threading::CErasedOwnerMsg&& message) noexcept;
+    [[nodiscard]] bool retain(const threading::CErasedPodMsg& message) noexcept;
+    void flush_requests() noexcept;
+
+    [[nodiscard]] bool initialise() noexcept;
+    [[nodiscard]] bool load_test_module() noexcept;
+    [[nodiscard]] bool accept_module_notice(const threading::CErasedPodMsg& message) noexcept;
+    void progress_connection() noexcept;
+    void complete_module_tests(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
+    [[nodiscard]] bool check(const asset_acceptance::SScenario& scenario, const AssetResult& result) noexcept;
+    [[nodiscard]] bool prepare_raw_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const char* const text, const EAssetRetention retention, const bool save, const char* const file) noexcept;
+    [[nodiscard]] bool prepare_image_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const bool greyscale, const bool storage_bottom_up, const EAssetRetention retention, const char* const file) noexcept;
+    [[nodiscard]] bool prepare_live_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
+    [[nodiscard]] bool prepare_baked_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
+    [[nodiscard]] bool prepare_expected_document() noexcept;
+    [[nodiscard]] bool submit_concurrent_saves() noexcept;
+    [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool start_filesystem_exercise() noexcept;
+    [[nodiscard]] bool complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool start_bundle_exercise() noexcept;
+    [[nodiscard]] bool complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool request_system_shutdown() noexcept;
+    [[nodiscard]] bool start_budget(TExecutionBudget<>& budget) noexcept;
+    [[nodiscard]] bool check_budgets() noexcept;
+    template<typename T> [[nodiscard]] bool post_acquisition(const std::int32_t slot, const T& payload) noexcept;
+    void shutdown() noexcept;
+    void fail(const EFailure failure, const char* const reason) noexcept;
+
+    memory::CMemoryToken m_allocation;
+    const modules::SExecutionContext m_context;
+    const modules::CCommunication m_communication;
+    //  Fixed operation records: one sequential/module/bundle request, 32 saves,
+    //  six concurrent filesystem requests and eight correlated acquisitions.
+    SRequest m_requests[1u + asset_acceptance::concurrent_save_count + 6u + 8u];
+    std::uint64_t m_request_order{ 0u };
+    CTimingAvailability m_timing;
+    bool m_started{ false }, m_enabled{ false }, m_connect_sent{ false }, m_stopping{ false };
+    bool m_continuation{ false }, m_stop_sent{ false };
+    connections::SToken m_test_connection;
+    TExecutionBudget<> m_test_watchdog;
+    TExecutionBudget<> m_operation_watchdog;
+    TExecutionBudget<> m_acquisition_watchdogs[8];
+    bool m_acquisition_pending[8]{};
+    threading::CWaitDeadline m_exit_deadline;
+    std::uint64_t m_wait_remaining{ UINT64_MAX };
+    module_ids::id_type m_test_module{ module_ids::rendering };
+    std::uint32_t m_scenario_index{ 0u };
+    std::int32_t m_pending_slot{ 0 };
+    std::int32_t m_concurrent_first_slot{ 0 };
+    EPhase m_phase{ EPhase::module_acknowledgement };
+    AssetResult m_raw;
+    AssetResult m_image;
+    image::CImageView m_image_view;
+    AssetResult m_live;
+    AssetResult m_baked;
+    CBakedDocumentBlock m_expected;
+    bool m_save_completed[asset_acceptance::concurrent_save_count]{};
+    std::uint32_t m_completed_save_count{ 0u };
+    bool m_filesystem_completed[6]{};
+    std::uint32_t m_filesystem_count{ 0u };
+    std::int32_t m_filesystem_step{ 0 };
+    std::int32_t m_refresh_step{ 0 };
+    AssetResult m_bundle;
+    CByteBuffer m_bundle_snapshot;
+    std::int32_t m_bundle_step{ 0 };
+    std::int32_t m_acquisition_step{ 0 };
+    AssetAcquireResult m_acquired[2];
+    std::uint32_t m_failure_code{ 0u };
+};
+
+
+
+CExecutiveExecution::CExecutiveExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept
+    : m_allocation{ std::move(allocation) }, m_context{ context }, m_communication{ *context.communication }
+{
+}
+
+bool CExecutiveExecution::initialise() noexcept
+{
+    const char* const registry_name = system_id_registry::lookup_type_name(system_type_ids::asset_load_request);
+    if ((registry_name == nullptr) || (std::strcmp(registry_name, "asset_load_request") != 0))
+    {
+        fail(EFailure::registry, "system registry lookup");
+        return false;
+    }
+
+    MV_LOG_RICH(info, "Executive system registry authority: %s", registry_name);
+
+    const auto* const execution = m_context.execution;
+    if (!execution || !execution->restriction.is_valid() || !execution->notification.is_valid())
+    {
+        fail(EFailure::timing, "Host execution context installation");
+        return false;
+    }
+
+    return load_test_module();
+}
+
+bool CExecutiveExecution::load_test_module() noexcept
+{
+    if (!start_budget(m_operation_watchdog)) return false;
+    threading::CErasedOwnerMsg pending;
+    CSimpleString file;
+    const bool audio = m_test_module == module_ids::audio;
+    if (!platform::module::make_module_filename((audio ? "package:/bin/MorphicAudio" : "package:/bin/MorphicRendering"), file) ||
+        !request_preparation::prepare_module_request(pending, m_pending_slot,
+            m_test_module, modules::EModuleAction::load, file.cstring()) || !retain(std::move(pending)))
+    {
+        fail(EFailure::submission, "module load submission");
+        return false;
+    }
+    m_phase = EPhase::module_acknowledgement;
+    MV_LOG_RICH(info, "Executive: %s load requested", (audio ? "Audio" : "Rendering"));
+    return true;
+}
+
+bool CExecutiveExecution::accept_module_notice(const threading::CErasedPodMsg& message) noexcept
+{
+    MV_DETAIL("Executive module notification");
+
+    modules::ModuleResult result;
+    if (!message.copy_payload_to(result) || (message.query_async_slot() != m_pending_slot) ||
+        (result.module != m_test_module))
+    {
+        return false;
+    }
+
+    if (m_phase == EPhase::module_acknowledgement)
+    {
+        if ((result.notice != modules::EModuleNotice::acknowledged) || (result.status != modules::EModuleStatus::success))
+        {
+            return false;
+        }
+        m_phase = EPhase::module_completion;
+        MV_LOG_RICH(info, "Executive: %s load acknowledged", ((m_test_module == module_ids::audio) ? "Audio" : "Rendering"));
+    }
+    else
+    {
+        //  An Executive replacement may inherit an already running renderer.
+        //  Accept only the chosen implementation, with a live service thread.
+        if ((result.notice != modules::EModuleNotice::completed) || !result.available ||
+            ((result.status != modules::EModuleStatus::success) && (result.status != modules::EModuleStatus::already_loaded)))
+        {
+            return false;
+        }
+        m_phase = EPhase::module_connect;
+        ++m_pending_slot;
+        MV_LOG_RICH(info, "Executive: %s ready (%s)", ((m_test_module == module_ids::audio) ? "Audio" : "Rendering"),
+            ((result.status == modules::EModuleStatus::already_loaded) ? "already loaded" : "loaded"));
+    }
+    return true;
+}
+
+void CExecutiveExecution::complete_module_tests(const threading::CErasedPodMsg& message) noexcept
+{
+    modules::RunTestsResult result;
+    if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
+        (result.module != m_test_module) ||
+        !(((result.status == modules::ETestRunStatus::success) && (result.failed == 0u) && (result.skipped == 0u) &&
+            ((m_test_module == module_ids::audio) ? (result.passed == 1u) : (result.passed != 0u))) ||
+          ((m_test_module == module_ids::audio) && (result.status == modules::ETestRunStatus::unavailable) &&
+            (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 1u))))
+    {
+        fail(EFailure::completion, "module tests");
+        return;
+    }
+    MV_LOG(info, "Executive: Module tests completed: {} passed, {} failed, {} skipped", result.passed, result.failed, result.skipped);
+    if (result.status == modules::ETestRunStatus::unavailable)
+    {
+        MV_LOG(info, "Executive: Audio unavailable: no real output device; test skipped");
+    }
+    modules::SExecutionIntent close;
+    close.kind = modules::SExecutionIntent::EKind::close_connection;
+    close.connection = m_test_connection;
+    if (!modules::accepted(m_communication.submit(close)))
+    {
+        fail(EFailure::submission, "module test connection close");
+    }
+    m_phase = EPhase::module_retire;
+    (void)start_budget(m_operation_watchdog);
+}
+
+bool CExecutiveExecution::prepare_raw_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const char* const text,
+    const EAssetRetention retention, const bool save, const char* const file) noexcept
+{
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
+    CByteBuffer bytes;
+    const std::size_t size = std::strlen(text);
+    if (!bytes.resize(size)) return false;
+    std::memcpy(bytes.data(), text, size);
+    return request_preparation::prepare_asset_transfer(pending, slot, bytes, retention, save, file,
+        asset_acceptance::save_settings(EAssetFileFormat::raw));
+}
+
+bool CExecutiveExecution::prepare_image_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const bool greyscale, const bool storage_bottom_up,
+    const EAssetRetention retention, const char* const file) noexcept
+{
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
+    CByteRectBuffer pixels;
+    if (!pixels.allocate((greyscale ? 7u : 28u), 5u, 16u))
+    {
+        return false;
+    }
+    const auto description = greyscale ? image::codec::tga::decoded_image_desc::Gray : image::codec::tga::decoded_image_desc::RGBA;
+    const image::CImageView view{ pixels.view(), description, storage_bottom_up };
+    view.fill(0x7f345678u);
+    view.plot(2, 3, 0xffaabbccu);
+    auto settings = asset_acceptance::save_settings(EAssetFileFormat::tga);
+    settings.image = view.encode_options();
+    if (!request_preparation::prepare_asset_transfer(pending, slot, pixels, retention, true, file, settings))
+    {
+        return false;
+    }
+    auto* const request = pending.owner().payload<ImageAssetTransfer>();
+    request->description = description;
+    request->storage_bottom_up = storage_bottom_up;
+    return true;
+}
+
+bool CExecutiveExecution::prepare_live_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save,
+    const char* const file, const AssetSaveSettings& settings) noexcept
+{
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
+    CLiveDocument document;
+    return asset_acceptance::fixture_document(document) &&
+        request_preparation::prepare_asset_transfer(pending, slot, document, retention, save, file, settings);
+}
+
+bool CExecutiveExecution::prepare_baked_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save,
+    const char* const file, const AssetSaveSettings& settings) noexcept
+{
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
+    CLiveDocument document;
+    CBakedDocumentBlock block;
+    return asset_acceptance::fixture_document(document) && document_translation::bake(document, block) &&
+        request_preparation::prepare_asset_transfer(pending, slot, block, retention, save, file, settings);
+}
+
+bool CExecutiveExecution::prepare_expected_document() noexcept
+{
+    CLiveDocument document;
+    return asset_acceptance::fixture_document(document) && document_translation::bake(document, m_expected);
+}
+
+bool CExecutiveExecution::prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
+{
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
+    using namespace asset_acceptance;
+    switch (scenario.identity)
+    {
+        case EScenario::retain_raw:
+        {
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::source, false, nullptr);
+        }
+        case EScenario::save_retained_raw:
+        case EScenario::save_raw_after_failure:
+        {
+            return request_preparation::prepare_save_request(pending, slot, m_raw.asset, raw_file, save_settings(EAssetFileFormat::raw));
+        }
+        case EScenario::load_saved_raw:
+        case EScenario::load_discarded_raw_output:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::raw, raw_file);
+        }
+        case EScenario::save_discarded_raw:
+        case EScenario::write_invalid_binary:
+        {
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::discard, true, raw_file);
+        }
+        case EScenario::load_tga:
+        {
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, "dev-source:/test_input.tga");
+        }
+        case EScenario::load_tga_bottom_up:
+        {
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, "dev-source:/test_input.tga", {}, false);
+        }
+        case EScenario::save_retained_image:
+        case EScenario::save_cached_image:
+        {
+            AssetSaveSettings settings = save_settings(EAssetFileFormat::tga);
+            settings.image = m_image_view.encode_options();
+            return request_preparation::prepare_save_request(pending, slot, m_image.asset,
+                ((scenario.identity == EScenario::save_cached_image) ? cached_image_file : image_file), settings);
+        }
+        case EScenario::reload_tga:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::tga, image_file);
+        }
+        case EScenario::load_cached_image:
+        {
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, cached_image_file);
+        }
+        case EScenario::save_retained_greyscale:
+        {
+            return prepare_image_fixture(pending, slot, true, true, EAssetRetention::source, image_file);
+        }
+        case EScenario::save_discarded_rgba:
+        {
+            return prepare_image_fixture(pending, slot, false, false, EAssetRetention::discard, image_file);
+        }
+        case EScenario::retain_live:
+        {
+            return prepare_expected_document() &&
+                prepare_live_fixture(pending, slot, EAssetRetention::source, false, nullptr, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::save_live_binary:
+        {
+            return request_preparation::prepare_save_request(pending, slot, m_live.asset, binary_file, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::load_live_binary:
+        case EScenario::load_mutated_live_binary:
+        case EScenario::load_retained_baked_binary:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::baked, binary_file);
+        }
+        case EScenario::save_live_json:
+        {
+            return request_preparation::prepare_save_request(pending, slot, m_live.asset, json_file, save_settings(EAssetFileFormat::json));
+        }
+        case EScenario::load_live_json:
+        case EScenario::load_baked_json:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::json, json_file);
+        }
+        case EScenario::mutate_live_and_save_binary:
+        {   //  The preceding read has completed; the next save must bake this mutation.
+            CLiveDocument* const live = m_live.live_document();
+            if ((live == nullptr) || !live->append_child(live->root(), live->create_boolean(false,
+                CStringView{ reinterpret_cast<const std::uint8_t*>("added"), 5u })).succeeded() ||
+                !document_translation::bake((*live), m_expected))
+            {
+                return false;
+            }
+            return request_preparation::prepare_save_request(pending, slot, m_live.asset, binary_file, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::save_live_json_retain_baked:
+        {
+            return prepare_expected_document() &&
+                prepare_live_fixture(pending, slot, EAssetRetention::baked, true, json_file, save_settings(EAssetFileFormat::json));
+        }
+        case EScenario::save_retained_baked_binary:
+        {
+            return request_preparation::prepare_save_request(pending, slot, m_baked.asset, binary_file, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::save_discarded_baked_json:
+        {
+            return prepare_baked_fixture(pending, slot, EAssetRetention::discard, true, json_file, save_settings(EAssetFileFormat::json));
+        }
+        case EScenario::retain_baked:
+        {
+            return prepare_baked_fixture(pending, slot, EAssetRetention::source, false, nullptr, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::retain_baked_from_live:
+        {
+            return prepare_live_fixture(pending, slot, EAssetRetention::baked, false, nullptr, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::retain_raw_on_save_failure:
+        {
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::source, true, failure_file);
+        }
+        case EScenario::discard_raw_on_save_failure:
+        {
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::discard, true, failure_file);
+        }
+        case EScenario::retain_baked_on_save_failure:
+        {
+            return prepare_live_fixture(pending, slot, EAssetRetention::baked, true, failure_file, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::reject_invalid_asset:
+        {
+            return request_preparation::prepare_save_request(pending, slot, CAssetId{}, raw_file, save_settings(EAssetFileFormat::raw));
+        }
+        case EScenario::write_malformed_json:
+        {
+            return prepare_raw_fixture(pending, slot, "{broken", EAssetRetention::discard, true, raw_file);
+        }
+        case EScenario::reject_malformed_json:
+        case EScenario::reject_invalid_encoding:
+        case EScenario::reject_numeric_overflow:
+        case EScenario::reject_unterminated_string:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::json, raw_file);
+        }
+        case EScenario::reject_missing_file:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::raw, failure_file);
+        }
+        case EScenario::write_policy_rejected_json:
+        {
+            return prepare_raw_fixture(pending, slot, "{unquoted:1}", EAssetRetention::discard, true, raw_file);
+        }
+        case EScenario::reject_disallowed_features:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::json, raw_file, CDocumentParseOptions{ document_policy::k_ascii });
+        }
+        case EScenario::reject_invalid_binary:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::baked, raw_file);
+        }
+        case EScenario::retain_baked_on_json_failure:
+        {
+            AssetSaveSettings settings = save_settings(EAssetFileFormat::json);
+            settings.document.mode = static_cast<EDocumentWriteMode>(255u);
+            return prepare_live_fixture(pending, slot, EAssetRetention::baked, true, json_file, settings);
+        }
+        case EScenario::save_discarded_live_binary:
+        {
+            return prepare_live_fixture(pending, slot, EAssetRetention::discard, true, binary_file, save_settings(EAssetFileFormat::baked));
+        }
+        case EScenario::save_discarded_live_json:
+        {
+            return prepare_live_fixture(pending, slot, EAssetRetention::discard, true, json_file, save_settings(EAssetFileFormat::json));
+        }
+        case EScenario::reject_invalid_tga:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::tga, raw_file);
+        }
+        case EScenario::write_invalid_encoding:
+        {
+            return prepare_raw_fixture(pending, slot, "\x81", EAssetRetention::discard, true, raw_file);
+        }
+        case EScenario::write_numeric_overflow:
+        {
+            return prepare_raw_fixture(pending, slot, "18446744073709551616", EAssetRetention::discard, true, raw_file);
+        }
+        case EScenario::reject_invalid_policy:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::json, json_file, CDocumentParseOptions{ 0x80000000u });
+        }
+        case EScenario::write_unterminated_string:
+        {
+            return prepare_raw_fixture(pending, slot, "\"unterminated", EAssetRetention::discard, true, raw_file);
+        }
+        default:
+        {   //  All current scenario identities are handled above; reject any future unhandled value.
+            return false;
+        }
+    }
+}
+
+bool CExecutiveExecution::check(const asset_acceptance::SScenario& scenario, const AssetResult& result) noexcept
+{
+    using namespace asset_acceptance;
+    if ((result.status != scenario.status) || (result.kind != scenario.retained_kind) ||
+        (result.document_policy != scenario.policy) || (result.document_findings != scenario.findings))
+    {
+        MV_LOG_RICH(error, "Executive: %s: status %u/%u, kind %u/%u, policy %u/%u, findings 0x%08x/0x%08x (actual/expected)",
+            scenario.name, static_cast<unsigned int>(result.status), static_cast<unsigned int>(scenario.status),
+            static_cast<unsigned int>(result.kind), static_cast<unsigned int>(scenario.retained_kind),
+            static_cast<unsigned int>(result.document_policy), static_cast<unsigned int>(scenario.policy),
+            result.document_findings, scenario.findings);
+        return false;
+    }
+    if (!expect(scenario, (static_cast<bool>(result.asset) == (scenario.retained_kind != EAssetKind::none)), "retained asset identity"))
+    {
+        return false;
+    }
+    const image::CImageView image = result.image_view();
+    const CBakedDocument document = result.document_view();
+    switch (scenario.identity)
+    {
+        case EScenario::retain_raw:
+        case EScenario::retain_raw_on_save_failure:
+        {
+            m_raw = result;
+            break;
+        }
+        case EScenario::load_saved_raw:
+        case EScenario::load_discarded_raw_output:
+        {
+            return expect(scenario, equal_bytes(result.byte_view(), CByteConstView{
+                reinterpret_cast<const std::uint8_t*>(fixture), (sizeof(fixture) - 1u) }), "raw byte equality") &&
+                expect(scenario, (result.byte_view().align() >= 32u), "raw alignment");
+        }
+        case EScenario::load_tga:
+        {
+            m_image = result;
+            m_image_view = image;
+            return expect(scenario, (image.is_ready() && !image.is_read_only() && !image.vertical_flip()), "writable top-down image");
+        }
+        case EScenario::reload_tga:
+        case EScenario::load_cached_image:
+        case EScenario::load_tga_bottom_up:
+        {
+            if (!expect(scenario, ((image.width() == m_image_view.width()) &&
+                (image.height() == m_image_view.height())), "image dimensions") ||
+                !expect(scenario, (image.vertical_flip() == m_image_view.vertical_flip()), "image row addressing") ||
+                !expect(scenario, ((scenario.identity == EScenario::reload_tga) ?
+                    (result.asset != m_image.asset) : (result.asset == m_image.asset)),
+                    "native readback has fresh identity; indexed reads retain cached identity"))
+            {
+                return false;
+            }
+            for (std::int32_t y = 0; y < image.height(); ++y)
+            {
+                for (std::int32_t x = 0; x < image.width(); ++x)
+                {
+                    if (!expect(scenario, (image.texel(x, y) == m_image_view.texel(x, y)), "image texel equality"))
+                    {
+                        return false;
+                    }
+                }
+            }
+            break;
+        }
+        case EScenario::save_retained_greyscale:
+        {
+            return expect(scenario, (image.is_greyscale() && image.vertical_flip() && (image.texel(2, 3) == 0xccu)), "bottom-up greyscale texel");
+        }
+        case EScenario::retain_live:
+        {
+            m_live = result;
+            return expect(scenario, ((result.live_document() != nullptr) && result.live_document()->is_ready()), "live document readiness");
+        }
+        case EScenario::load_live_binary:
+        case EScenario::load_mutated_live_binary:
+        case EScenario::load_retained_baked_binary:
+        {
+            return expect(scenario, document.check_integrity(), "baked integrity") &&
+                expect(scenario, equal_bytes(result.byte_view(), m_expected.bytes()), "binary equality");
+        }
+        case EScenario::load_live_json:
+        case EScenario::load_baked_json:
+        {
+            return expect(scenario, document.check_integrity(), "baked integrity") &&
+                expect(scenario, equal_documents(document, m_expected.document()), "normalised JSON equality");
+        }
+        case EScenario::save_live_json_retain_baked:
+        case EScenario::retain_baked:
+        case EScenario::retain_baked_from_live:
+        case EScenario::retain_baked_on_save_failure:
+        case EScenario::retain_baked_on_json_failure:
+        {
+            m_baked = result;
+            return expect(scenario, document.check_integrity(), "retained baked integrity") &&
+                expect(scenario, equal_bytes(result.byte_view(), m_expected.bytes()), "retained baked bytes");
+        }
+        default:
+        {
+            break;
+        }
+    }
+    return true;
+}
+
+bool CExecutiveExecution::submit_concurrent_saves() noexcept
+{
+    if (!start_budget(m_operation_watchdog)) return false;
+    using namespace asset_acceptance;
+    m_phase = EPhase::concurrent;
+    m_concurrent_first_slot = m_pending_slot + 1;
+
+    //  The source stays immutable until every independently correlated save completes.
+    static constexpr char path_prefix[] = "test-output:/asset-concurrent-";
+    for (std::uint32_t index = 0u; index < concurrent_save_count; ++index)
+    {
+        char path[] = "test-output:/asset-concurrent-00.json";
+        constexpr std::uint32_t digit_offset = sizeof(path_prefix) - 1u;
+        path[digit_offset] = static_cast<char>('0' + (index / 10u));
+        path[digit_offset + 1u] = static_cast<char>('0' + (index % 10u));
+        const std::int32_t slot = m_concurrent_first_slot + static_cast<std::int32_t>(index);
+        threading::CErasedOwnerMsg pending;
+        if (!request_preparation::prepare_save_request(pending, slot, m_live.asset, path, save_settings(EAssetFileFormat::json)))
+        {
+            MV_LOG(error, "Executive: concurrent save {}: preparation failed", index);
+            return false;
+        }
+        if (!retain(std::move(pending)))
+        {
+            MV_LOG(error, "Executive: concurrent save {}: submission failed", index);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CExecutiveExecution::complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept
+{
+    using namespace asset_acceptance;
+    const std::int32_t index = message.query_async_slot() - m_concurrent_first_slot;
+    if ((index < 0) || (index >= static_cast<std::int32_t>(concurrent_save_count)))
+    {
+        MV_ASSERT_REPORT("Executive: concurrent reply has unexpected slot {}", message.query_async_slot());
+        return false;
+    }
+    AssetResult result;
+    if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
+        (result.asset != m_live.asset) || m_save_completed[index])
+    {
+        MV_LOG(error, "Executive: concurrent save {}: expected a unique successful reply for the retained live asset", index);
+        return false;
+    }
+    m_save_completed[index] = true;
+    ++m_completed_save_count;
+    if (m_completed_save_count == concurrent_save_count)
+    {
+        MV_LOG(info, "Asset acceptance: {} sequential and {} concurrent operations passed", scenario_count, concurrent_save_count);
+        return start_filesystem_exercise();
+    }
+    return true;
+}
+
+bool CExecutiveExecution::start_filesystem_exercise() noexcept
+{
+    if (!start_budget(m_operation_watchdog)) return false;
+    threading::CErasedOwnerMsg pending;
+    m_phase = EPhase::filesystem;
+    const char* roots[]{ "dev-source:", "dev-workspace:", "unknown:" };
+    for (std::int32_t index = 0; index < 3; ++index)
+    {
+        if (!request_preparation::prepare_filesystem_request(pending, (1000 + index), roots[index]) ||
+            !retain(std::move(pending)))
+        {
+            MV_LOG(error, "Executive: filesystem refresh preparation or submission failed at slot {}", (1000 + index));
+            return false;
+        }
+    }
+    const bool submitted =
+        (request_preparation::prepare_load_request(pending, 1003, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+            retain(std::move(pending))) &&
+        (request_preparation::prepare_save_request(pending, 1004, m_baked.asset, "dev-workspace:/acceptance/filesystem-concurrent.bin", asset_acceptance::save_settings(EAssetFileFormat::baked)) &&
+            retain(std::move(pending))) &&
+        (asset_acceptance::prepare_output_load(pending, 1005, EAssetFileFormat::json, asset_acceptance::json_file) &&
+            retain(std::move(pending)));
+    if (!submitted && pending.has_message_type())
+    {
+        MV_LOG(error, "Executive: filesystem concurrent submission failed at slot {}", pending.query_async_slot());
+    }
+    return submitted;
+}
+
+bool CExecutiveExecution::complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept
+{
+    threading::CErasedOwnerMsg pending;
+    const std::int32_t step = message.query_async_slot() - 1000;
+    if (m_filesystem_count < 6u)
+    {
+        if ((step < 0) || (step >= 6) || m_filesystem_completed[step])
+        {
+            return false;
+        }
+        if (step < 3)
+        {
+            filesystem::FilesystemRefreshResult result;
+            if ((step != m_refresh_step) || !message.copy_payload_to(result) ||
+                (result.status != ((step == 2) ? filesystem::EFilesystemStatus::invalid_root : filesystem::EFilesystemStatus::success)))
+            {
+                return false;
+            }
+            ++m_refresh_step;
+        }
+        else
+        {
+            AssetResult result;
+            if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
+                ((step == 3) && (result.asset != m_image.asset)) ||
+                ((step == 4) && (result.asset != m_baked.asset)) ||
+                ((step == 5) && !result.document_view().is_ready()))
+            {
+                return false;
+            }
+        }
+        m_filesystem_completed[step] = true;
+        if (++m_filesystem_count != 6u)
+        {
+            return true;
+        }
+        m_filesystem_step = 6;
+        const auto disposal = threading::make_pod_message(1006, AssetDisposeRequest{ m_image.asset });
+        return retain(disposal);
+    }
+    if (step != m_filesystem_step++)
+    {
+        return false;
+    }
+    if (step == 6)
+    {
+        AssetDisposeResult result;
+        return message.copy_payload_to(result) && (result.status == EAssetStatus::success) &&
+            (result.asset == m_image.asset) &&
+            request_preparation::prepare_load_request(pending, 1007, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+            retain(std::move(pending));
+    }
+    AssetResult result;
+    if (!message.copy_payload_to(result))
+    {
+        return false;
+    }
+    switch (step)
+    {
+        case 7:
+        {
+            if ((result.status != EAssetStatus::success) || (result.asset == m_image.asset) || !result.image_view().is_ready())
+            {
+                return false;
+            }
+            m_image = result;
+            return request_preparation::prepare_load_request(pending, 1008, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+                retain(std::move(pending));
+        }
+        case 8:
+        {
+            return (result.status == EAssetStatus::success) && (result.asset == m_image.asset) &&
+                request_preparation::prepare_load_request(pending, 1009, EAssetFileFormat::raw, "dev-source:/filesystem-missing-file") &&
+                retain(std::move(pending));
+        }
+        case 9:
+        {
+            CSimpleString executive_file;
+            return (result.status == EAssetStatus::read_failed) &&
+                platform::module::make_module_filename("package:/bin/MorphicExecutive", executive_file) &&
+                request_preparation::prepare_save_request(pending, 1010, m_raw.asset, executive_file.cstring(), asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
+                retain(std::move(pending));
+        }
+        case 10:
+        {
+            return (result.status == EAssetStatus::write_failed) &&
+                request_preparation::prepare_load_request(pending, 1011, EAssetFileFormat::baked, "dev-workspace:/acceptance/filesystem-concurrent.bin") &&
+                retain(std::move(pending));
+        }
+        case 11:
+        {
+            if ((result.status != EAssetStatus::success) || (result.asset != m_baked.asset))
+            {
+                return false;
+            }
+            MV_LOG(info, "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed");
+            return start_bundle_exercise();
+        }
+        default:
+        {
+            return false;
+        }
+    }
+}
+
+bool CExecutiveExecution::start_bundle_exercise() noexcept
+{
+    if (!start_budget(m_operation_watchdog)) return false;
+    threading::CErasedOwnerMsg pending;
+    m_phase = EPhase::bundle;
+    return request_preparation::prepare_bundle_bake_request(pending, 2000, "dev-source:", "bundle-acceptance:") &&
+        retain(std::move(pending));
+}
+
+bool CExecutiveExecution::complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept
+{
+    threading::CErasedOwnerMsg pending;
+    if ((m_bundle_step == 4) || (m_bundle_step == 6))
+    {
+        BundleDisposedNotification notification;
+        if ((message.query_async_slot() != threading::k_uncorrelated_slot) || !message.copy_payload_to(notification) ||
+            (notification.asset != m_bundle.asset))
+        {
+            return false;
+        }
+        m_bundle = {};
+        if (m_bundle_step == 6)
+        {
+            m_bundle_snapshot.deallocate();
+            m_phase = EPhase::acquisitions;
+            MV_LOG(info, "Bundle acceptance: bake, reference, save, close and reload passed");
+            return post_acquisition(3000, AssetAcquireRequest{ m_raw.asset });
+        }
+        ++m_bundle_step;
+        return request_preparation::prepare_bundle_load_request(pending, 2005,
+            "dev-workspace:/acceptance/bundle-acceptance.bdl", "bundle-acceptance:") &&
+            retain(std::move(pending));
+    }
+    if (message.query_async_slot() != (2000 + m_bundle_step))
+    {
+        return false;
+    }
+    if (m_bundle_step == 2)
+    {
+        AssetDisposeResult result;
+        if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success))
+        {
+            return false;
+        }
+        ++m_bundle_step;
+        return request_preparation::prepare_save_request(pending, 2003, m_bundle.asset, "dev-workspace:/acceptance/bundle-acceptance.bdl", asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
+            retain(std::move(pending));
+    }
+    AssetResult result;
+    if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
+        (result.kind != EAssetKind::bundle) || !result.bundle_view().is_ready())
+    {
+        return false;
+    }
+    threading::CErasedPodMsg outbound;
+    switch (m_bundle_step++)
+    {
+        case 0:
+        {
+            m_bundle = result;
+            const auto bytes = result.byte_view();
+            if (!m_bundle_snapshot.allocate(bytes.size()) || !m_bundle_snapshot.set_size(bytes.size()) ||
+                (result.bundle_view().lookup(CStringView{ "test_input.tga" }).status != bundle::ELookupStatus::success))
+            {
+                return false;
+            }
+            std::memcpy(m_bundle_snapshot.data(), bytes.data(), bytes.size());
+            outbound = threading::make_pod_message(2001, BundleReferenceRequest{ m_bundle.asset });
+            break;
+        }
+        case 1:
+        {
+            if ((result.asset == m_bundle.asset) || (result.byte_view().data() != m_bundle.byte_view().data()))
+            {
+                return false;
+            }
+            outbound = threading::make_pod_message(2002, AssetDisposeRequest{ result.asset });
+            break;
+        }
+        case 3:
+        {
+            if (result.asset != m_bundle.asset)
+            {
+                return false;
+            }
+            outbound = threading::make_pod_message(2004, AssetDisposeRequest{ m_bundle.asset });
+            break;
+        }
+        case 5:
+        {
+            if (!asset_acceptance::equal_bytes(result.byte_view(), m_bundle_snapshot.const_view()))
+            {
+                return false;
+            }
+            m_bundle = result;
+            outbound = threading::make_pod_message(2006, AssetDisposeRequest{ m_bundle.asset });
+            break;
+        }
+        default:
+        {
+            return false;
+        }
+    }
+    return retain(outbound);
+}
+
+bool CExecutiveExecution::complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept
+{
+    const auto slot = message.query_async_slot() - 3000;
+    if ((slot < 0) || (slot >= 8) || !m_acquisition_pending[slot])
+    {
+        return false;
+    }
+    m_acquisition_pending[slot] = false;
+    const auto step = m_acquisition_step++;
+    AssetAcquireResult acquired;
+    AssetReleaseResult released;
+    switch (step)
+    {
+        case 0:
+        case 1:
+        {
+            if ((message.query_async_slot() != (3000 + step)) || !message.copy_payload_to(acquired) ||
+                (acquired.status != EAssetStatus::success) || !acquired.acquisition ||
+                (acquired.byte_view().data() != m_raw.byte_view().data()))
+            {
+                return false;
+            }
+            m_acquired[step] = acquired;
+            if (step == 0)
+            {
+                return post_acquisition(3001, AssetAcquireRequest{ m_raw.asset });
+            }
+            return (m_acquired[0].acquisition != m_acquired[1].acquisition) &&
+                post_acquisition(3002, AssetDisposeRequest{ m_raw.asset }) &&
+                post_acquisition(3003, AssetAcquireRequest{ m_raw.asset });
+        }
+        case 2:
+        {
+            if ((message.query_async_slot() != 3003) || !message.copy_payload_to(acquired) ||
+                (acquired.status != EAssetStatus::invalid_asset) || acquired.acquisition ||
+                !asset_acceptance::equal_bytes(m_acquired[0].byte_view(), m_acquired[1].byte_view()))
+            {
+                return false;
+            }
+            return post_acquisition(3004, AssetReleaseRequest{ m_acquired[0].acquisition });
+        }
+        case 3:
+        case 4:
+        case 5:
+        {
+            const auto expected = (step == 4) ? EAssetStatus::invalid_request : EAssetStatus::success;
+            const auto token = m_acquired[(step == 5) ? 1 : 0].acquisition;
+            if ((message.query_async_slot() != (3001 + step)) || !message.copy_payload_to(released) ||
+                (released.status != expected) || (released.acquisition != token))
+            {
+                return false;
+            }
+            if (step == 5)
+            {
+                return true;
+            } // Disposal must now follow the release acknowledgement.
+            return post_acquisition((3002 + step),
+                AssetReleaseRequest{ m_acquired[(step == 4) ? 1 : 0].acquisition });
+        }
+        case 6:
+        {
+            AssetDisposeResult result;
+            if ((message.query_async_slot() != 3002) || !message.copy_payload_to(result) ||
+                (result.asset != m_raw.asset) || (result.status != EAssetStatus::success))
+            {
+                return false;
+            }
+            m_acquired[0] = {};
+            m_acquired[1] = {};
+            m_raw = {};
+            return post_acquisition(3007, AssetAcquireRequest{ m_baked.asset });
+        }
+        case 7:
+        {
+            if ((message.query_async_slot() != 3007) || !message.copy_payload_to(acquired) ||
+                (acquired.status != EAssetStatus::success) || !acquired.acquisition || !acquired.byte_view().is_ready())
+            {
+                return false;
+            }
+
+            //  Stop using the view and exit without releasing its token. Host
+            //  must reclaim it after our terminal state, before module teardown.
+            m_phase = EPhase::complete;
+            MV_LOG(info, "Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed");
+            return true;
+        }
+        default:
+        {
+            return false;
+        }
+    }
+}
+
+bool CExecutiveExecution::request_system_shutdown() noexcept
+{
+    const auto* const execution = m_context.execution;
+    if (!execution || (m_exit_deadline.set_after_milliseconds(30000u).code != platform::threading::EWaitError::none) ||
+        !execution->stop.request())
+    {
+        return false;
+    }
+    m_phase = EPhase::awaiting_exit;
+    return true;
+}
+
+modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::create(const modules::SExecutionContext* const context,
+    void** const runtime) noexcept
+{
+    if (!context || !runtime || (context->size != sizeof(*context)) || (context->version != 1u) ||
+        !context->communication || !context->execution || !modules::is_thread_context_ready(context))
+    {
+        return modules::EExecutionStatus::invalid_argument;
+    }
+    *runtime = nullptr;
+    memory::CMemoryToken allocation{ 1u, alignof(CExecutiveExecution) };
+    if (!allocation.allocate(sizeof(CExecutiveExecution)))
+    {
+        return modules::EExecutionStatus::failed;
+    }
+    void* const storage = allocation.data();
+    *runtime = ::new (storage) CExecutiveExecution{ std::move(allocation), *context };
+    return modules::EExecutionStatus::success;
+}
+
+modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::handle(void* const runtime,
+    const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept
+{
+    if (!runtime || !invocation || !progress || (invocation->size != sizeof(*invocation)) || (invocation->version != 1u))
+    {
+        return modules::EExecutionStatus::invalid_argument;
+    }
+    return static_cast<CExecutiveExecution*>(runtime)->dispatch(*invocation, *progress);
+}
+
+modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::destroy(void* const runtime) noexcept
+{
+    CExecutiveExecution* const self = static_cast<CExecutiveExecution*>(runtime);
+    if (!self || !self->m_stopping)
+    {
+        return modules::EExecutionStatus::failed;
+    }
+    memory::CMemoryToken allocation{ std::move(self->m_allocation) };
+    self->~CExecutiveExecution();
+    return modules::EExecutionStatus::success;
+}
+
+bool CExecutiveExecution::observe_timing(const modules::EBudgetStatus status) noexcept
+{
+    const CTimingAvailability::SObservation timing = m_timing.observe(status);
+    switch (timing.event)
+    {
+        case CTimingAvailability::EEvent::warning:
+        {
+            MV_LOG(warning, "Executive timing unavailable: {} ns, {} retries", timing.duration_ns, timing.retries);
+            break;
+        }
+        case CTimingAvailability::EEvent::recovery:
+        {
+            MV_LOG(info, "Executive timing recovered: {} ns, {} retries", timing.duration_ns, timing.retries);
+            break;
+        }
+        case CTimingAvailability::EEvent::failure:
+        {
+            fail(EFailure::timing, "sustained or failed Host timing observation");
+            break;
+        }
+        case CTimingAvailability::EEvent::none:
+        {
+            break;
+        }
+    }
+    return m_failure_code == 0u;
+}
+
+bool CExecutiveExecution::start_budget(TExecutionBudget<>& budget) noexcept
+{
+    //  A single bounded attempt. Retry retains the candidate and the old live
+    //  anchor; the associated request remains unpublished in its operation.
+    return observe_timing(budget.start(m_context.execution->restriction));
+}
+
+void CExecutiveExecution::retry_timing() noexcept
+{
+    if (m_timing.retrying() && (m_wait_remaining > k_timing_retry_ns))
+    {
+        m_wait_remaining = k_timing_retry_ns;
+    }
+}
+
+bool CExecutiveExecution::check_budgets() noexcept
+{
+    m_wait_remaining = UINT64_MAX;
+    if (m_context.execution->notification.failed())
+    {
+        fail(EFailure::timing, "Host restriction notification");
+        return false;
+    }
+    bool observed = false;
+    const auto check = [&](TExecutionBudget<>& budget)
+    {
+        observed = true;
+        const modules::SEligibleBudgetObservation observation = budget.observe();
+        (void)observe_timing(observation.status);
+        if (observation.status == modules::EBudgetStatus::expired)
+        {
+            fail(EFailure::timeout, "Host eligible operation stall");
+        }
+        if ((observation.status == modules::EBudgetStatus::running) && (observation.remaining_ns < m_wait_remaining))
+        {
+            m_wait_remaining = observation.remaining_ns;
+        }
+    };
+    if (m_phase == EPhase::awaiting_exit)
+    {
+        if (m_exit_deadline.remaining_nanoseconds(m_wait_remaining).code != platform::threading::EWaitError::none)
+        {
+            fail(EFailure::timing, "exit deadline query");
+        }
+        else if (!m_wait_remaining) fail(EFailure::timeout, "exit deadline");
+    }
+    else if (m_phase == EPhase::acquisitions)
+    {
+        for (unsigned index = 0u; index < 8u; ++index)
+        {
+            if (m_acquisition_pending[index]) check(m_acquisition_watchdogs[index]);
+        }
+    }
+    else if (m_phase != EPhase::complete)
+    {
+        check(((m_phase == EPhase::module_tests) || (m_phase == EPhase::module_submit)) ? m_test_watchdog : m_operation_watchdog);
+    }
+    if (!observed && m_timing.retrying())
+    {
+        //  Phase completion must not erase an ongoing observation failure.
+        //  No operation deadline is renewed or inferred by this probe.
+        modules::CHostEligibleBudget probe;
+        (void)observe_timing(probe.start(m_context.execution->restriction, k_operation_stall_ns));
+    }
+    retry_timing();
+    //  A transient retry does not prevent a domain completion from settling.
+    return m_failure_code == 0u;
+}
+
+CExecutiveExecution::SRequest* CExecutiveExecution::request_slot(const std::int32_t correlation) noexcept
+{
+    std::uint32_t index = 0u;
+    TExecutionBudget<>* budget = &m_operation_watchdog;
+    if (m_phase == EPhase::concurrent)
+    {
+        const std::int32_t offset = correlation - m_concurrent_first_slot;
+        if ((offset < 0) || (offset >= static_cast<std::int32_t>(asset_acceptance::concurrent_save_count)))
+        {
+            return nullptr;
+        }
+        index = 1u + static_cast<std::uint32_t>(offset);
+    }
+    else if ((m_phase == EPhase::filesystem) && (correlation >= 1000) && (correlation < 1006))
+    {
+        index = 1u + asset_acceptance::concurrent_save_count + static_cast<std::uint32_t>(correlation - 1000);
+    }
+    else if (m_phase == EPhase::acquisitions)
+    {
+        if ((correlation < 3000) || (correlation >= 3008))
+        {
+            return nullptr;
+        }
+        const std::uint32_t offset = static_cast<std::uint32_t>(correlation - 3000);
+        index = 1u + asset_acceptance::concurrent_save_count + 6u + offset;
+        budget = &m_acquisition_watchdogs[offset];
+    }
+    SRequest& request = m_requests[index];
+    if (request.order || (m_request_order == UINT64_MAX))
+    {
+        return nullptr;
+    }
+    request.budget = budget;
+    request.order = ++m_request_order;
+    return &request;
+}
+
+bool CExecutiveExecution::retain(threading::CErasedOwnerMsg&& message) noexcept
+{
+    SRequest* const request = request_slot(message.query_async_slot());
+    if (!request) return false;
+    request->owner = std::move(message);
+    return true;
+}
+
+bool CExecutiveExecution::retain(const threading::CErasedPodMsg& message) noexcept
+{
+    SRequest* const request = request_slot(message.query_async_slot());
+    if (!request) return false;
+    request->pod = message;
+    return true;
+}
+
+template<typename T>
+bool CExecutiveExecution::post_acquisition(const std::int32_t slot, const T& payload) noexcept
+{
+    const std::int32_t index = slot - 3000;
+    if ((index < 0) || (index >= 8) || m_acquisition_pending[index] || !start_budget(m_acquisition_watchdogs[index]) ||
+        !retain(threading::make_pod_message(slot, payload)))
+    {
+        return false;
+    }
+    m_acquisition_pending[index] = true;
+    return true;
+}
+
+void CExecutiveExecution::flush_requests() noexcept
+{
+    for (unsigned turn = 0u; turn < 8u; ++turn)
+    {
+        SRequest* next = nullptr;
+        //  Preserve the existing ordering of dependent requests (notably
+        //  dispose then acquire) while keeping all storage in fixed operations.
+        for (SRequest& request : m_requests)
+        {
+            if (request.order && (!next || (request.order < next->order))) next = &request;
+        }
+        if (!next || !next->budget->publishable()) return;
+        const modules::ESubmission result = next->owner.has_message_type() ?
+            m_communication.submit({}, std::move(next->owner)) : m_communication.submit({}, next->pod);
+        if (result == modules::ESubmission::busy) return;
+        if (!modules::accepted(result))
+        {
+            fail(EFailure::submission, "retained operation publication");
+            return;
+        }
+        *next = {};
+    }
+    for (const SRequest& request : m_requests)
+    {
+        if (request.order && request.budget->publishable()) m_continuation = true;
+    }
+}
+
+void CExecutiveExecution::progress_connection() noexcept
+{
+    if ((m_phase == EPhase::module_connect) && !m_connect_sent && m_operation_watchdog.publishable())
+    {
+        modules::SExecutionIntent connect;
+        connect.kind = modules::SExecutionIntent::EKind::connect;
+        connect.first = m_context.address;
+        connect.second = modules::test_connections::address(m_test_module);
+        connect.correlation = m_pending_slot;
+        const modules::ESubmission result = m_communication.submit(connect);
+        m_connect_sent = modules::accepted(result);
+        if (!m_connect_sent && (result != modules::ESubmission::busy))
+        {
+            fail(EFailure::submission, "module test connection request");
+        }
+    }
+    if ((m_phase == EPhase::module_submit) && m_test_watchdog.publishable())
+    {
+        const modules::SDestination destination{ modules::SDestination::EKind::connection, {}, m_test_connection };
+        const modules::ESubmission result = m_communication.submit(destination,
+            threading::make_pod_message(m_pending_slot, modules::RunTestsRequest{ m_test_module }));
+        if (modules::accepted(result)) m_phase = EPhase::module_tests;
+        else if (result != modules::ESubmission::busy)
+        {
+            fail(EFailure::submission, "module test request publication");
+        }
+    }
+}
+
+void CExecutiveExecution::connection_event(const modules::SInvocation& invocation) noexcept
+{
+    const modules::SExecutionNotification& event = invocation.notification;
+    switch (invocation.event)
+    {
+        case modules::EExecutionEvent::participation:
+        {
+            if (event.connection_status != connections::EStatus::success)
+            {
+                fail(EFailure::submission, "direct participation");
+            }
+            break;
+        }
+        case modules::EExecutionEvent::connection_offered:
+        {
+            modules::SExecutionIntent consent;
+            consent.kind = modules::SExecutionIntent::EKind::consent;
+            consent.connection = event.connection;
+            consent.decision = (!m_stopping && !event.bulk.is_bulk() &&
+                ((event.peer == modules::test_connections::address(module_ids::rendering)) ||
+                    (event.peer == modules::test_connections::address(module_ids::audio)))) ?
+                connections::EStatus::success : connections::EStatus::rejected;
+            if (!modules::accepted(m_communication.submit(consent)))
+            {
+                fail(EFailure::submission, "connection consent");
+            }
+            break;
+        }
+        case modules::EExecutionEvent::connection_result:
+        {
+            if (m_stopping) break;
+            if ((m_phase != EPhase::module_connect) || !m_connect_sent || (event.correlation != m_pending_slot) ||
+                ((event.connection_status != connections::EStatus::success) && (event.connection_status != connections::EStatus::already_connected)) ||
+                !m_communication.query({ modules::SDestination::EKind::connection, {}, event.connection }).active)
+            {
+                fail(EFailure::completion, "module test connection");
+                break;
+            }
+            m_test_connection = event.connection;
+            m_phase = EPhase::module_submit;
+            (void)start_budget(m_test_watchdog);
+            break;
+        }
+        case modules::EExecutionEvent::connection_closing:
+        {
+            if (!m_stopping && (event.connection.value == m_test_connection.value) && (m_phase != EPhase::module_retire))
+            {
+                fail(EFailure::completion, "module test connection cancelled");
+            }
+            modules::SExecutionIntent quiescent;
+            quiescent.kind = modules::SExecutionIntent::EKind::connection_quiescent;
+            quiescent.connection = event.connection;
+            if (!modules::accepted(m_communication.submit(quiescent)))
+            {
+                fail(EFailure::submission, "connection quiescence");
+            }
+            break;
+        }
+        case modules::EExecutionEvent::connection_retired:
+        {
+            if (m_stopping || m_failure_code || (event.connection.value != m_test_connection.value)) break;
+            if (m_phase != EPhase::module_retire)
+            {
+                fail(EFailure::completion, "unexpected connection retirement");
+                break;
+            }
+            m_test_connection = {};
+            ++m_pending_slot;
+            if (m_test_module == module_ids::rendering)
+            {
+                m_test_module = module_ids::audio;
+                (void)load_test_module();
+            }
+            else
+            {
+                m_phase = EPhase::sequential;
+                threading::CErasedOwnerMsg pending;
+                if (!start_budget(m_operation_watchdog) ||
+                    !prepare_scenario(pending, asset_acceptance::scenarios[m_scenario_index], m_pending_slot) || !retain(std::move(pending)))
+                {
+                    fail(EFailure::submission, "initial asset request preparation");
+                }
+            }
+            break;
+        }
+        default:
+        {
+            break;
+        }
+    }
+}
+
+void CExecutiveExecution::service() noexcept
+{
+    m_continuation = false;
+    if (m_stopping || m_failure_code) return;
+    if (!m_enabled)
+    {
+        modules::SExecutionIntent participate;
+        participate.correlation = 0;
+        const modules::ESubmission result = m_communication.submit(participate);
+        m_enabled = modules::accepted(result);
+        if (!m_enabled && (result != modules::ESubmission::busy))
+        {
+            fail(EFailure::submission, "direct participation request");
+        }
+    }
+    if (!check_budgets()) return;
+    progress_connection();
+    flush_requests();
+    if ((m_phase == EPhase::complete) && !m_stop_sent)
+    {
+        modules::SExecutionIntent stop;
+        stop.kind = modules::SExecutionIntent::EKind::stop_module;
+        m_stop_sent = modules::accepted(m_communication.submit(stop));
+        if (!m_stop_sent) fail(EFailure::submission, "completed Executive stop");
+    }
+}
+
+void CExecutiveExecution::receive(const connections::SSource& source, const threading::CErasedPodMsg& message) noexcept
+{
+    using namespace asset_acceptance;
+    if (!source.is_host())
+    {
+        if ((source.kind == connections::SSource::EKind::direct) && (source.connection.value == m_test_connection.value) &&
+            (source.address == modules::test_connections::address(m_test_module)) && (m_phase == EPhase::module_tests))
+        {
+            complete_module_tests(message);
+        }
+        else fail(EFailure::completion, "unexpected direct message");
+        return;
+    }
+    if (m_phase == EPhase::awaiting_exit) return;
+    if ((m_phase == EPhase::module_acknowledgement) || (m_phase == EPhase::module_completion))
+    {
+        if (!accept_module_notice(message))
+        {
+            fail(EFailure::completion, "module unavailable or invalid load reply");
+        }
+        else if (m_phase == EPhase::module_connect)
+        {
+            m_connect_sent = false;
+            (void)start_budget(m_operation_watchdog);
+        }
+        return;
+    }
+    if ((m_phase >= EPhase::module_connect) && (m_phase <= EPhase::module_retire))
+    {
+        fail(EFailure::completion, "unexpected Host message during module tests");
+        return;
+    }
+    modules::ModuleResult module_result;
+    if (message.copy_payload_to(module_result))
+    {
+        if ((module_result.notice == modules::EModuleNotice::completed) && (module_result.status != modules::EModuleStatus::success) &&
+            !request_system_shutdown())
+        {
+            fail(EFailure::submission, "system shutdown request");
+        }
+        return;
+    }
+    if (m_phase == EPhase::bundle)
+    {
+        if (!complete_bundle_exercise(message)) fail(EFailure::completion, "bundle exercise");
+        return;
+    }
+    if (m_phase == EPhase::acquisitions)
+    {
+        if (!complete_acquisition_exercise(message))
+        {
+            fail(EFailure::completion, "asset acquisition exercise");
+        }
+        return;
+    }
+    if (m_phase == EPhase::filesystem)
+    {
+        if (!complete_filesystem_exercise(message))
+        {
+            fail(EFailure::completion, "filesystem image exercise");
+        }
+        return;
+    }
+    if (m_phase == EPhase::concurrent)
+    {
+        if (!complete_concurrent_save(message))
+        {
+            fail(EFailure::completion, "concurrent completion");
+        }
+        return;
+    }
+    if ((m_phase != EPhase::sequential) || (m_scenario_index >= scenario_count))
+    {
+        fail(EFailure::completion, "unexpected scenario result");
+        return;
+    }
+    const SScenario& scenario = scenarios[m_scenario_index];
+    AssetResult result;
+    if (!expect(scenario, (message.query_async_slot() == m_pending_slot), "reply correlation") ||
+        !expect(scenario, message.copy_payload_to(result), "reply payload type") || !check(scenario, result))
+    {
+        fail(EFailure::completion, "scenario completion");
+        return;
+    }
+    MV_LOG_RICH(info, "Executive: %s passed", scenario.name);
+    ++m_scenario_index;
+    if (m_scenario_index == scenario_count)
+    {
+        if (!submit_concurrent_saves())
+        {
+            fail(EFailure::submission, "concurrent request preparation");
+        }
+    }
+    else if (start_budget(m_operation_watchdog))
+    {
+        ++m_pending_slot;
+        threading::CErasedOwnerMsg pending;
+        if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot) || !retain(std::move(pending)))
+        {
+            fail(EFailure::submission, "request preparation");
+        }
+    }
+}
+
+void CExecutiveExecution::shutdown() noexcept
+{
+    m_stopping = true;
+    m_continuation = false;
+    m_wait_remaining = UINT64_MAX;
+    for (SRequest& request : m_requests) request = {};
+    m_raw = m_image = m_live = m_baked = m_bundle = {};
+    m_image_view = {};
+    m_acquired[0] = m_acquired[1] = {};
+    m_bundle_snapshot.deallocate();
+    //  Host retires accepted obligations and borrowed views through its existing
+    //  terminal/quiescence proof. This object no longer uses those resources.
+}
+
+modules::EExecutionStatus CExecutiveExecution::dispatch(const modules::SInvocation& invocation,
+    modules::SExecutionProgress& progress) noexcept
+{
+    const bool failed_before = m_failure_code != 0u;
+    switch (invocation.event)
+    {
+        case modules::EExecutionEvent::start:
+        {
+            if (m_started) fail(EFailure::completion, "duplicate execution start");
+            else
+            {
+                m_started = true;
+                if (initialise()) service();
+            }
+            break;
+        }
+        case modules::EExecutionEvent::service_async:
+        {
+            service();
+            break;
+        }
+        case modules::EExecutionEvent::stop:
+        {
+            shutdown();
+            break;
+        }
+        case modules::EExecutionEvent::message:
+        {
+            if (m_stopping || m_failure_code) break;
+            if (!invocation.message) fail(EFailure::completion, "missing message");
+            else if (check_budgets()) receive(invocation.source, *invocation.message);
+            //  Retry is tolerated here. A new phase may have staged an unanchored
+            //  request; only service_async advances that request's publication.
+            retry_timing();
+            break;
+        }
+        default:
+        {
+            connection_event(invocation);
+            retry_timing();
+            break;
+        }
+    }
+    progress = {};
+    progress.ready = (m_started && m_enabled && !m_failure_code) ? 1u : 0u;
+    progress.work_pending = (!m_stopping && !m_failure_code && m_continuation) ? 1u : 0u;
+    progress.work_complete = m_stopping ? 1u : 0u;
+    progress.next_wake_ns = m_stopping ? UINT64_MAX : m_wait_remaining;
+    //  Report the transition once so subsequent stop/retirement callbacks can
+    //  report their cleanup progress after Host has latched the fatal failure.
+    return (!failed_before && m_failure_code) ? modules::EExecutionStatus::failed : modules::EExecutionStatus::success;
+}
+
+void CExecutiveExecution::fail(const EFailure failure, const char* const reason) noexcept
+{
+    if (m_failure_code == 0u)
+    {
+        m_failure_code = static_cast<std::uint32_t>(failure);
+        const char* const scenario = ((m_phase == EPhase::module_acknowledgement) || (m_phase == EPhase::module_completion)) ?
+            "module_startup" : ((m_phase >= EPhase::module_connect) && (m_phase <= EPhase::module_retire)) ? "module_tests" : ((m_phase == EPhase::filesystem) ? "filesystem" :
+                ((m_phase == EPhase::bundle) ? "bundle" : ((m_scenario_index < asset_acceptance::scenario_count) ?
+                    asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves")));
+        MV_LOG_RICH(error, "Executive: %s failed: %s (scenario slot %d, filesystem step %d, bundle step %d)",
+            scenario, reason, m_pending_slot, m_filesystem_step, m_bundle_step);
+    }
+}
+
+modules::SExecutionV1 executive_execution() noexcept
+{
+    return { sizeof(modules::SExecutionV1), 1u, 0u,
+        &CExecutiveExecution::create, &CExecutiveExecution::handle, &CExecutiveExecution::destroy };
+}
+
+}   //  namespace executive

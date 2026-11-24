@@ -11,7 +11,7 @@
 #pragma once
 
 #if defined(MV_INPUT_ACCEPTANCE)
-#include "framework/module/host_pump.hpp"
+#include "framework/module/module_execution.hpp"
 #include "native/window.hpp"
 #include "native/controllers.hpp"
 #include "native/report.hpp"
@@ -25,7 +25,7 @@ struct SDesktopTransaction;
 namespace platform::acceptance
 {
 inline constexpr services::SServiceContract k_contract{ 0x7ffeu, 1u };
-[[nodiscard]] bool initialise(const modules::SHostPumpContext& context) noexcept;
+[[nodiscard]] bool initialise(const modules::SExecutionContext& context) noexcept;
 void destroy() noexcept;
 [[nodiscard]] const native::SReportAdapter& report_adapter() noexcept;
 [[nodiscard]] const native::SWindowAdapter& window_adapter() noexcept;

@@ -712,7 +712,7 @@ fits the existing asset-result view storage, and is trivially copyable. Copying
 or looking up through a checked view allocates nothing and retains no storage.
 
 The internal Host lifetime boundary is
-[`CAssetService`](../../host/runtime/asset_service.hpp):
+[`CAssetService`](../../host/assets/asset_service.hpp):
 
 - `publish_bundle()` takes completed `BundlePreparation` and a reserved binding.
   It checks the prepared view against its block without repeating validation.

@@ -11,7 +11,7 @@
 #pragma once
 
 #include "framework/system/system_ids.hpp"
-#include "framework/communications/direct_connection.hpp"
+#include "system/system_type_registration.hpp"
 
 namespace modules
 {
@@ -39,16 +39,6 @@ namespace test_connections
     return system_ids::ops::make_system_id(module, thread);
 }
 
-[[nodiscard]] inline bool accepts(const module_ids::id_type local, const connections::Offer& offer) noexcept
-{
-    if (offer.bulk.is_bulk()) return false;
-    if (local == module_ids::executive)
-    {
-        return (offer.peer_address == address(module_ids::rendering)) || (offer.peer_address == address(module_ids::audio));
-    }
-    return ((local == module_ids::rendering) || (local == module_ids::audio)) &&
-        (offer.peer_address == address(module_ids::executive));
-}
 }   //  namespace test_connections
 
 }   //  namespace modules

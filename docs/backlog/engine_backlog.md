@@ -9,7 +9,7 @@ Date:   12 Sep 2026
 # Remaining engine backlog
 
 Original consolidation, 13 October 2026; Host/endpoint status reconciled
-21 November 2026. This consolidates unresolved scope from the interim
+24 November 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
@@ -31,12 +31,14 @@ a separately selected next step. Other sections retain their own checkpoint cont
 
 The Host communication refactor is complete through `ca8770d` and `84506a7`, with
 common pump/thread endpoints, requested service threads and explicit direct POD
-connections between arbitrary participating endpoints. See the
-[completion record](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections).
+connections between arbitrary participating endpoints. The subsequent
+[preamble consolidation](../project/completed_milestones.md#module-execution-preamble-consolidation)
+and scoped fixture follow-up are also complete and reviewed, but uncommitted;
+see their [qualification ledger](../modules/module_preamble_validation.md).
 The [Host and endpoint backlog](host_endpoint_follow_on.md) owns the remaining
 scope: generic provider registration and HID/report migration, availability and
 atomic topology observation, receipt-free orphan asset-result cleanup, long-running
-work placement, capacity policy and optional authority/bulk extensions. No next
+work placement, further capacity tuning and optional authority/bulk extensions. No next
 Host implementation is selected; these are independent increments.
 
 ## Diagnostics and developer tooling

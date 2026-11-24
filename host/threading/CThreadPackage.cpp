@@ -11,7 +11,7 @@
 #include <thread>       //  std::this_thread::yield
 
 #include "host/threading/CThreadPackage.hpp"
-#include "framework/threading/CThreadContext.hpp"
+#include "host/runtime/execution/module_preamble.hpp"
 
 #include "debug/macros.hpp"
 #include "platform/threading/thread_naming.hpp"
@@ -41,8 +41,8 @@ std::uint32_t MV_STD_ABI_CALL CThreadPackage::thread_entry_point(void* const use
     }
     (void)platform::threading::set_current_thread_priority(config.priority);
 
-    CThreadContext context{ *resources };
-    if ((config.prepare != nullptr) && !config.prepare(config.prepare_context, config.thread_id, &context))
+    if ((package->m_preamble && !package->m_preamble->activate()) ||
+        ((config.prepare != nullptr) && !config.prepare(config.prepare_context, config.thread_id, resources)))
     {
         package->m_preparation.store(2u, std::memory_order_release);
         resources->control_state.mark_failed(~0u);
@@ -54,7 +54,8 @@ std::uint32_t MV_STD_ABI_CALL CThreadPackage::thread_entry_point(void* const use
     package->m_preparation.store(1u, std::memory_order_release);
     resources->control_state.mark_running();
     (void)resources->owner_wake.signal();
-    const std::uint32_t result = config.endpoint_entry ? config.endpoint_entry(context, config.module_context) : config.entry_point(resources);
+    const std::uint32_t result = package->m_preamble ? package->m_preamble->run_serviced(*resources) :
+        config.entry_point(resources);
     if ((result != 0u) || (resources->control_state.query_state() == EThreadRunState::Failed))
     {
         if (resources->control_state.query_state() != EThreadRunState::Failed) resources->control_state.mark_failed(result);
@@ -73,16 +74,26 @@ bool CThreadPackage::install_owner_wake(const platform::threading::SWakeEndpoint
     return true;
 }
 
+bool CThreadPackage::install_preamble(host::CModulePreamble& preamble) noexcept
+{
+    if (m_created || m_preamble || m_config.prepare || m_config.entry_point)
+    {
+        return false;
+    }
+    m_preamble = &preamble;
+    return true;
+}
+
 bool CThreadPackage::startup() noexcept
 {
-    if ((m_config.entry_point == nullptr) && (m_config.endpoint_entry == nullptr))
+    if (!m_preamble && (m_config.entry_point == nullptr))
     {
         return false;
     }
 
-    if (m_resources.host_to_worker_msgs.initialise_growable(0u))
+    if (m_preamble || m_resources.host_to_worker_msgs.initialise_growable(0u))
     {
-        if (m_resources.worker_to_host_msgs.initialise_growable(0u))
+        if (m_preamble || m_resources.worker_to_host_msgs.initialise_growable(0u))
         {
             if (m_resources.worker_to_host_owned_msgs.initialise(0u))
             {

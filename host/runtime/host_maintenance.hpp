@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "runtime/client_record.hpp"
+#include "runtime/execution/client_record.hpp"
 #include "runtime/host_restrictions.hpp"
 
 namespace host
@@ -27,10 +27,6 @@ public:
     [[nodiscard]] bool stop_requested() const noexcept { return m_stop_requested; }
     [[nodiscard]] bool empty() const noexcept { return m_count == 0u; }
     [[nodiscard]] bool references(const threading::CThreadPackage& package) const noexcept;
-    [[nodiscard]] bool captured(const SClientRecord* const client, const threading::CThreadPackage* const package) const noexcept;
-    [[nodiscard]] bool captured_pod(const SClientRecord& client) const noexcept;
-    [[nodiscard]] bool captured_owner(const SClientRecord& client) const noexcept;
-    [[nodiscard]] bool defer_owner(SClientRecord& client, threading::CErasedOwnerMsg& message) noexcept;
     [[nodiscard]] modules::SHostMaintenanceResult run() noexcept;
     void poll_stop() noexcept;
     void replay() noexcept;
@@ -42,7 +38,6 @@ private:
         SClientRecord* client{ nullptr };
         threading::CThreadPackage* package{ nullptr };
         std::uint64_t sequence{ 0u };
-        std::uint32_t credits{ 0u };
     };
     struct SPod { SSource source; threading::CErasedPodMsg message; };
     struct SOwner { SSource source; threading::CErasedOwnerMsg message; };
@@ -55,8 +50,8 @@ private:
 
     CHost& m_host;
     CHostRestrictions m_restrictions;
-    SPod m_pods[256]; //  128 endpoint captures and 128 worker captures.
-    SOwner m_owners[64]; //  32 client and 32 worker slots, always constructed.
+    SPod m_pods[128]; //  Host worker captures; modules retain one head in each lane.
+    SOwner m_owners[32]; //  Constructed worker owner slots, retained until replay.
     std::uint64_t m_next_sequence{ 1u };
     std::uint32_t m_count{ 0u }, m_lane{ 0u }, m_cursors[5]{};
     bool m_running{ false }, m_stop_requested{ false }, m_pressure{ false };

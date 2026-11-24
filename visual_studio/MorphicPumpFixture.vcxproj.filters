@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Tests"><UniqueIdentifier>{6c0349a7-ea76-5683-ad70-8a4f06b93904}</UniqueIdentifier></Filter>
+    <Filter Include="Tests\host_pump"><UniqueIdentifier>{ece4695e-0213-5f2b-b055-2eab79cee357}</UniqueIdentifier></Filter>
+    <Filter Include="Tests\module_lifecycle"><UniqueIdentifier>{c7ccfe9f-304f-5a4b-be88-40f91e9397ec}</UniqueIdentifier></Filter>
+    <Filter Include="Tests\support"><UniqueIdentifier>{9b0b9895-3073-50b1-8831-6ab27f2c4b0d}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\tests\host_pump\fixture.cpp"><Filter>Tests\host_pump</Filter></ClCompile>
+    <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp"><Filter>Tests\module_lifecycle</Filter></ClCompile>
+    <ClInclude Include="..\tests\host_pump\provider_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\executive_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\credit_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\borrow_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\notification_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\modal_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\schema_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\report_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\native_execution.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\host_pump\fixture_types.hpp"><Filter>Tests\host_pump</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\local_types.hpp"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+    <ClInclude Include="..\tests\module_lifecycle\erased_owner_payloads.def"><Filter>Tests\module_lifecycle</Filter></ClInclude>
+  </ItemGroup>
+</Project>

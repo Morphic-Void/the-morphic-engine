@@ -5,6 +5,12 @@ scheduled Executive consumer. A second consumer uses the Rendering module slot.
 The production Executive is unchanged. See the
 [contract and acceptance record](../../docs/modules/input_host_integration.md).
 
+Both consumers are module-owned `CInputExecution` objects using the common Host
+communication facade. Thin creation/handle/destruction adapters are in
+`execution_fixture.cpp`; named scenario and source/borrow operations retain
+accepted obligations across invocations. Host owns their serviced loops and
+lifecycle scheduling. No raw module thread entry or legacy pump adapter remains.
+
 Build the ordinary solution first. On Windows, build/run the private fixture with:
 
 ```powershell
@@ -87,9 +93,19 @@ Whole-process CPU includes setup, warm-up, drain, trace sorting/reporting and
 teardown; it does not isolate per-window instrumentation overhead. Trace-off
 reports contain no latency percentiles.
 
-`pump_work` measures a Host-invoked `CPlatformRuntime::pump` call's duration;
+`pump_work` measures a Host-invoked `CPlatformRuntime::service_async` call's duration;
 `pump_gap` measures the gap between those calls' starts. Neither measures the
 entire Host iteration or total scheduler work.
+
+The common consumer's `wait_requests` increments once for each successful callback
+return with neither runnable work nor domain completion, before frozen reporting.
+It counts a request to park; Host may find new work during its final recheck and
+never park. `service_passes` increments once per bounded consumer service pass,
+including a pass with no readable input. Frozen report snapshot retries increment
+neither counter. These names are used in the trace log and `report.json`; their
+WINDOW columns replace historical `waits`/`rounds`. The old counters described
+module-owned waits and double service calls and are not numerically comparable.
+Actual idle/spin claims require Host/thread or process evidence separately.
 
 Generation and application share the fixture Executive thread. Generator lateness
 precedes actual handoff and is excluded from offered-to-applied latency; catch-up
@@ -114,6 +130,13 @@ The title updates at approximately 60 Hz. Check keyboard A, controller A, sticks
 and triggers; hold A/stick across Alt+Tab and `C` context changes, then release/
 centre before fresh input. `U` unassigns and `R` requests assignment. Automated
 completion does not establish physical acceptance: record the operator's result.
+
+Ending observation unfocused is valid. Instrumented native trace freeze can accept
+an otherwise empty, dormant ineligible desktop cutover without clearing it or
+pretending the native queue supplied a baseline. Synthetic measurements retain
+their strict drain rule. A coherent timeout of this named native freeze still
+fails acceptance, but closes local readers and permits proven borrow cleanup;
+it does not establish successful resource retirement or exempt other timeouts.
 
 A watchdog failure retains diagnostics and does not authorize terminating a live
 borrower or claiming successful cleanup. Inspect any surviving process before

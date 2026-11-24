@@ -88,23 +88,19 @@ of the work carrying a sequence number. Existing transports or other explicit
 synchronisation must provide data visibility. Consumers may load or increment
 the atomic, but must not store/reset it during use.
 
-`host/threading/CThreadPackage` owns the native thread, launch configuration,
-prepare callback/context, batch-client instance and notification/execution pins.
-Its trampoline receives the Host package and constructs a
-`framework/threading/CThreadContext` before preparation. Preparation installs that
-exact context pointer; the requested entry receives the context by reference.
-The module's `is_thread_context_ready()` check validates that installed pointer.
-Shared endpoint resources contain assigned identities, performance conversion,
-wait/control state and message channels, with borrowed batch-client and Host
-execution access; they do not contain the native thread or launch callbacks.
-Host supplies the owner and worker endpoint identities when creating them.
+`host/threading/CThreadPackage` owns native execution, preparation, batch access
+and notification/execution pins. Host workers retain their worker resources and
+entry path. A serviced module instead enters the Host-owned preamble, which
+prepares the DLL image's thread identity/provisioning before each callback.
+Pumped contexts use the same callback/context contract on the Host owner thread.
 
-`framework/threading/CEndpointContext` exposes common lifecycle, identity,
-batch-client and message operations to pumps and requested threads.
-`CThreadContext` adds native-thread waiting. Terminal publication, native join,
-late notification/batch-publisher quiescence and final resource/pin release
-remain separate steps. A terminal state or completed join alone does not permit
-releasing resources still reachable by publishers.
+`modules::SExecutionContext` supplies immutable identity, the bound communication
+facade, execution facilities, batch access and owner wake. Module-owned classes
+retain their domain state and call facade methods; they do not consume transport
+controls or own an outer wait loop. `CEndpointContext`/`CThreadContext` remain
+worker helpers, not a module ABI. Terminal publication, native join, notification
+and batch-publisher quiescence, and final resource/pin release remain separate.
+A terminal state or completed join alone cannot release reachable resources.
 
 Before registry installation, name lookup is unresolved and diagnostic paths
 use numeric fallback. Any bootstrap failure leaves the module non-ready and

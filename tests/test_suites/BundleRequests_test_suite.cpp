@@ -19,9 +19,9 @@
 
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
-#include "host/runtime/asset_service.hpp"
-#include "tests/support/host_client_fixture.hpp"
-#include "host/runtime/host_worker_thread.hpp"
+#include "host/assets/asset_service.hpp"
+#include "tests/support/endpoint_fixture.hpp"
+#include "host/runtime/workers/host_worker_thread.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
 #include "schema/baked_data_block.hpp"
@@ -46,8 +46,8 @@ using filesystem_image::ERootState;
 struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
-    tests::CHostClientFixture client{ { thread_ids::executive, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, conversion };
+    static inline std::uint64_t next_identity{ 3000u };
+    tests::SCommonEndpointFixture client{ module_ids::executable, ++next_identity, 32u };
     threading::CThreadPackage io{ { thread_ids::bg_file_io, module_ids::executable,
         platform::threading::EThreadPriority::Normal, host::host_worker_thread_entry_point() }, conversion };
     threading::CThreadPackage conditioning{ { thread_ids::bg_conditioning, module_ids::executable,
@@ -67,7 +67,7 @@ struct SFixture
     {
         (void)tests::stop_and_join(io, conversion);
         (void)tests::stop_and_join(conditioning, conversion);
-        (void)client.shutdown();
+        end_client();
         service.detach_client(client);
         service.deallocate();
     }
@@ -102,8 +102,58 @@ struct SFixture
         if (!scan.logical_root.set("work:") || !scan.physical_path.set(directory.c_str()) ||
             (filesystem_image::scan_root(scan, doc) != filesystem_image::EScanStatus::success) || !image.adopt(std::move(doc))) return false;
         if (attach_image) service.set_filesystem(image);
-        return conversion.init() && service.initialise() && client.startup() && io.startup() &&
+        return conversion.init() && service.initialise() && io.startup() &&
             (!dedicated || conditioning.startup()) && service.configure_workers(io, dedicated ? &conditioning : nullptr);
+    }
+    void end_client() noexcept
+    {
+        // Controlled common recipient: no native callback or ingress remains.
+        client.phase = host::EClientPhase::stopped;
+        client.terminal_before_drain = client.incoming_drained = true;
+        client.flush_replies();
+    }
+    void progress_output() noexcept
+    {
+        service.complete_disposals();
+        client.flush_replies();
+        for (unsigned count = 0u; (count < 8u) && client.output_ready(); ++count)
+        {
+            const bool asset = service.output_ready(client);
+            if (asset) service.retry_output(client);
+            const bool schema = client.output_ready() && service.schema_output_ready(client);
+            if (schema) service.retry_schema_output(client);
+            const bool bundle = client.output_ready() && service.bundle_output_ready(client);
+            if (bundle) service.retry_bundle_output(client);
+            if (!asset && !schema && !bundle)
+            {
+                break;
+            }
+        }
+        service.complete_disposals();
+    }
+    void request_disposal(TTestContext& ctx, const AssetDisposeRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_disposal(request, slot, recipient);
+    }
+    void request_reference(TTestContext& ctx, const BundleReferenceRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_reference(request, slot, recipient);
+    }
+    void request_release(TTestContext& ctx, const AssetReleaseRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_release(request, slot, recipient);
+    }
+    void request_schema(TTestContext& ctx, const SchemaPrepareRequest& request, const std::int32_t slot, host::SClientRecord& recipient)
+    {
+        host::CRetainedReplies::CDispatch dispatch{ *recipient.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && recipient.reserve_replies(1u)));
+        service.request_schema(request, slot, recipient);
     }
     void pump(threading::CThreadPackage& worker)
     {
@@ -128,24 +178,48 @@ struct SFixture
         message.set_owner(std::move(owner));
         service.complete(message, io);
     }
-    template<typename T> bool receive(T& result, const std::int32_t slot)
+    bool receive_message(threading::CErasedPodMsg& message)
     {
-        threading::CErasedPodMsg message;
-        const bool received = tests::wait_until(conversion, [this, &message]()
+        return tests::wait_until(conversion, [this, &message]()
         {
             pump(io);
             if (dedicated) pump(conditioning);
-            service.complete_disposals();
-            return client.read(message);
+            progress_output();
+            return client.channel->read_preamble_pod(message);
         }, 10u);
-        return received && (message.query_async_slot() == slot) && message.copy_payload_to(result);
     }
-    template<typename T> void request(const std::int32_t slot, CErasedOwner&& owner)
+    template<typename T> bool receive(T& result, const std::int32_t slot)
+    {
+        threading::CErasedPodMsg message;
+        return receive_message(message) && (message.query_async_slot() == slot) && message.copy_payload_to(result);
+    }
+    void result_pair(TTestContext& ctx, const std::int32_t first, AssetResult (&results)[2])
+    {
+        bool received[2]{};
+        for (unsigned count = 0u; count < 2u; ++count)
+        {
+            threading::CErasedPodMsg message;
+            TEST_EXPECT(ctx, receive_message(message));
+            const std::int32_t index = message.query_async_slot() - first;
+            TEST_EXPECT(ctx, ((index >= 0) && (index < 2)));
+            if ((index < 0) || (index >= 2))
+            {
+                continue;
+            }
+            TEST_EXPECT(ctx, (!received[index] && message.copy_payload_to(results[index]) &&
+                (results[index].status == EAssetStatus::success)));
+            received[index] = true;
+        }
+        TEST_EXPECT(ctx, (received[0] && received[1]));
+    }
+    template<typename T> void request(TTestContext& ctx, const std::int32_t slot, CErasedOwner&& owner)
     {
         threading::CErasedOwnerMsg message;
         message.set_message_type<T>();
         message.set_async_slot(slot);
         message.set_owner(std::move(owner));
+        host::CRetainedReplies::CDispatch dispatch{ *client.pending_replies, 1u };
+        TEST_EXPECT(ctx, (dispatch && client.reserve_replies(1u)));
         service.request(message, client);
     }
     void bake(TTestContext& ctx, const std::int32_t slot, const char* const root = "pack:", const char* const directory_name = "Input")
@@ -154,14 +228,14 @@ struct SFixture
         auto* value = owner.payload<BundleBakeRequest>();
         TEST_EXPECT(ctx, value && value->paths.source_root.set("work:") &&
             value->paths.subdirectory.set(directory_name) && value->paths.root.set(root));
-        request<BundleBakeRequest>(slot, std::move(owner));
+        request<BundleBakeRequest>(ctx, slot, std::move(owner));
     }
     void load_bundle(TTestContext& ctx, const std::int32_t slot, const char* const file, const char* const root = "pack:")
     {
         auto owner = CErasedOwner::create<BundleLoadRequest>();
         auto* value = owner.payload<BundleLoadRequest>();
         TEST_EXPECT(ctx, value && value->paths.file.set(file) && value->paths.root.set(root));
-        request<BundleLoadRequest>(slot, std::move(owner));
+        request<BundleLoadRequest>(ctx, slot, std::move(owner));
     }
     void load(TTestContext& ctx, const std::int32_t slot, const char* const file, const EAssetFileFormat format, const std::size_t alignment = 16u)
     {
@@ -170,7 +244,7 @@ struct SFixture
         TEST_EXPECT(ctx, value && value->file.set(file));
         value->format = format;
         value->alignment = alignment;
-        request<AssetLoadRequest>(slot, std::move(owner));
+        request<AssetLoadRequest>(ctx, slot, std::move(owner));
     }
     AssetResult result(TTestContext& ctx, const std::int32_t slot, const EAssetStatus status = EAssetStatus::success)
     {
@@ -187,11 +261,11 @@ struct SFixture
         TEST_EXPECT(ctx, value && value->file.set(file));
         value->source = asset;
         value->settings.format = format;
-        request<AssetSaveRequest>(slot, std::move(owner));
+        request<AssetSaveRequest>(ctx, slot, std::move(owner));
     }
     void dispose(TTestContext& ctx, const CAssetId asset)
     {
-        service.request_disposal({ asset }, 99, client);
+        request_disposal(ctx, { asset }, 99, client);
         AssetDisposeResult value;
         TEST_EXPECT(ctx, receive(value, 99) && value.asset == asset && value.status == EAssetStatus::success);
     }
@@ -300,7 +374,7 @@ void test_native_loads(TTestContext& ctx, const bool dedicated, const bool attac
     if (request == nullptr) return;
     request->format = EAssetFileFormat::json;
     request->policy.allowed_features = document_policy::k_ascii;
-    fixture.request<AssetLoadRequest>(7, std::move(owner));
+    fixture.request<AssetLoadRequest>(ctx, 7, std::move(owner));
     const auto rejected = fixture.result(ctx, 7, EAssetStatus::policy_rejected);
     TEST_EXPECT(ctx, rejected.document_policy == EDocumentPolicyStatus::rejected);
     fixture.load(ctx, 8, policy_native.c_str(), EAssetFileFormat::json);
@@ -358,10 +432,10 @@ void test_public_workflow(TTestContext& ctx, const bool dedicated)
     TEST_EXPECT(ctx, original.bundle_view().lookup(CStringView{ "empty" }).status == bundle::ELookupStatus::not_found);
     const auto bytes = original.byte_view();
     std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
-    fixture.service.request_reference({ original.asset }, 3, fixture.client);
+    fixture.request_reference(ctx, { original.asset }, 3, fixture.client);
     const auto reference = fixture.result(ctx, 3);
     TEST_EXPECT(ctx, reference.asset != original.asset && reference.byte_view().data() == bytes.data());
-    fixture.service.request_reference({ reference.asset }, 4, fixture.client);
+    fixture.request_reference(ctx, { reference.asset }, 4, fixture.client);
     const auto another = fixture.result(ctx, 4);
     fixture.dispose(ctx, another.asset);
     fixture.dispose(ctx, reference.asset);
@@ -400,10 +474,12 @@ void test_public_workflow(TTestContext& ctx, const bool dedicated)
     //  closure must retain two independent results and leave the cache closed.
     fixture.load(ctx, 11, "pack:/data.json", EAssetFileFormat::json);
     fixture.load(ctx, 12, "pack:/data.json", EAssetFileFormat::json);
-    fixture.service.request_disposal({ original.asset }, 13, fixture.client);
+    fixture.request_disposal(ctx, { original.asset }, 13, fixture.client);
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed && !fixture.service.is_idle());
-    const auto first = fixture.result(ctx, 11);
-    const auto second = fixture.result(ctx, 12);
+    AssetResult closed_results[2];
+    fixture.result_pair(ctx, 11, closed_results);
+    const AssetResult& first = closed_results[0];
+    const AssetResult& second = closed_results[1];
     TEST_EXPECT(ctx, first.asset && second.asset && first.asset != second.asset && first.document_view().is_ready());
     fixture.closed(ctx, original.asset);
     TEST_EXPECT(ctx, first.document_view().check_integrity() && image.image_view().is_ready());
@@ -418,8 +494,12 @@ void test_public_workflow(TTestContext& ctx, const bool dedicated)
         std::memcmp(loaded.byte_view().data(), snapshot.data(), snapshot.size()) == 0);
     fixture.load(ctx, 15, "pack:/data.json", EAssetFileFormat::json);
     fixture.load(ctx, 16, "pack:/data.json", EAssetFileFormat::json);
-    const auto old_cached = fixture.result(ctx, 15);
-    const auto cached = fixture.result(ctx, 16);
+    // Persistent operation retry rotation may publish the completed pair in
+    // either order; their correlations and cache integration order stay distinct.
+    AssetResult cache_results[2];
+    fixture.result_pair(ctx, 15, cache_results);
+    const AssetResult& old_cached = cache_results[0];
+    const AssetResult& cached = cache_results[1];
     TEST_EXPECT(ctx, old_cached.asset != cached.asset);
     fixture.dispose(ctx, old_cached.asset);
     fixture.load(ctx, 17, "pack:/data.json", EAssetFileFormat::json);
@@ -427,7 +507,7 @@ void test_public_workflow(TTestContext& ctx, const bool dedicated)
     fixture.dispose(ctx, cached.asset);
     fixture.load(ctx, 18, "pack:/raw", EAssetFileFormat::raw);
     const auto survivor = fixture.result(ctx, 18);
-    fixture.service.request_disposal({ loaded.asset }, 19, fixture.client);
+    fixture.request_disposal(ctx, { loaded.asset }, 19, fixture.client);
     fixture.load(ctx, 20, "pack:/raw", EAssetFileFormat::raw);
     fixture.result(ctx, 20, EAssetStatus::read_failed);
     fixture.save(ctx, 21, survivor.asset, "work:/raw-copy");
@@ -482,7 +562,7 @@ void test_complete_baked_buffers(TTestContext& ctx, const bool dedicated)
     TEST_EXPECT(ctx, request->storage.value.adopt_buffer(std::move(storage)));
     const void* transferred = request->storage.value.buffer_bytes().data();
     TEST_EXPECT(ctx, request->storage.value.buffer_capacity() > physical.size());
-    fixture.request<BakedAssetTransfer>(6, std::move(transfer));
+    fixture.request<BakedAssetTransfer>(ctx, 6, std::move(transfer));
     const auto admitted = fixture.result(ctx, 6);
     check(admitted);
     TEST_EXPECT(ctx, admitted.byte_view().data() == transferred);
@@ -524,7 +604,7 @@ void test_complete_baked_buffers(TTestContext& ctx, const bool dedicated)
     AssetResult rejected;
     TEST_EXPECT(ctx, fixture.receive(rejected, 15) && rejected.status == EAssetStatus::write_failed && rejected.asset == borrowed.asset);
     TEST_EXPECT(ctx, matches(borrowed.byte_view()));
-    fixture.service.request_disposal({ bundle.asset }, 16, fixture.client);
+    fixture.request_disposal(ctx, { bundle.asset }, 16, fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed);
     fixture.save(ctx, 17, borrowed.asset, "work:/retained.baked", EAssetFileFormat::baked);
@@ -591,7 +671,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, transfer && local.release_local(transfer->storage.value));
     live.clear();
     TEST_EXPECT(ctx, schema.reference_count() == 0u);
-    fixture.request<BakedAssetTransfer>(1, std::move(owner));
+    fixture.request<BakedAssetTransfer>(ctx, 1, std::move(owner));
     const auto admitted = fixture.result(ctx, 1);
     Block attached;
     TEST_EXPECT(ctx, attached.attach_asset(admitted.asset, admitted.byte_view(), diagnostic.block));
@@ -639,7 +719,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, transfer && materialised.release_local(transfer->storage.value) && transfer->storage.file.set(copy_file));
     transfer->save = true;
     transfer->retention = EAssetRetention::discard;
-    fixture.request<BakedAssetTransfer>(6, std::move(owner));
+    fixture.request<BakedAssetTransfer>(ctx, 6, std::move(owner));
     const auto discarded = fixture.result(ctx, 6);
     TEST_EXPECT(ctx, !discarded.asset && discarded.kind == EAssetKind::none);
     const auto saved = platform::filesystem::loadFile((fixture.directory + copy_name).c_str());
@@ -668,7 +748,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.save(ctx, 10, borrowed.asset, entry_file, EAssetFileFormat::baked);
     AssetResult failed_save;
     TEST_EXPECT(ctx, fixture.receive(failed_save, 10) && failed_save.status == EAssetStatus::write_failed && failed_save.asset == borrowed.asset);
-    fixture.service.request_disposal({ bundle.asset }, 11, fixture.client);
+    fixture.request_disposal(ctx, { bundle.asset }, 11, fixture.client);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed);
     fixture.save(ctx, 12, borrowed.asset, copy_file, EAssetFileFormat::baked);
@@ -687,7 +767,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     //  Admission happens synchronously; disposal must wait for that save's borrow.
     attached.clear();
     fixture.save(ctx, 14, loaded.asset, copy_file, EAssetFileFormat::baked);
-    fixture.service.request_disposal({ loaded.asset }, 15, fixture.client);
+    fixture.request_disposal(ctx, { loaded.asset }, 15, fixture.client);
     TEST_EXPECT(ctx, fixture.result(ctx, 14).asset == loaded.asset);
     AssetDisposeResult disposed;
     TEST_EXPECT(ctx, fixture.receive(disposed, 15) && disposed.status == EAssetStatus::success && disposed.asset == loaded.asset);
@@ -705,7 +785,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
         TEST_EXPECT(ctx, transfer->storage.value.adopt_buffer(std::move(copy)) && transfer->storage.file.set("absent:/failure"));
         transfer->save = true;
         transfer->retention = retention;
-        fixture.request<BakedAssetTransfer>(16, std::move(owner));
+        fixture.request<BakedAssetTransfer>(ctx, 16, std::move(owner));
         AssetResult failure;
         TEST_EXPECT(ctx, fixture.receive(failure, 16) && failure.status == EAssetStatus::write_failed);
         if (retention == EAssetRetention::source)
@@ -735,7 +815,7 @@ void test_combined_schema_persistence(TTestContext& ctx, SFixture& fixture)
     CErasedOwner owner = CErasedOwner::create<BakedAssetTransfer>();
     auto* const transfer = owner.payload<BakedAssetTransfer>();
     TEST_EXPECT(ctx, transfer && source.release_local(transfer->storage.value));
-    fixture.request<BakedAssetTransfer>(20, std::move(owner));
+    fixture.request<BakedAssetTransfer>(ctx, 20, std::move(owner));
     const auto admitted = fixture.result(ctx, 20);
     fixture.save(ctx, 21, admitted.asset, "work:/Input/combined.bsd", EAssetFileFormat::baked);
     TEST_EXPECT(ctx, fixture.result(ctx, 21).asset == admitted.asset);
@@ -766,7 +846,7 @@ void test_combined_schema_persistence(TTestContext& ctx, SFixture& fixture)
     const auto borrowed = fixture.result(ctx, 24);
     inspect(borrowed);
     fixture.dispose(ctx, borrowed.asset);
-    fixture.service.request_disposal({ bundle.asset }, 25, fixture.client);
+    fixture.request_disposal(ctx, { bundle.asset }, 25, fixture.client);
     fixture.closed(ctx, bundle.asset);
 }
 
@@ -806,7 +886,7 @@ void test_current_bundle_save(TTestContext& ctx, const bool dedicated)
     const auto offset = static_cast<const std::uint8_t*>(entry.bytes.data()) - writable.data();
     CMutableBakedDocument editor(CByteView{ writable.data() + offset, fixture.document_size, 128u });
     TEST_EXPECT(ctx, editor.is_ready());
-    fixture.service.request_disposal({ source.asset }, 2, fixture.client);
+    fixture.request_disposal(ctx, { source.asset }, 2, fixture.client);
     fixture.closed(ctx, source.asset);
     std::uint64_t binding{};
     TEST_EXPECT(ctx, fixture.image.reserve_bundle("pack:", binding));
@@ -825,7 +905,7 @@ void test_current_bundle_save(TTestContext& ctx, const bool dedicated)
     editor.clear();
     fixture.save(ctx, 4, published.asset, "work:/current.bdl");
     TEST_EXPECT(ctx, fixture.result(ctx, 4).asset == published.asset);
-    fixture.service.request_disposal({ published.asset }, 5, fixture.client);
+    fixture.request_disposal(ctx, { published.asset }, 5, fixture.client);
     fixture.closed(ctx, published.asset);
     fixture.load_bundle(ctx, 6, "work:/current.bdl");
     const auto reloaded = fixture.result(ctx, 6);
@@ -835,7 +915,7 @@ void test_current_bundle_save(TTestContext& ctx, const bool dedicated)
     std::uint64_t answer{};
     TEST_EXPECT(ctx, changed.document_view().unsigned_integer_value(changed.document_view().object_child(changed.document_view().root(), CStringView{ "answer" }), answer) && answer == 43u);
     fixture.dispose(ctx, changed.asset);
-    fixture.service.request_disposal({ reloaded.asset }, 8, fixture.client);
+    fixture.request_disposal(ctx, { reloaded.asset }, 8, fixture.client);
     fixture.closed(ctx, reloaded.asset);
     TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
 }
@@ -924,7 +1004,7 @@ void test_preparation_handoff(TTestContext& ctx)
                 if (scenario == 0u)
                 {
                     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::open && result.bundle_view().is_ready());
-                    fixture.service.request_disposal({ result.asset }, 99, fixture.client);
+                    fixture.request_disposal(ctx, { result.asset }, 99, fixture.client);
                     fixture.closed(ctx, result.asset);
                 }
             }
@@ -990,7 +1070,8 @@ void test_controlled_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, teardown.initialise(false));
     teardown.bake(ctx, 6);
     TEST_EXPECT(ctx, teardown.take_work(work));
-    TEST_EXPECT(ctx, tests::stop_and_join(teardown.io, teardown.conversion) && teardown.client.shutdown());
+    TEST_EXPECT(ctx, tests::stop_and_join(teardown.io, teardown.conversion));
+    teardown.end_client();
     teardown.service.detach_client(teardown.client);
     teardown.service.deallocate();
     TEST_EXPECT(ctx, teardown.image.root_state("pack:") == ERootState::missing);
@@ -1024,7 +1105,7 @@ void test_completion_contracts(TTestContext& ctx)
                 transfer->settings.format = EAssetFileFormat::tga;
                 transfer->save = true;
                 transfer->retention = EAssetRetention::discard;
-                fixture.request<ImageAssetTransfer>(80, std::move(owner));
+                fixture.request<ImageAssetTransfer>(ctx, 80, std::move(owner));
             }
             else fixture.load(ctx, 80, protocol == 3 ? "work:/Input/Image.tga" :
                 (protocol == 5 ? "work:/Input/Data.json" : "work:/Input/Raw"),
@@ -1111,13 +1192,12 @@ void test_prepared_schema_service(TTestContext& ctx, const bool dedicated, const
     TEST_EXPECT(ctx, (raw && raw->storage.value.resize(source.size(), 16u)));
     if (!raw || !raw->storage.value.is_ready()) return;
     std::memcpy(raw->storage.value.data(), source.data(), source.size());
-    fixture.request<RawAssetTransfer>(600, std::move(owner));
+    fixture.request<RawAssetTransfer>(ctx, 600, std::move(owner));
     const CAssetId asset = fixture.result(ctx, 600).asset;
     SchemaPrepareResult prepared[3];
     for (std::int32_t index = 0; index < 3; ++index)
     {
-        TEST_EXPECT(ctx, fixture.client.client.reserve_replies(1u));
-        fixture.service.request_schema({ asset }, (610 + index), fixture.client);
+        fixture.request_schema(ctx, { asset }, (610 + index), fixture.client);
         TEST_EXPECT(ctx, fixture.receive(prepared[index], (610 + index)));
         TEST_EXPECT(ctx, ((prepared[index].status == EAssetStatus::success) && prepared[index].acquisition && prepared[index].descriptor));
     }
@@ -1138,16 +1218,15 @@ void test_prepared_schema_service(TTestContext& ctx, const bool dedicated, const
         //  Failure must preserve acquired views through a later release.
         TEST_EXPECT(ctx, schema::CPreparedSchemaView{ prepared[2].descriptor }.is_ready());
     }
-    host::SClientRecord wrong{ module_ids::audio, 909u, nullptr, modules::SModuleInstance{ 1909u } };
-    TEST_EXPECT(ctx, wrong.initialise());
+    tests::SCommonEndpointFixture wrong{ module_ids::audio, 909u, 32u };
     wrong.phase = host::EClientPhase::ready;
-    fixture.service.request_release({ prepared[0].acquisition }, 620, wrong);
+    fixture.request_release(ctx, { prepared[0].acquisition }, 620, wrong);
     AssetReleaseResult rejected;
     threading::CErasedPodMsg rejected_message;
-    TEST_EXPECT(ctx, (wrong.endpoint->host_to_worker_msgs.read(rejected_message) && rejected_message.copy_payload_to(rejected) && (rejected.status != EAssetStatus::success)));
+    TEST_EXPECT(ctx, (wrong.channel->read_preamble_pod(rejected_message) && rejected_message.copy_payload_to(rejected) && (rejected.status != EAssetStatus::success)));
     for (const SchemaPrepareResult& result : prepared)
     {
-        fixture.service.request_release({ result.acquisition }, 621, fixture.client);
+        fixture.request_release(ctx, { result.acquisition }, 621, fixture.client);
         AssetReleaseResult released;
         TEST_EXPECT(ctx, (fixture.receive(released, 621) && (released.status == EAssetStatus::success)));
     }
@@ -1165,10 +1244,8 @@ void test_prepared_schema_service(TTestContext& ctx, const bool dedicated, const
 
 void run_schema_service_cases(tests::TTestContext& ctx);
 
-int run_bundle_request_tests()
+static void run_bundle_request_cases(TTestContext& ctx)
 {
-    TTestContext ctx;
-    run_schema_service_cases(ctx);
     test_prepared_schema_service(ctx, false, false);
     test_prepared_schema_service(ctx, true, false);
     test_prepared_schema_service(ctx, false, true);
@@ -1189,5 +1266,19 @@ int run_bundle_request_tests()
     test_preparation_handoff(ctx);
     test_controlled_failures(ctx);
     test_completion_contracts(ctx);
+}
+
+int run_bundle_request_tests()
+{
+    TTestContext ctx;
+    run_schema_service_cases(ctx);
+    run_bundle_request_cases(ctx);
     return ctx.report("BundleRequests");
+}
+
+int run_bundle_request_focused()
+{
+    TTestContext ctx;
+    run_bundle_request_cases(ctx);
+    return ctx.report("BundleRequestsCurrent");
 }

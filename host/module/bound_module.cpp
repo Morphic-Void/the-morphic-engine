@@ -134,26 +134,21 @@ bool CBoundModule::query_function(const system_type_id function_type, FModuleFun
     return (result == EBindingResult::success) && (function != nullptr);
 }
 
-EBindingResult CBoundModule::query_host_pump(SHostPumpV1& pump) const noexcept
+EBindingResult CBoundModule::query_execution(SExecutionV1& execution) const noexcept
 {
-    pump = {};
-    if (!m_installed) return EBindingResult::invalid_argument;
-    const FQueryHostPump query = reinterpret_cast<FQueryHostPump>(m_native_module.find_function(k_host_pump_symbol_name));
-    if (query == nullptr)
-    {
-        return EBindingResult::unsupported_function;
-    }
-    SHostPumpV1 candidate;
-    const EBindingResult result = query(sizeof(candidate), &candidate);
-
-    //  An advertised export must return a valid descriptor; unsupported is only
-    //  the absence of the export, never a way to hide a broken advertisement.
-    if (result != EBindingResult::success) return EBindingResult::invalid_argument;
-    if (!candidate.is_valid())
+    execution = {};
+    if (!m_installed)
     {
         return EBindingResult::invalid_argument;
     }
-    pump = candidate;
+    const FQueryExecution query = reinterpret_cast<FQueryExecution>(m_native_module.find_function(k_execution_symbol_name));
+    if (!query) return EBindingResult::unsupported_function;
+    SExecutionV1 candidate;
+    if ((query(sizeof(candidate), &candidate) != EBindingResult::success) || !candidate.is_valid())
+    {
+        return EBindingResult::invalid_argument;
+    }
+    execution = candidate;
     return EBindingResult::success;
 }
 
@@ -179,12 +174,6 @@ EBindingResult CBoundModule::query_service_provider(SServiceProviderV1& provider
     }
     provider = candidate;
     return EBindingResult::success;
-}
-
-bool MV_STD_ABI_CALL CBoundModule::prepare_thread(void* const context,
-    const thread_ids::id_type thread_id, void* const provisioning) noexcept
-{
-    return context && static_cast<CBoundModule*>(context)->prepare_thread(thread_id, provisioning);
 }
 
 bool CBoundModule::prepare_thread(const thread_ids::id_type thread_id, void* const thread_resources) noexcept

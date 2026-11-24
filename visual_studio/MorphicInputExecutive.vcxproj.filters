@@ -6,13 +6,16 @@
     <Filter Include="acceptance\registry" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\tests\input_host\consumer.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
-    <ClCompile Include="..\tests\input_host\scenarios.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
-    <ClCompile Include="..\tests\input_host\measurement.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\input_host\execution_fixture.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\input_host\execution.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\input_host\execution_scenarios.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
+    <ClCompile Include="..\tests\input_host\execution_measurement.cpp"><Filter>acceptance\consumer</Filter></ClCompile>
     <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp"><Filter>acceptance\registry</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\tests\input_host\consumer.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
+    <ClInclude Include="..\tests\input_host\execution.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
+    <ClInclude Include="..\tests\input_host\source_execution.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
+    <ClInclude Include="..\tests\input_host\borrow_execution.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
     <ClInclude Include="..\tests\input_host\control.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
     <ClInclude Include="..\tests\input_host\schema.hpp"><Filter>acceptance\consumer</Filter></ClInclude>
     <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>acceptance\registry</Filter></ClInclude>

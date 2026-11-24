@@ -1,103 +1,71 @@
 # Direct opaque bulk connections
 
-Host distributes fixed-capacity, opaque byte-buffer endpoints using the
-[direct POD connection lifecycle](direct_pod_connections.md). The same coordinator,
-acknowledged endpoint enablement, ordinary Host controls, eligible establishment deadline,
-notification pins and retirement barriers serve both transport kinds.
+Current interface, 23 November 2026. Bulk uses the Host-owned
+[common preamble](host_pump_foundation.md) and the private
+[direct connection lifecycle](direct_pod_connections.md). The former module-side
+client and ordinary handshake messages have been removed.
 
-## Configuration and ownership
+## Configuration and establishment
 
-`connections::SBulkConfiguration` declares the usable bytes per buffer and the
-producer's module role. The connection has one producer and one consumer, each
-confined to its designated service thread. Either participant may initiate it.
-Both participants' `SBulkPolicy` entries must explicitly accept the capacity,
-producer and contract version. Host interprets no payload schema or domain data.
+The module-owned execution object uses its bound `CCommunication` facade. Submit
+participation, then a `connect` intent naming both system addresses, the contract
+version and `SBulkConfiguration` (usable bytes and producer module role). Either
+participant may initiate. Each receives `connection_offered` and explicitly
+accepts or rejects the exact token/configuration through a consent intent. Host
+interprets no byte schema or domain policy.
 
-There is one bulk connection and one independent POD connection per unordered
-exact-instance pair. Reciprocal bulk requests share a token only when capacity,
-producer and version match. Conflicting capacity or producer returns
-`configuration_mismatch`; version conflicts return `version_mismatch`. Repeating
-an active matching request returns `already_connected` and its existing token.
-Capacity or direction changes require closing the old connection and establishing
-a new incarnation. Replacement module instances inherit no old authority.
+POD and bulk are independent connections for an exact endpoint pair. Reciprocal
+bulk requests share a token only when capacity, producer and version match.
+Configuration/version conflicts are refused; a matching active request reports
+`already_connected`. Capacity/direction changes require a new connection. Existing
+limits are 32 records overall and eight per participant, including pending and
+closing records. Replacement endpoints inherit no old authority.
 
-Host owns three buffers through its memory context. Each buffer begins at a
-128-byte boundary. Its allocation stride rounds the requested capacity up to a
-multiple of 128; endpoint views expose exactly the requested capacity. Zero sizes,
-overflow and sizes whose combined padded backing exceeds Foundation's memory
-ceiling are invalid. Allocation failure exposes no endpoint. There is no growth
-or allocation during publication or acquisition.
+Host owns three buffers, each beginning at a 128-byte boundary. The padded stride
+does not change the usable capacity. Invalid/overflowing sizes or allocation
+failure expose no endpoint. There is no growth or allocation during exchange.
+Private installation and activation run in the preambles. Availability precedes
+local data access; requester success waits for both activation acknowledgements.
+The establishment deadline continues through that proof. No buffer is initially
+published.
 
-Bulk and POD records share the existing limits: 32 connections overall and eight
-per participant, including pending and closing records. Their control protocol
-registration version is 1; rebuild Host and participating modules together.
-POD uses explicit system-ID addressing; bulk retains designated-service addressing.
+## Exchange and closure
 
-## Establishment and use
+The producer obtains `producer_data(token)`, writes a complete state, then calls
+`publish_bulk(token)`. Its writable view expires on publication. The consumer
+calls `discard_and_acquire(token)` before `consumer_data(token)`; acquisition
+relinquishes the previous view even when no newer publication exists. Finish all
+dependent uses first. Copied views neither retain a slot nor create another user.
 
-Enable `connections::CClient` through its common endpoint before opening bulk connections.
-Add a bulk policy such as:
+This remains triple-buffered latest-state exchange: an unacquired publication may
+be replaced, but producer writes cannot overwrite the consumer-held slot. There
+is no FIFO, historical retention, implicit ordering with POD traffic or automatic
+used-length metadata. Publication returns `published`, `inactive` or
+`published_wake_failed`; the last outcome is accepted and must not be replayed.
+The underlying `TBulk::publish()` Boolean describes acquisition of the previous
+staged publication, not publication success.
 
-```cpp
-const connections::SBulkPolicy policy{
-    connections::contract(module_ids::executive, module_ids::rendering, 1u),
-    { 4096u, module_ids::executive }
-};
-```
+Host owns wake/dispatch mechanics. Modules service eligible bulk work through
+their handler and report runnable work or a future wake; they do not read private
+transport controls or implement a wait loop. Publication never waits for consumer
+capacity. All facade operations require the bound execution context.
 
-The producer calls `open_bulk(peer, version, async_slot, capacity, true)`; the
-consumer can initiate with the same arguments and `false`. Each uses its peer's
-module role. Handle the correlated Host `Result` returned by `receive()`. To find the
-active bulk token, use `active_bulk(peer)`; POD `active(system_id)` uses an exact endpoint address mapping.
+Close disables new local operations. On `connection_closing`, finish/cancel all
+domain accesses and submit `connection_quiescent` for the exact token. Held views
+have no lifetime beyond that acknowledgement. Host retains descriptors, backing
+and both notification pins until both sides are quiescent and admitted operations
+are drained. Native fallback additionally needs the existing return/join/final
+ingress proof. A timeout or failed join never authorises reclamation.
 
-Host offers the exact configuration to both participants; the helper applies the configured bulk policy. Host then prepares backing and complementary
-descriptors, waits for both `Ready` controls and publishes `Activate`. The client
-helper exposes no data before local activation. No buffer is initially published.
+The [shader-system extension](shader_reflection_design.md#establishment-usages-and-replacement)
+remains separate: capacity/role consent is not schema acknowledgement, and held
+views are not independent leases.
 
-The producer obtains a writable `CMemoryView` from `producer_data(token)`, writes
-a complete state and calls `publish_bulk(token)`. That writable view expires upon
-publication. Obtain a fresh view for subsequent preparation. The consumer calls
-`discard_and_acquire(token)` and obtains a read-only `CMemoryConstView` from
-`consumer_data(token)`. Acquisition always relinquishes the previous consumer
-view, even if no new publication exists. Finish every dependent use before calling
-it again. Copied views neither retain a slot nor grant another producer/consumer.
+## Historical validation
 
-This is triple-buffered latest-state exchange: a publication can replace an
-unacquired staged publication. Producer writes never overwrite the consumer-held
-slot. There is no FIFO, per-publication acknowledgement, automatic ordering with
-POD traffic, variable used-length metadata or historical retention. Participants
-may place their own length and interpretation metadata within the opaque capacity.
-
-`publish_bulk()` reports `published`, `inactive` or `published_wake_failed`.
-Notification failure occurs after publication and must never trigger retransmission
-as if nothing escaped. The helper begins local closure in that case. Foundation's
-underlying `TBulk::publish()` boolean describes acquisition of the previous staged
-publication; it is not a publication-success result.
-
-Publication precedes the pinned peer notification. `has_data()` includes eligible Host records, staged
-bulk data and POD messages. Follow the existing sample-epoch, clear-notifications,
-check-durable-data, wait protocol; notification latches alone do not prove data
-availability. Bulk publication never waits for consumer capacity.
-
-## Closure
-
-Local close immediately disables new local endpoint operations; the peer stops
-when it consumes Host's closing control. All installation publications precede that
-closing boundary. Finish dependent buffer accesses and notification use before
-acknowledging `quiesce(token)`. Host retains the backing, descriptors, module
-bindings and notification targets until both sides are quiescent.
-
-Existing held views may be used only to finish accounted local work before that
-acknowledgement. They provide no independent lifetime beyond endpoint quiescence.
-Abandoned execution requires the existing successful native join and final-drain
-proofs. Timeout and failed join never authorise freeing exposed backing.
-
-The [shader-system checkpoint](shader_reflection_design.md#implemented-opaque-distribution-checkpoint)
-records this implemented baseline. Its [schema-aware extension](shader_reflection_design.md#establishment-usages-and-replacement)
-adds proposed schema pinning/acknowledgement, contextual transport selection,
-exact-payload coordination and independently protected acquisition records. Current
-capacity/role acceptance is not schema acknowledgement, and copied/held views are
-not independent leases. Those extensions do not change this endpoint contract.
+The records below describe their original binaries and tests. Current migration
+and rebuilt-consumer evidence belongs to the
+[implementation checkpoints](module_preamble_implementation.md).
 
 ## Validation
 

@@ -9,27 +9,29 @@
 //
 //  Hardware-free signal, allocation, budget and real service-thread exercises.
 
-#include "framework/threading/CThreadContext.hpp"
-#include "tests/support/thread_helpers.hpp"
 #include "framework/system/system_ids.hpp"
 #include "framework/communications/module_tests.hpp"
 #include "framework/module/module_messages.hpp"
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <thread>
 #include <vector>
-#include "audio/runtime/audio_thread.hpp"
+#include "audio/runtime/audio_execution.hpp"
+#include "containers/TInstance.hpp"
+#include "platform/threading/thread_lifetime.hpp"
 #include "audio/runtime/miniaudio_adapter.hpp"
 #include "audio/runtime/vendor_allocator.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
-#include "tests/support/direct_connection_fixture.hpp"
 #include "tests/test_suites/Audio_test_suite.hpp"
+
+void run_audio_preamble_service(tests::TTestContext& ctx, const modules::SExecutionV1& execution, void* const context,
+    std::atomic<unsigned>& opens, std::atomic<unsigned>& starts, std::atomic<unsigned>& closes,
+    std::atomic<std::uint32_t>& complete, std::atomic<bool>& output_wait);
 
 namespace audio
 {
@@ -181,7 +183,6 @@ struct FakeOutput : audio::IAudioOutput
     bool start_ok{ true }, close_ok{ true };
     std::atomic<unsigned> opens{ 0u }, starts{ 0u }, closes{ 0u };
     std::atomic<std::uint32_t> frames{ 0u }, complete{ 0u }, interrupted{ 0u };
-    bool reject_delivery{ false };
     modules::ETestRunStatus open() noexcept override
     {
         ++opens;
@@ -254,6 +255,148 @@ struct FakeClock
             } };
     }
 };
+
+struct SAudioCommunication
+{
+    std::vector<threading::CErasedPodMsg> replies;
+    std::vector<modules::SExecutionIntent> intents;
+    bool full{ false }, control_full{ false }, control_invalid{ false }, active{ true };
+    FakeOutput* output{ nullptr };
+    unsigned closes_at_quiescence{ 0u };
+
+    static modules::ESubmission MV_STD_ABI_CALL pod(void* const context, const modules::SDestination& destination,
+        const threading::CErasedPodMsg& message) noexcept
+    {
+        SAudioCommunication& self = *static_cast<SAudioCommunication*>(context);
+        if ((destination.kind != modules::SDestination::EKind::connection) || (destination.token.value != 31u))
+        {
+            return modules::ESubmission::invalid;
+        }
+        if (!self.active) return modules::ESubmission::closed;
+        if (self.full) return modules::ESubmission::busy;
+        self.replies.push_back(message);
+        return modules::ESubmission::accepted;
+    }
+    static modules::ESubmission MV_STD_ABI_CALL intent(void* const context, const modules::SExecutionIntent& intent) noexcept
+    {
+        SAudioCommunication& self = *static_cast<SAudioCommunication*>(context);
+        if (self.control_invalid) return modules::ESubmission::invalid;
+        if (self.control_full) return modules::ESubmission::busy;
+        self.intents.push_back(intent);
+        if ((intent.kind == modules::SExecutionIntent::EKind::connection_quiescent) && self.output)
+        {
+            self.closes_at_quiescence = self.output->closes.load();
+        }
+        return modules::ESubmission::accepted;
+    }
+    static modules::SConnectionQuery MV_STD_ABI_CALL query(void* const context, const modules::SDestination& destination) noexcept
+    {
+        const SAudioCommunication& self = *static_cast<SAudioCommunication*>(context);
+        return { destination.token, system_ids::executive, self.active ? 1u : 0u, self.active ? 0u : 1u };
+    }
+    static const modules::SCommunicationV1 functions;
+};
+const modules::SCommunicationV1 SAudioCommunication::functions{
+    &SAudioCommunication::pod, nullptr, &SAudioCommunication::intent, &SAudioCommunication::query };
+
+void execution_tests(TTestContext& ctx)
+{
+    FakeOutput output;
+    FakeClock clock;
+    SAudioCommunication transport;
+    transport.output = &output;
+    const modules::CCommunication communication{ SAudioCommunication::functions, &transport };
+    modules::SExecutionContext context;
+    context.communication = &communication;
+    audio::CAudioExecution execution{ context, output, clock.clock() };
+    modules::SExecutionProgress progress;
+    auto invoke = [&](const modules::EExecutionEvent event, const threading::CErasedPodMsg* const message = nullptr)
+    {
+        modules::SInvocation invocation;
+        invocation.event = event;
+        invocation.message = message;
+        invocation.source.kind = connections::SSource::EKind::direct;
+        invocation.source.address = system_ids::executive;
+        invocation.source.connection.value = 31u;
+        invocation.notification.connection.value = 31u;
+        TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::success));
+    };
+    auto request = [&](const int correlation, const module_ids::id_type module = module_ids::audio)
+    {
+        const threading::CErasedPodMsg message = threading::make_pod_message(correlation, modules::RunTestsRequest{ module });
+        invoke(modules::EExecutionEvent::message, &message);
+    };
+    auto check_reply = [&](const std::size_t index, const int correlation, const modules::ETestRunStatus status)
+    {
+        TEST_EXPECT(ctx, (transport.replies.size() > index));
+        if (transport.replies.size() <= index) return;
+        modules::RunTestsResult result;
+        TEST_EXPECT(ctx, (transport.replies[index].copy_payload_to(result) &&
+            (transport.replies[index].query_async_slot() == correlation) && (result.status == status)));
+    };
+
+    transport.control_full = true;
+    invoke(modules::EExecutionEvent::start);
+    TEST_EXPECT(ctx, ((progress.ready == 0u) && (progress.work_pending == 0u) && (output.opens == 0u)));
+    transport.control_full = false;
+    invoke(modules::EExecutionEvent::service_async);
+    TEST_EXPECT(ctx, ((progress.ready == 1u) && (transport.intents.size() == 1u) && (output.opens == 0u)));
+    request(10);
+    TEST_EXPECT(ctx, ((output.starts == 1u) && (progress.next_wake_ns == 20000000u)));
+    //  Repeated input does not renew the existing overall/progress budgets.
+    clock.awake_ms = 11u;
+    transport.full = true;
+    request(11);
+    invoke(modules::EExecutionEvent::service_async);
+    TEST_EXPECT(ctx, ((progress.direct_input == 0u) && (progress.work_pending == 0u) &&
+        (progress.next_wake_ns == 9000000u) && transport.replies.empty()));
+    TEST_EXPECT(ctx, ((clock.entries[0].sets == 1u) && (clock.entries[1].sets == 1u)));
+    transport.full = false;
+    invoke(modules::EExecutionEvent::service_async);
+    check_reply(0u, 11, modules::ETestRunStatus::busy);
+    TEST_EXPECT(ctx, (progress.direct_input == 1u));
+    output.complete = 1u;
+    transport.full = true;
+    invoke(modules::EExecutionEvent::service_async);
+    TEST_EXPECT(ctx, ((output.closes == 1u) && (transport.replies.size() == 1u) &&
+        (progress.next_wake_ns == UINT64_MAX) && (progress.work_pending == 0u)));
+    transport.full = false;
+    invoke(modules::EExecutionEvent::service_async);
+    check_reply(1u, 10, modules::ETestRunStatus::success);
+    invoke(modules::EExecutionEvent::service_async);
+    TEST_EXPECT(ctx, (transport.replies.size() == 2u));
+    request(12, module_ids::rendering);
+    invoke(modules::EExecutionEvent::service_async);
+    check_reply(2u, 12, modules::ETestRunStatus::invalid_request);
+    request(13);
+    transport.active = false;
+    invoke(modules::EExecutionEvent::connection_closing);
+    TEST_EXPECT(ctx, ((output.closes == 2u) && (transport.closes_at_quiescence == 2u) &&
+        (transport.replies.size() == 3u)));
+    transport.active = true;
+    request(14);
+    clock.awake_ms += 2000u;
+    invoke(modules::EExecutionEvent::service_async);
+    check_reply(3u, 14, modules::ETestRunStatus::failed);
+    TEST_EXPECT(ctx, (output.closes == 3u));
+    request(15);
+    modules::SInvocation invalid;
+    invalid.event = modules::EExecutionEvent::message;
+    TEST_EXPECT(ctx, (execution.handle(invalid, progress) == modules::EExecutionStatus::failed));
+    invoke(modules::EExecutionEvent::stop);
+    TEST_EXPECT(ctx, (execution.complete() && (progress.work_complete == 1u) && (output.closes == 4u)));
+    FakeOutput rejected_output;
+    SAudioCommunication rejected_transport;
+    rejected_transport.control_invalid = true;
+    const modules::CCommunication rejected_communication{ SAudioCommunication::functions, &rejected_transport };
+    context.communication = &rejected_communication;
+    audio::CAudioExecution rejected{ context, rejected_output, clock.clock() };
+    modules::SInvocation start;
+    start.event = modules::EExecutionEvent::start;
+    TEST_EXPECT(ctx, ((rejected.handle(start, progress) == modules::EExecutionStatus::failed) && !rejected_output.opens.load()));
+    start.event = modules::EExecutionEvent::stop;
+    TEST_EXPECT(ctx, ((rejected.handle(start, progress) == modules::EExecutionStatus::success) && progress.work_complete));
+}
 
 void run_tests(TTestContext& ctx)
 {
@@ -349,161 +492,50 @@ void run_tests(TTestContext& ctx)
     }
 }
 
-template<typename F> bool await(const F predicate)
+struct SAudioServiceExecution
 {
-    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (!predicate())
+    FakeOutput output;
+    std::atomic<bool> output_wait{ false };
+    TInstance<audio::CAudioExecution> execution;
+    platform::threading::CPlatformThreadId created_on, destroyed_on;
+    unsigned destroyed{};
+    static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context,
+        void** const runtime) noexcept
     {
-        if (std::chrono::steady_clock::now() >= end)
-        {
-            return false;
-        }
-        std::this_thread::yield();
+        auto& self = *static_cast<SAudioServiceExecution*>(context->creation_context);
+        if (!self.execution.emplace(*context, self.output)) return modules::EExecutionStatus::failed;
+        self.created_on = platform::threading::query_current_thread_id();
+        *runtime = &self;
+        return modules::EExecutionStatus::success;
     }
-    return true;
-}
-
-std::uint32_t MV_STD_ABI_CALL fake_service(void* const data) noexcept
-{
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    FakeOutput& output = tests::TThreadFixtureState<FakeOutput>::get();
-    tests::TModuleIdScope module_scope{ module_ids::audio };
-    if (output.reject_delivery)
+    static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation,
+        modules::SExecutionProgress* const progress) noexcept
     {
-        resources.worker_to_host_msgs.deallocate();
+        auto& self = *static_cast<SAudioServiceExecution*>(runtime);
+        const modules::EExecutionStatus status = self.execution->handle(*invocation, *progress);
+        self.output_wait.store((progress->direct_input == 0u), std::memory_order_release);
+        return status;
     }
-    threading::CThreadContext context{ resources };
-    return audio::serve_audio(context, output);
-}
+    static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept
+    {
+        auto& self = *static_cast<SAudioServiceExecution*>(runtime);
+        if (!self.execution->complete()) return modules::EExecutionStatus::failed;
+        self.execution.reset();
+        self.destroyed_on = platform::threading::query_current_thread_id();
+        ++self.destroyed;
+        return modules::EExecutionStatus::success;
+    }
+};
 
 void service_tests(TTestContext& ctx)
 {
-    FakeOutput output;
-    platform::system::CPerfCountConversion conversion;
-    TEST_EXPECT(ctx, conversion.init());
-    tests::SDirectHostFixture host;
-    host.data_capacity = 32u;
-    threading::ThreadConfig config{ thread_ids::audio, module_ids::audio, EThreadPriority::Normal, &fake_service, &tests::TThreadFixtureState<FakeOutput>::prepare, &output };
-    threading::CThreadPackage package{ config, conversion };
-    host::SClientRecord worker{ module_ids::audio, 101u, &package, modules::SModuleInstance{ 1101u } };
-    tests::SDirectPeerFixture executive{ host, conversion, module_ids::executive, 102u };
-    TEST_EXPECT(ctx, (executive.ready && host.attach(worker) && worker.install_host_execution(host.restrictions.reader())));
-    const bool started = package.startup();
-    TEST_EXPECT(ctx, started);
-    if (!started)
-    {
-        TEST_EXPECT(ctx, executive.shutdown());
-        return;
-    }
-    auto pump = [&] {
-        worker.terminal_before_drain = worker.terminal();
-        host.drain_controls(worker);
-        worker.incoming_drained = worker.terminal_before_drain;
-        host.progress(); executive.pump(); host.progress();
-    };
-    TEST_EXPECT(ctx, await([&]
-    {
-        pump();
-        return worker.direct_connections == host::EDirectConnectionState::available;
-    }));
-    connections::SToken token;
-    auto connect = [&](const std::int32_t correlation) {
-        TEST_EXPECT(ctx, executive.client.open(modules::test_connections::address(module_ids::audio), correlation));
-        connections::Result result;
-        std::int32_t slot = -1;
-        TEST_EXPECT(ctx, await([&]
-        {
-            pump();
-            return executive.results.read(result, slot);
-        }));
-        TEST_EXPECT(ctx, ((result.status == connections::EStatus::success) && (slot == correlation)));
-        token = result.token;
-    };
-    connect(100);
-    TEST_EXPECT(ctx, await([&] { return package.query_state() == threading::EThreadRunState::Waiting; }));
-    TEST_EXPECT(ctx, (output.opens == 0u));
-    auto post = [&](const int slot, const module_ids::id_type module = module_ids::audio) {
-        const auto message = threading::make_pod_message(slot, modules::RunTestsRequest{ module });
-        connections::EPost posted = connections::EPost::full;
-        TEST_EXPECT(ctx, await([&]
-        {
-            posted = executive.client.post(token, message);
-            return posted != connections::EPost::full;
-        }));
-        TEST_EXPECT(ctx, (posted == connections::EPost::queued));
-    };
-    auto receive = [&](const int slot, const modules::ETestRunStatus status, const unsigned passed, const unsigned failed, const unsigned skipped) {
-        threading::CErasedPodMsg message;
-        const bool got = await([&]
-        {
-            pump();
-            return executive.read(token, message);
-        });
-        TEST_EXPECT(ctx, got);
-        modules::RunTestsResult result;
-        TEST_EXPECT(ctx, (got && message.copy_payload_to(result) && (message.query_async_slot() == slot) && (result.module == module_ids::audio) &&
-            (result.status == status) && (result.passed == passed) && (result.failed == failed) && (result.skipped == skipped)));
-    };
-    post(7, module_ids::rendering); receive(7, modules::ETestRunStatus::invalid_request, 0, 0, 0);
-    post(threading::k_uncorrelated_slot); receive(threading::k_uncorrelated_slot, modules::ETestRunStatus::invalid_request, 0, 0, 0);
-    post(-2); receive(-2, modules::ETestRunStatus::invalid_request, 0, 0, 0);
-    //  Fill Audio's result pipe and leave one rejection retained. Freeing a
-    //  slot must wake/retry it without any unrelated Host traffic.
-    //  At most two distinct 32-record publications can be retained across the
-    //  reader and staged buffers; output storage duplicates producer backlog.
-    for (int index = 0; index < 65; ++index)
-    {
-        post((1000 + index), module_ids::rendering);
-    }
-    TEST_EXPECT(ctx, await([&] {
-        return executive.client.has_data() && (package.query_state() == threading::EThreadRunState::Waiting);
-    }));
-    for (int index = 0; index < 65; ++index)
-    {
-        receive((1000 + index), modules::ETestRunStatus::invalid_request, 0, 0, 0);
-    }
-    post(8);
-    TEST_EXPECT(ctx, await([&] { return output.starts == 1u; }));
-    post(9); receive(9, modules::ETestRunStatus::busy, 0, 0, 0);
-    output.complete = 1u;
-    receive(8, modules::ETestRunStatus::success, 1, 0, 0);
-    TEST_EXPECT(ctx, (output.closes == 1u));
-    post(10);
-    TEST_EXPECT(ctx, await([&] { return output.starts == 2u; }));
-    executive.client.close(token);
-    bool cleanup_before_retirement = true;
-    TEST_EXPECT(ctx, await([&] {
-        pump();
-        if (host.connections.empty() && (output.closes != 2u))
-        {
-            cleanup_before_retirement = false;
-        }
-        return host.connections.empty() && executive.client.idle();
-    }));
-    TEST_EXPECT(ctx, (cleanup_before_retirement && (output.closes == 2u)));
-    connect(101);
-    post(11);
-    TEST_EXPECT(ctx, await([&] { return output.starts == 3u; }));
-    host.connections.close_client(worker);
-    package.request_exit();
-    TEST_EXPECT(ctx, await([&]
-    {
-        pump();
-        return worker.execution_quiescent() && host.connections.empty() && executive.client.idle();
-    }));
-    TEST_EXPECT(ctx, ((output.closes == 3u) && !host.failed));
-    TEST_EXPECT(ctx, (worker.retire_host_execution(false) && package.shutdown()));
-    TEST_EXPECT(ctx, (host.detach(worker) && executive.shutdown()));
-
-    FakeOutput rejected;
-    rejected.reject_delivery = true;
-    config.prepare_context = &rejected;
-    threading::CThreadPackage broken{ config, conversion };
-    TEST_EXPECT(ctx, broken.startup());
-    TEST_EXPECT(ctx, await([&] { return broken.execution_ended(); }));
-    TEST_EXPECT(ctx, (broken.query_state() == threading::EThreadRunState::Failed));
-    TEST_EXPECT(ctx, broken.shutdown()); // Registration failure is observed asynchronously.
-    TEST_EXPECT(ctx, ((rejected.starts == 0u) && (rejected.opens == 0u) && !broken.retains_execution()));
+    SAudioServiceExecution state;
+    const modules::SExecutionV1 execution{ sizeof(modules::SExecutionV1), 1u, 0u,
+        &SAudioServiceExecution::create, &SAudioServiceExecution::handle, &SAudioServiceExecution::destroy };
+    run_audio_preamble_service(ctx, execution, &state, state.output.opens, state.output.starts,
+        state.output.closes, state.output.complete, state.output_wait);
+    TEST_EXPECT(ctx, ((state.destroyed == 1u) && (state.created_on == state.destroyed_on) &&
+        (state.created_on != platform::threading::query_current_thread_id())));
 }
 }   //  namespace
 
@@ -513,6 +545,7 @@ int run_audio_tests()
     signal_tests(ctx);
     allocator_tests(ctx);
     run_tests(ctx);
+    execution_tests(ctx);
     service_tests(ctx);
     return ctx.report("Audio");
 }

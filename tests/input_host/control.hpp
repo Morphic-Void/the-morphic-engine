@@ -94,6 +94,7 @@ struct SFreezeProgress
     std::atomic<bool> requested{};
     std::atomic<std::uint64_t> pumps{};
     std::atomic<std::uint32_t> feed{}, history[4]{}, desktop{};
+    std::atomic<std::uint32_t> eligible{}, cutover{}, desktop_queued{}, desktop_baseline{}, desktop_loss{}, desktop_runnable{};
     std::atomic<std::uint32_t> mappers{}, baselines{}, boundaries{}, ingress{}, actions{}, text{};
 };
 struct SShared

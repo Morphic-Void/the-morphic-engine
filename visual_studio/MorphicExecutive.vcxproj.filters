@@ -4,7 +4,6 @@
     <Filter Include="Executive"><UniqueIdentifier>{f7fb9001-d913-9243-fbe0-01472744fe3f}</UniqueIdentifier></Filter>
     <Filter Include="Executive\include"><UniqueIdentifier>{b894f11b-dcf7-4a42-872c-4df41c6795d6}</UniqueIdentifier></Filter>
     <Filter Include="Executive\include\module"><UniqueIdentifier>{f3a308d5-5b92-420a-af71-f75cb2f68133}</UniqueIdentifier></Filter>
-    <Filter Include="Executive\include\module\binding"><UniqueIdentifier>{ceb233d5-37b4-1edf-3229-97b8106d62ee}</UniqueIdentifier></Filter>
     <Filter Include="Executive\include\module\types"><UniqueIdentifier>{b5094ea1-9fd2-2c6c-b7be-55ff44fe38e0}</UniqueIdentifier></Filter>
     <Filter Include="Executive\include\runtime"><UniqueIdentifier>{0dff69e9-63e6-d221-4aec-d0121f5116a2}</UniqueIdentifier></Filter>
     <Filter Include="Executive\src"><UniqueIdentifier>{6544bbfb-fa7d-404d-8962-bb4de3fa4903}</UniqueIdentifier></Filter>
@@ -12,22 +11,23 @@
     <Filter Include="Executive\src\module\binding"><UniqueIdentifier>{de0ca3fb-959f-cfd7-de01-47fb2622851a}</UniqueIdentifier></Filter>
     <Filter Include="Executive\src\module\types"><UniqueIdentifier>{c7470d13-0722-066a-c3cf-e43bc2ce6235}</UniqueIdentifier></Filter>
     <Filter Include="Executive\src\runtime"><UniqueIdentifier>{40c9685a-8e55-032b-5ae5-3c9bd323a7f1}</UniqueIdentifier></Filter>
+    <Filter Include="Tests"><UniqueIdentifier>{f98c7981-95ac-5d1f-810a-6c715c7cb684}</UniqueIdentifier></Filter>
+    <Filter Include="Tests\support"><UniqueIdentifier>{43169b3b-ae98-5a11-a294-6aa65556d52a}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\executive\module\binding\executive_binding.hpp"><Filter>Executive\include\module\binding</Filter></ClInclude>
     <ClInclude Include="..\executive\module\types\erased_owner_payloads.def"><Filter>Executive\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\executive\module\types\local_type_ids.def"><Filter>Executive\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\executive\module\types\local_type_ids.hpp"><Filter>Executive\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\executive\module\types\local_types.hpp"><Filter>Executive\include\module\types</Filter></ClInclude>
-    <ClInclude Include="..\executive\runtime\executive_thread.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
-    <ClInclude Include="..\executive\runtime\module_test_watchdog.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\executive\runtime\executive_execution.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\executive\runtime\execution_timing.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\executive\runtime\request_preparation.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
-    <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>Tests\support</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\executive\module\binding\executive_binding.cpp"><Filter>Executive\src\module\binding</Filter></ClCompile>
     <ClCompile Include="..\executive\module\types\local_type_ids.cpp"><Filter>Executive\src\module\types</Filter></ClCompile>
-    <ClCompile Include="..\executive\runtime\executive_thread.cpp"><Filter>Executive\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\executive\runtime\executive_execution.cpp"><Filter>Executive\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\executive\runtime\request_preparation.cpp"><Filter>Executive\src\runtime</Filter></ClCompile>
   </ItemGroup>
 </Project>

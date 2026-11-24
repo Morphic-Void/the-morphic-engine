@@ -6,14 +6,16 @@ participating module endpoints, using the common Host endpoint foundation in
 `ca8770d`. Implementation, migration, review corrections and validation are complete.
 This document retains the delivered scope and evidence, not an open task list.
 
-Remaining work is consolidated in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md).
-No next Host increment is selected.
+This historical increment was followed by the completed
+[module preamble consolidation](module_preamble_design.md), which replaces its
+module-side client and ordinary handshake controls. Other deferred work remains
+in the [Host and endpoint backlog](../backlog/host_endpoint_follow_on.md).
 
 The [broader endpoint design](common_endpoint_lifecycle_design.md#direct-pod-addressing-and-use)
 records the agreed behavioural contract. The current
 [direct POD](direct_pod_connections.md) and [bulk](direct_bulk_connections.md)
-references describe the implemented endpoint path. Only bulk and the existing
-Executive stop lookup retain the designated-service-thread selector.
+references describe the current endpoint path. The designated-service selectors
+described in this historical record do not define the new facade interface.
 
 ## Outcome
 

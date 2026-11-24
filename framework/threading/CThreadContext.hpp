@@ -31,7 +31,6 @@ public:
     void startup() noexcept;
     void mark_waiting() noexcept;
     void mark_running() noexcept;
-    [[nodiscard]] bool publish_ready() noexcept { return post(make_pod_message(-1, EndpointReady{ identity() })); }
     void mark_exiting() noexcept;
     void mark_exited() noexcept;
     void mark_failed(const std::uint32_t code) noexcept;

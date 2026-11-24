@@ -20,7 +20,7 @@
 #include "framework/assets/schema_messages.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
-#include "framework/module/host_pump.hpp"
+#include "framework/module/module_execution.hpp"
 #include "framework/services/provider_client.hpp"
 #include "framework/threading/messages/CErasedPodMsg.hpp"
 
@@ -30,16 +30,16 @@ namespace platform::runtime
 class CPlatformRuntime
 {
 public:
-    CPlatformRuntime(const modules::SHostPumpContext& context,
+    CPlatformRuntime(const modules::SExecutionContext& context,
         const native::SWindowAdapter& adapter = native::window_adapter(),
         const platform::threading::SAwakeClock clock = {},
         const native::SControllerAdapter& controllers = native::controller_adapter(),
         const native::SReportAdapter& reports = native::report_adapter()) noexcept;
+    [[nodiscard]] modules::EExecutionStatus handle(const modules::SInvocation& invocation,
+        modules::SExecutionProgress& progress) noexcept;
     [[nodiscard]] bool initialise() noexcept;
-    void pump(const modules::SPumpInput& input, modules::SPumpResult& result) noexcept;
-    void begin_stop(modules::SProgress& progress) noexcept;
     [[nodiscard]] bool stopped() const noexcept;
-    [[nodiscard]] bool failed() const noexcept { return m_failed; }
+    [[nodiscard]] bool failed() const noexcept;
 
     //  Native adapter callbacks only record state, publish and perform bounded
     //  maintenance. Record erasure and native destruction stay in outer pump.
@@ -55,15 +55,15 @@ public:
     void controller_overflow() noexcept;
     void desktop_observation(const SDesktopTransaction& transaction) noexcept;
     void desktop_quiet(const SInputObservation& baseline, const std::uint64_t epoch) noexcept;
-    [[nodiscard]] std::uint64_t desktop_epoch() noexcept { m_desktop.synchronise(); return m_desktop.epoch(); }
-    [[nodiscard]] bool desktop_needs_baseline() const noexcept { return m_desktop.needs_baseline(); }
-    [[nodiscard]] std::uint64_t desktop_text_epoch() const noexcept { return m_desktop.text_epoch(); }
-    [[nodiscard]] bool desktop_text_pending() const noexcept { return m_desktop.text_pending(); }
+    [[nodiscard]] std::uint64_t desktop_epoch() noexcept;
+    [[nodiscard]] bool desktop_needs_baseline() const noexcept;
+    [[nodiscard]] std::uint64_t desktop_text_epoch() const noexcept;
+    [[nodiscard]] bool desktop_text_pending() const noexcept;
     void desktop_capture_lost() noexcept;
-    void native_stop() noexcept { m_host_stop = true; }
+    void native_stop() noexcept;
     void native_failure(const std::uint32_t error) noexcept;
-    void enter_callback() noexcept;
-    void leave_callback() noexcept;
+    void enter_native_callback() noexcept;
+    void leave_native_callback() noexcept;
     void enter_modal(const bool menu) noexcept;
     void leave_modal(const bool menu) noexcept;
     [[nodiscard]] bool maintain_native() noexcept;
@@ -85,6 +85,7 @@ private:
     void acquire(const services::SDispatchedCommand& command, const bool create, const std::int32_t completion) noexcept;
     [[nodiscard]] services::EServiceStatus ready(const services::SDispatchedCommand& command, const windows::SWindowReady& request) noexcept;
     [[nodiscard]] bool message(const ::threading::CErasedPodMsg& message) noexcept;
+    void receive(const ::threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] SWindowUse* find(const services::SServiceBorrow borrow) noexcept;
     [[nodiscard]] bool owns(const SWindowUse& use, const services::SDispatchedCommand& command) const noexcept;
     [[nodiscard]] bool holder(const services::SDispatchedCommand& command, const bool controller) const noexcept;
@@ -114,15 +115,17 @@ private:
     void publish() noexcept;
     void close_window(const std::uint32_t failure = 0u) noexcept;
     void progress_window() noexcept;
-    void progress(modules::SProgress& progress) const noexcept;
+    void service_async(const std::uint64_t time_budget_ns, modules::SExecutionProgress& progress) noexcept;
+    void begin_stop(modules::SExecutionProgress& progress) noexcept;
+    void progress(modules::SExecutionProgress& progress) const noexcept;
     [[nodiscard]] modules::SRestrictionScope enter_native(const std::uint32_t reason) noexcept;
     void leave_native(const modules::SRestrictionScope scope) noexcept;
 
-    const modules::SHostPumpContext& m_context;
+    const modules::SExecutionContext m_context;
+    const modules::CCommunication m_communication;
     services::CProviderClient m_services;
     services::SDispatchedCommand m_pending_commands[256];
     std::uint32_t m_command_head{ 0u }, m_command_count{ 0u };
-    bool m_admission_closing{ false }, m_admission_closed{ false };
     const native::SWindowAdapter& m_adapter;
     platform::threading::SAwakeClock m_clock;
     CReportCapture m_report;

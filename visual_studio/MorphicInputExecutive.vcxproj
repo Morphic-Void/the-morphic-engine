@@ -88,16 +88,19 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 /EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\tests\input_host\consumer.cpp" />
-    <ClCompile Include="..\tests\input_host\scenarios.cpp" />
-    <ClCompile Include="..\tests\input_host\measurement.cpp" />
+    <ClCompile Include="..\tests\input_host\execution_fixture.cpp" />
+    <ClCompile Include="..\tests\input_host\execution.cpp" />
+    <ClCompile Include="..\tests\input_host\execution_scenarios.cpp" />
+    <ClCompile Include="..\tests\input_host\execution_measurement.cpp" />
     <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\tests\input_host\consumer.hpp" />
+    <ClInclude Include="..\tests\input_host\execution.hpp" />
+    <ClInclude Include="..\tests\input_host\source_execution.hpp" />
+    <ClInclude Include="..\tests\input_host\borrow_execution.hpp" />
     <ClInclude Include="..\tests\input_host\control.hpp" />
     <ClInclude Include="..\tests\input_host\schema.hpp" />
     <ClInclude Include="..\tests\support\host_test_paths.hpp" />

@@ -276,7 +276,10 @@ exceed the pump allowance; Release is the placement baseline. These are three
 observations per size on this machine, not a statistical latency bound.
 
 Finite synchronous limits are not latency guarantees. The default Host pump
-allowance is 2 ms (`host_pump.hpp`, `time_budget_ns`). Total construction or a
+allowance at this checkpoint was 2 ms (the former `host_pump.hpp` contract).
+The current [Host execution reference](../modules/host_pump_foundation.md) and
+[preamble processing policy](../modules/module_preamble_proposal.md#processing-policy)
+retain bounded servicing; they do not make synchronous work preemptible. Total construction or a
 large copy exceeding that allowance requires a concrete placement/timing decision
 in Platform-report work. Normal parse/adopt + resolve + bake takes 2.425–2.653 ms;
 normal bake and repack individually fit the allowance in these samples, while

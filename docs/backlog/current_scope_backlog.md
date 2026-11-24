@@ -2,17 +2,22 @@
 
 ## Host communication refactor: complete
 
-Closed out 21 November 2026. Common Host endpoints and lifecycle are committed in
+Status reconciled 24 November 2026. The 21 November communication increment
+closed. Common Host endpoints and lifecycle are committed in
 `ca8770d`; direct POD connections between arbitrary participating pump/thread
 endpoints are committed in `84506a7`. Coordinator review, consumer migration and
 validation are complete. The [milestone record](../project/completed_milestones.md#common-host-endpoints-and-direct-pod-connections)
 links the delivered contracts and evidence.
 
-No further Host increment is selected. The [Host and endpoint backlog](host_endpoint_follow_on.md)
+The subsequent [preamble consolidation](../project/completed_milestones.md#module-execution-preamble-consolidation)
+and scoped Input fixture follow-up are complete and reviewed, but uncommitted.
+Their [qualification ledger](../modules/module_preamble_validation.md) separates
+current results from explicit limits. No further Host increment is selected.
+The [Host and endpoint backlog](host_endpoint_follow_on.md)
 captures generic provider registration for HID/reports, revision-qualified
 availability/topology observation, undelivered new asset IDs, long-running work,
-capacity policy and optional authority/transport extensions. These remain separate
-scopes; the Platform report handoff and input work keep their existing pauses.
+further capacity tuning and optional authority/transport extensions. These remain
+separate scopes; the Platform report handoff and input work keep their existing pauses.
 
 ## Earlier scope checkpoints
 

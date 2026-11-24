@@ -41,8 +41,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding_context.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.hpp"><Filter>Framework\module</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_pump.hpp"><Filter>Framework\module</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\service_thread_pump.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_execution.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_execution_context.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_messages.hpp"><Filter>Framework\filesystem</Filter></ClInclude>
@@ -51,7 +50,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadContext.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CEndpointResources.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CEndpointContext.hpp"><Filter>Framework\threading</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\endpoint_messages.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\threading\CThreadResources.hpp"><Filter>Framework\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\report_memory.hpp"><Filter>Framework\platform</Filter></ClInclude>
@@ -67,8 +65,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\controllers.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\input_reader.hpp"><Filter>Framework\platform</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_connection.hpp"><Filter>Framework\communications</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp"><Filter>Framework\communications</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\connection_types.hpp"><Filter>Framework\communications</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\module_tests.hpp"><Filter>Framework\communications</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\system\runtime_ids.def">

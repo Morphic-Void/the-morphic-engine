@@ -77,5 +77,6 @@
     <Filter Include="acceptance" />
     <ClCompile Include="..\tests\input_host\platform_fixture.cpp"><Filter>acceptance</Filter></ClCompile>
     <ClInclude Include="..\tests\input_host\control.hpp"><Filter>acceptance</Filter></ClInclude>
+    <ClInclude Include="..\tests\input_host\platform_access.hpp"><Filter>acceptance</Filter></ClInclude>
   </ItemGroup>
 </Project>

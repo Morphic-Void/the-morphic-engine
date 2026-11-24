@@ -21,10 +21,10 @@ namespace platform::native
 static constexpr wchar_t k_class_name[]{ L"MorphicPlatformWindow" };
 static constexpr UINT_PTR k_timer = 1u;
 
-struct SCallbackGuard
+struct SNativeCallbackGuard
 {
-    explicit SCallbackGuard(runtime::CPlatformRuntime& runtime) noexcept : runtime{ runtime } { runtime.enter_callback(); }
-    ~SCallbackGuard() noexcept { runtime.leave_callback(); }
+    explicit SNativeCallbackGuard(runtime::CPlatformRuntime& runtime) noexcept : runtime{ runtime } { runtime.enter_native_callback(); }
+    ~SNativeCallbackGuard() noexcept { runtime.leave_native_callback(); }
     runtime::CPlatformRuntime& runtime;
 };
 
@@ -71,7 +71,7 @@ static LRESULT CALLBACK window_proc(const HWND handle, const UINT message, const
         }
     }
     if (!window) return DefWindowProcW(handle, message, wparam, lparam);
-    SCallbackGuard guard{ *window->runtime };
+    SNativeCallbackGuard guard{ *window->runtime };
     auto& runtime = *window->runtime;
     const bool modal_boundary = (message == WM_ENTERSIZEMOVE) || (message == WM_EXITSIZEMOVE) ||
         (message == WM_ENTERMENULOOP) || (message == WM_EXITMENULOOP);

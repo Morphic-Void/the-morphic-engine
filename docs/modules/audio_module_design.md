@@ -9,15 +9,18 @@ Date:    30 Oct 2026
 
 ## Status and agreed envelope
 
-Implementation now follows this agreed plan in the shared checkout. See the
+This is the completed Audio design and historical planning record. See the
 [implementation and validation record](audio_module_validation.md) for current
 coverage, the approved private context initializer and playback limitations.
-The original planning and review statements below are retained as history.
+The [Host execution reference](host_pump_foundation.md) and
+[preamble qualification ledger](module_preamble_validation.md) supersede the old
+thread-entry, bootstrap and receiver mechanics below. Original planning and review
+statements are retained as history, not open implementation tasks.
 
 The 5 November 2026 [direct POD connection contract](direct_pod_connections.md)
 supersedes this plan's Host test forwarding, global busy gate and synthetic
 worker-exit completion. Test payloads now live in Framework and travel directly
-between Executive and Audio through growable queues. Normal conversations finish
+between Executive and Audio through fixed POD rings under the current preamble. Normal conversations finish
 before closing; explicit unload/shutdown cancels and waits for device cleanup
 without requiring a cancelled result to cross the closing boundary.
 
@@ -42,21 +45,21 @@ The agreed first stage is deliberately small:
 The initial Audio behaviour and policies below were agreed through 31 October
 2026. The timed-wait prerequisite is delivered, and the initial check interval,
 suspend treatment and matching Executive watchdog semantics below are agreed.
-File layout and adapter mechanics remain implementation guidance. Audio
-implementation has not started.
+File layout and adapter mechanics below describe the original implementation
+guidance; Audio implementation and the later execution-context migration are complete.
 
-## Existing implementation and reuse
+## Historical pre-implementation inventory (30–31 October)
 
-| Area | Current code | Planned use |
+| Area | Code at the original checkpoint | Planned use at that checkpoint |
 | --- | --- | --- |
-| Module binding | [module_binding.hpp](../../core/module/module_binding.hpp), [module_binding_context.cpp](../../core/module/module_binding_context.cpp) | Reuse bootstrap v3 and the optional `morphic_module_service_thread_v1` export. |
-| Working service | [rendering_binding.cpp](../../rendering/module/binding/rendering_binding.cpp), [rendering_thread.cpp](../../rendering/runtime/rendering_thread.cpp) | Follow binding, thread preparation, readiness, message handling and terminal-state conventions; do not copy texture/shader machinery. |
-| Generic tests | [module_messages.hpp](../../core/module/module_messages.hpp), `modules::RunTestsRequest` / `modules::RunTestsResult` | Already express a module destination, correlation, status and counts. No new Audio-specific message types are needed. |
+| Module binding | `core/module/module_binding.hpp`, `core/module/module_binding_context.cpp` | Reuse bootstrap v3 and the optional `morphic_module_service_thread_v1` export. |
+| Working service | [rendering_binding.cpp](../../rendering/module/binding/rendering_binding.cpp), [rendering_thread.cpp](../../rendering/runtime/rendering_execution.cpp) | Follow binding, thread preparation, readiness, message handling and terminal-state conventions; do not copy texture/shader machinery. |
+| Generic tests | `core/module/module_messages.hpp`, `modules::RunTestsRequest` / `modules::RunTestsResult` | Already express a module destination, correlation, status and counts. No new Audio-specific message types are needed. |
 | Host routing | [host.cpp](../../host/runtime/host.cpp), `request_tests`, `complete_tests` | Routes to any registered module service thread. One run is active globally; caller and worker are retained until completion. |
-| Unload | [module_service.cpp](../../host/runtime/module_service.cpp), `CHost::stop_module_thread` | Stop/join the service before dependency disposal and worker-side unbinding. Audio must stop all vendor callbacks before publishing terminal state. |
-| Executive | [executive_thread.cpp](../../executive/runtime/executive_thread.cpp) | Extend the existing test flow to load Audio as it loads Rendering and run both modules' generic tests sequentially. |
-| Waiting | [CThreadPackage.hpp](../../core/threading/CThreadPackage.hpp), [CWaitPredicate.hpp](../../core/threading/CWaitPredicate.hpp), [wait_deadline.hpp](../../core/platform/threading/wait_deadline.hpp) | Commit `0481576` supplies deadline-taking waits with explicit outcomes; existing indefinite waits and message/exit wakeups remain available. |
-| Memory | [memory_context.hpp](../../core/memory/memory_context.hpp) | Explicit-context allocate/deallocate and allocation attribution; no direct realloc operation. |
+| Unload | [module_service.cpp](../../host/module/module_service.cpp), `CHost::stop_module_thread` | Stop/join the service before dependency disposal and worker-side unbinding. Audio must stop all vendor callbacks before publishing terminal state. |
+| Executive | [executive_thread.cpp](../../executive/runtime/executive_execution.cpp) | Extend the existing test flow to load Audio as it loads Rendering and run both modules' generic tests sequentially. |
+| Waiting | `core/threading/CThreadPackage.hpp`, `core/threading/CWaitPredicate.hpp`, `core/platform/threading/wait_deadline.hpp` | Commit `0481576` supplies deadline-taking waits with explicit outcomes; existing indefinite waits and message/exit wakeups remain available. |
+| Memory | `core/memory/memory_context.hpp` | Explicit-context allocate/deallocate and allocation attribution; no direct realloc operation. |
 | Vendor | [miniaudio.h](../../external/miniaudio/miniaudio.h), [sine example](../../external/miniaudio/examples/simple_playback_sine.c) | Low-level playback/device API and a standalone sine example already exist in the checkout. |
 
 The pinned miniaudio gitlink is
@@ -490,8 +493,8 @@ and notification mapping remain implementation details to verify within this
 scope. Physical Linux playback validation remains dependent on the Linux machine
 being available. No wider Audio functionality or Platform work is required.
 
-This is an integration review, not the start of Audio implementation. No Audio
-integration is implied by the framework API's availability or this document.
+This was the pre-implementation integration review. Delivery and later migration
+are recorded in the current references linked at the start of this document.
 
 ## Documentation review record
 

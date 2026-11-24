@@ -11,105 +11,13 @@
 
 #include <cstdlib>
 #include <cstring>
-#include "tests/input_host/control.hpp"
+#include "tests/input_host/platform_access.hpp"
 #include "platform/runtime/platform_runtime.hpp"
 #include "platform/runtime/input_acceptance.hpp"
 #include "containers/TInstance.hpp"
 #include "debug/macros.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 
-namespace platform::runtime
-{
-struct SInputAcceptanceAccess
-{
-    static services::CProviderClient& services(CPlatformRuntime& runtime) noexcept { return runtime.m_services; }
-    static std::int32_t reserve(CPlatformRuntime& runtime, const services::ServiceRequest& request) noexcept
-    { return runtime.reserve(request, true); }
-    static void complete(CPlatformRuntime& runtime, const std::int32_t slot, const services::EServiceStatus status) noexcept
-    { runtime.complete(slot, status); }
-    static const CInputConnection* connection(const CPlatformRuntime& runtime, const std::uint32_t index) noexcept
-    { return runtime.m_inputs[index] ? &*runtime.m_inputs[index] : nullptr; }
-    static bool idle(const CPlatformRuntime& runtime) noexcept
-    {
-        const CDesktopInput& desktop = runtime.m_desktop;
-        if (desktop.m_count || desktop.m_baseline_pending || desktop.m_baseline_inflight || desktop.m_cutover || desktop.m_losing)
-        {
-            return false;
-        }
-        for (const TInstance<CInputConnection>& connection : runtime.m_inputs)
-        {
-            if (connection && (connection->mapper().pending() || connection->source_baseline_pending ||
-                connection->source_baseline_inflight || connection->snapshot().pending || connection->snapshot().ingress_pending))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-    static bool history_runnable(const CPlatformRuntime& runtime, const std::uint64_t instance) noexcept
-    {
-        if (!runtime.m_input_focus || runtime.m_modal_depth[0] || runtime.m_modal_depth[1] || runtime.m_stopping)
-        {
-            return false;
-        }
-        for (const CPlatformRuntime::SDevice& device : runtime.m_devices)
-        {
-            if (!device.token || (device.info.device != instance))
-            {
-                continue;
-            }
-            for (const TInstance<CInputConnection>& current : runtime.m_inputs)
-            {
-                if (current && (current->snapshot().device == device.token) &&
-                    (current->snapshot().phase != input::EPhase::closing))
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-    static std::uint32_t occupancy(const CInputConnection& connection, const std::uint32_t stream) noexcept
-    {
-        return (stream == input::k_actions) ? (input::k_action_capacity - connection.m_actions.writable_count()) :
-            (connection.view.text ? (input::k_text_capacity - connection.m_text.writable_count()) : 0u);
-    }
-    static bool freeze_idle(const CPlatformRuntime& runtime, input_host::SFreezeProgress& progress) noexcept
-    {
-        const CDesktopInput& desktop = runtime.m_desktop;
-        const bool desktop_busy = desktop.m_count || desktop.m_baseline_pending || desktop.m_baseline_inflight ||
-            desktop.m_cutover || desktop.m_losing;
-        std::uint32_t mappers = 0u, baselines = 0u, boundaries = 0u, ingress = 0u, actions = 0u, text = 0u;
-        for (std::uint32_t index = 0u; index < input_host::k_pipe_count; ++index)
-        {
-            const CInputConnection* const current = connection(runtime, index);
-            if (!current) continue;
-            const std::uint32_t bit = 1u << index;
-            if (current->mapper().pending()) mappers |= bit;
-            if (current->source_baseline_pending || current->source_baseline_inflight) baselines |= bit;
-            if (current->snapshot().pending) boundaries |= bit;
-            if (current->snapshot().ingress_pending) ingress |= bit;
-            if (occupancy(*current, input::k_actions)) actions |= bit;
-            if (occupancy(*current, input::k_text)) text |= bit;
-        }
-        progress.desktop.store(desktop_busy, std::memory_order_relaxed);
-        progress.mappers.store(mappers, std::memory_order_relaxed);
-        progress.baselines.store(baselines, std::memory_order_relaxed);
-        progress.boundaries.store(boundaries, std::memory_order_relaxed);
-        progress.ingress.store(ingress, std::memory_order_relaxed);
-        progress.actions.store(actions, std::memory_order_relaxed);
-        progress.text.store(text, std::memory_order_relaxed);
-        return !desktop_busy && !(mappers | baselines | boundaries | ingress | actions | text);
-    }
-    static acceptance::SObservationTrace origin(const CInputConnection& connection) noexcept
-    {
-        const CInputMapper& mapper = connection.m_mapper;
-        const bool admitted = (mapper.m_observation.kind == runtime::EObservationKind::text) ? mapper.m_text_admitted : mapper.m_admitted;
-        return (admitted && !mapper.m_selective && !mapper.m_observation.baseline) ?
-            mapper.m_observation.trace : acceptance::SObservationTrace{};
-    }
-};
-}
 
 namespace platform::acceptance
 {
@@ -126,8 +34,9 @@ struct SDevice
 };
 struct SState
 {
-    explicit SState(const modules::SHostPumpContext& source) noexcept : context{ source } {}
-    const modules::SHostPumpContext& context;
+    explicit SState(const modules::SExecutionContext& source) noexcept : context{ source }, communication{ *source.communication } {}
+    const modules::SExecutionContext context;
+    const modules::CCommunication communication;
     SShared shared;
     runtime::CPlatformRuntime* runtime{};
     SView view;
@@ -141,6 +50,8 @@ struct SState
     bool controllers_started{}, report_case{}, report_hold{}, report_departure{};
     std::uint64_t delay_end{};
     std::uint32_t report_ordinal{}, report_steps{};
+    ::threading::CErasedPodMsg stale_report, read_report, release_report;
+    bool stale_pending{}, read_pending{}, release_pending{}, read_waiting{}, release_waiting{};
     std::uint64_t next_device{ 1u }, next_origin{}, pump_start{};
     platform::system::CPerfCountConversion conversion;
     SDevice devices[4];
@@ -257,7 +168,7 @@ const native::SReportAdapter& report_adapter() noexcept
     return state_owner()->report_case ? injected : native::report_adapter();
 }
 
-bool initialise(const modules::SHostPumpContext& context) noexcept
+bool initialise(const modules::SExecutionContext& context) noexcept
 {
     if (state_owner() || !state_owner().emplace(context))
     {
@@ -288,7 +199,13 @@ bool initialise(const modules::SHostPumpContext& context) noexcept
     return true;
 }
 void destroy() noexcept { state_owner().reset(); }
-bool retired() noexcept { return !state_owner() || !state_owner()->borrow.value; }
+bool retired() noexcept
+{
+    if (!state_owner()) return true;
+    const SState& state = *state_owner();
+    return !state.borrow.value && !state.stale_pending && !state.read_pending && !state.release_pending &&
+        !state.read_waiting && !state.release_waiting;
+}
 
 bool command(runtime::CPlatformRuntime& runtime, const services::SDispatchedCommand& dispatched) noexcept
 {
@@ -381,8 +298,13 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
             {
                 const reports::PlatformReportCaptureFailed stale{
                     { request.capture.platform_instance, (request.capture.capture_id - 1u) }, { reports::EStage::capture, reports::EReason::clock_failed } };
-                const auto previous = ::threading::make_pod_message(-1, stale);
-                (void)services::submission_status(state.context.endpoint->post(previous));
+                if (state.stale_pending)
+                {
+                    state.runtime->native_failure(UINT32_MAX);
+                    return;
+                }
+                state.stale_report = ::threading::make_pod_message(-1, stale);
+                state.stale_pending = true;
             }
         }
         else if (message.copy_payload_to(receipt) && state.report_hold && (receipt.disposition == reports::EDisposition::interrupted))
@@ -397,24 +319,31 @@ void message(const ::threading::CErasedPodMsg& message) noexcept
         else if (message.copy_payload_to(receipt) && (state.report_ordinal == 1u) &&
             (receipt.disposition == reports::EDisposition::published))
         {
-            const auto read = ::threading::make_pod_message(710, reports::PlatformReportRequest{});
-            if (services::submission_status(state.context.endpoint->post(read)) != EServiceStatus::success)
-            {
-                MV_LOG(error, "Platform report fixture could not submit current read");
-            }
+            state.read_report = ::threading::make_pod_message(710, reports::PlatformReportRequest{});
+            state.read_pending = true;
         }
         else if (message.copy_payload_to(current) && (message.query_async_slot() == 710))
         {
-            const auto release = ::threading::make_pod_message(711, AssetReleaseRequest{ current.acquisition });
-            if ((current.status != reports::EStatus::success) || !current.acquisition || !current.bytes.size() ||
-                (services::submission_status(state.context.endpoint->post(release)) != EServiceStatus::success))
+            state.read_waiting = false;
+            if ((current.status != reports::EStatus::success) || !current.acquisition || !current.bytes.size())
             {
                 MV_LOG(error, "Platform report fixture failed to acquire current");
+                state.runtime->native_failure(UINT32_MAX);
+            }
+            if (current.acquisition)
+            {
+                state.release_report = ::threading::make_pod_message(711, AssetReleaseRequest{ current.acquisition });
+                state.release_pending = true;
             }
         }
-        else if (message.copy_payload_to(released) && (message.query_async_slot() == 711) && (released.status == EAssetStatus::success))
+        else if (message.copy_payload_to(released) && (message.query_async_slot() == 711))
         {
-            MV_LOG(info, "Platform independently acquired and released the Host report");
+            state.release_waiting = false;
+            if (released.status == EAssetStatus::success)
+            {
+                MV_LOG(info, "Platform independently acquired and released the Host report");
+            }
+            else state.runtime->native_failure(UINT32_MAX);
         }
     }
     services::ServiceBorrowControl control;
@@ -443,7 +372,30 @@ void progress(runtime::CPlatformRuntime& runtime, const bool stopping) noexcept
 {
     if (!state_owner()) return;
     SState& state = *state_owner();
-    const modules::SHostPumpContext& context = state.context;
+    if (stopping)
+    {
+        state.stale_pending = false;
+        state.read_pending = false;
+    }
+    //  These three named operations retain refusal locally. Acceptance, including
+    //  a failed wake after publication, transfers each exactly once.
+    const auto publish = [&](::threading::CErasedPodMsg& pending, bool& live, bool* const waiting) noexcept
+    {
+        if (!live) return;
+        const modules::ESubmission status = state.communication.submit({}, pending);
+        if (modules::accepted(status))
+        {
+            live = false;
+            if (waiting) *waiting = true;
+        }
+        else if (status != modules::ESubmission::busy)
+        {
+            runtime.native_failure(UINT32_MAX);
+        }
+    };
+    publish(state.stale_report, state.stale_pending, nullptr);
+    publish(state.read_report, state.read_pending, &state.read_waiting);
+    publish(state.release_report, state.release_pending, &state.release_waiting);
     if (stopping) state.shared.closing.store(true);
     if (state.shared.closing.load() && (state.secondary_cleanup_completion >= 0))
     {
@@ -551,7 +503,7 @@ void pump_end() noexcept
             progress.history[index].store(state.devices[index].count, std::memory_order_relaxed);
             history = history || (state.devices[index].count != 0u);
         }
-        const bool idle = SInputAcceptanceAccess::freeze_idle(*state.runtime, progress);
+        const bool idle = SInputAcceptanceAccess::freeze_idle(*state.runtime, progress, state.native);
         if (feed || history || !idle)
         {
             return;

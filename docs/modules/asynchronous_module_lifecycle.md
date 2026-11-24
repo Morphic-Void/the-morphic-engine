@@ -9,7 +9,8 @@ Date:   21 Sep 2026
 # Asynchronous module lifecycle
 
 This reference describes the implemented Host module service, Executive startup
-policy and module lifecycles with a coordinator pump and optional requested threads. The
+policy and module lifecycles with Host-owned preambles, a coordinator context
+and optional requested service contexts. The
 [Host foundation](host_pump_foundation.md), [borrow protocol](service_borrow_lifetimes.md)
 and [restriction/maintenance contract](host_restriction_maintenance.md) specify
 the generic execution and lifetime boundaries in detail. Completion history and
@@ -28,7 +29,8 @@ The module catalogue contains `executable`, `executive`, `conditioning_general`,
 `simulation` thread identities support independent-service lifecycle fixtures. The production renderer's identity
 is backend-neutral. The batch-runner thread range remains contiguous and covers
 all 32 supported runners. Audio requests its service thread through its minimal
-coordinator pump; Platform runs its service provider in its pump.
+Host standard coordinator; Platform runs its service provider in a pumped
+module-owned execution class.
 
 Pre-release catalogue ordinals are not a compatibility promise. Removing entries
 changes encoded identities and dependency bits, so clean-build all components and
@@ -40,15 +42,16 @@ solely to preserve earlier pre-release numbering.
 
 The Host starts its configured workers and builds the filesystem image on its file I/O
 worker before requesting the Executive DLL. Its normal
-message loop receives the binding completion and activates the Executive pump,
-which asynchronously requests its service thread. Per-thread context installation still runs on the newly created thread,
-because that operation installs thread-local state. Creation success is separate
-from module readiness; the minimal pump waits for its exact child readiness notice
-after initialization and validated direct registration.
+message loop receives the binding completion and starts the Executive
+coordinator, which asynchronously requests its serviced child. Per-thread context
+installation runs on the newly created thread because it installs thread-local
+state. Creation success is separate from module readiness; the Host standard
+coordinator waits for its exact child readiness notice after initialization and
+validated direct participation.
 
 The [bootstrap configuration file](../project/bootstrap_configuration.md) requires
 `executive=<logical module filename>` to select the implementation advertising the
-Executive identity and exporting the mandatory Host pump. The checked-in
+Executive identity and exporting `morphic_module_execution_v1`. The checked-in
 flow-test presets select `package:/bin/MorphicExecutive.${module_extension}`.
 The bootstrap reader expands the token to the native extension before requesting the module.
 The [development filesystem image](../../development/README.md#build-output-redirect)
@@ -63,27 +66,29 @@ the correlated acknowledgement before accepting completion, then asks Rendering
 to run its own tests through `RunTestsRequest` on a negotiated direct connection.
 After completion and connection retirement, it loads `MorphicAudio` and
 requests its finite tone acceptance test. Audio success or explicit no-output-device
-`unavailable`/skipped completion permits the general asset acceptance flow (currently
-73 sequential and 32 concurrent operations). Other Audio failures fail startup.
+`unavailable`/skipped completion permits the sequential and concurrent asset
+acceptance flow. Other Audio failures fail startup.
 See the [Audio validation record](audio_module_validation.md). The normal flow
 does not load Platform or create a window.
 
 After Executive replacement, `already_loaded` is accepted only for the requested
 Rendering/Audio identity with `available == true`; no extra thread, unload or replacement
 is requested. Missing/unavailable services, failed completion and malformed
-startup replies cause an Executive self-unload request. Initial request-submission
-failure still marks Executive startup failed. The existing per-operation deadline
-also covers the acknowledgement/completion phases and waiting for Host-requested
-exit; there is no retry policy.
+startup replies report a fatal Executive callback result and initiate Host-wide
+shutdown. Definite transport busy retains the unsent operation; accepted publication
+is never duplicated. Watchdogs cover acknowledgement/completion and progress,
+using the [stall-detector policy](module_preamble_design.md) rather than an
+unbounded timing-read loop. No automatic failed-module restart is selected.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Starting: start Host workers
     Starting --> Running: bind completion, start Executive
-    Running --> StoppingExecutive: self request or thread termination
+    Running --> StoppingExecutive: accepted self request
     StoppingExecutive --> ReplacingExecutive: joined, operations drained, replacement requested
     ReplacingExecutive --> Running: replacement bound and thread started
     StoppingExecutive --> ShuttingDown: no replacement
+    Running --> ShuttingDown: fatal active/pending Executive failure
     Starting --> ShuttingDown: failure
     ReplacingExecutive --> ShuttingDown: failure
     ShuttingDown --> [*]: dependent cleanup and DLL unloads, remaining assets, workers
@@ -144,9 +149,8 @@ replacement busy; only Executive itself or Host lifecycle handling can use its
 special self-transition path. Ordinary non-Executive self-transitions are rejected.
 
 The requesting client must quiesce its use of the affected DLL until completion.
-The default Executive response to a failed module operation is a self-unload
-request, causing system shutdown. More selective recovery is left to future
-Executive policy.
+The default Executive reports a fatal failed module operation; Host initiates
+framework-wide shutdown. More selective recovery is left to future Executive policy.
 
 ## Rendering DLL and thread
 
@@ -158,13 +162,14 @@ identity at the `render` mount on both Windows and Linux, with the existing
 Vulkan is the chosen backend; the module identity does not encode that choice.
 This stage contains no graphics API calls, graphics resources or actual rendering.
 
-An ordinary owning `ModuleRequest` loads the DLL. Rendering advertises its
-service thread through the generic capability described below. The normal
-Executive requires that capability when selecting Rendering. The entry point
-verifies the installed thread context, publishes readiness, and services
-requests and batch completions until accepted work drains during exit.
-Selector Executives may omit Rendering entirely. The existing
-`rendering_thread_function` query remains available to explicit callers.
+An ordinary owning `ModuleRequest` loads the DLL. Rendering exports the current
+execution descriptor with a Host standard coordinator and initial serviced child.
+Its module-owned class publishes readiness through progress and handles requests,
+asynchronous work and batch completions through the common preamble. Thin ABI
+adapters preserve execution-thread identity and affine creation/destruction.
+Selector Executives may omit Rendering entirely. Explicit unsupported function
+requests are rejected; the lifecycle fixture verifies this with a current message
+type identity that is not a callable function.
 
 Rendering load/replacement keeps the module operation pending through thread
 startup. A failed startup joins and destroys its package, then dispatches
@@ -173,11 +178,12 @@ It reports `installation_failed` when that cleanup succeeds, or the cleanup
 failure otherwise. Both acknowledgement and completion retain the original
 client correlation.
 
-Rendering unload/replacement requests exit and observes the terminal state
-before draining the thread's final requests. The stopped package and its reply
-transports remain alive until all accepted asset operations, including deferred
-disposal replies, have completed. The Host then joins and destroys the package,
-disposes remaining dependent assets, and dispatches unbinding. Full shutdown uses the
+Rendering unload/replacement requests stop and preserves the final publication
+frontiers. Domain work completion, affine destruction, native return/join and
+endpoint retirement are separate facts. Final accepted disposal requests may
+settle after native join; the endpoint and its operation state remain retained
+until the required asset/reply obligations settle. Host then retires the endpoint,
+disposes remaining dependent assets and dispatches unbinding. Full shutdown uses the
 same path. Ordinary rendering transitions neither request Executive exit nor
 suppress its replies. A loaded rendering thread survives Executive replacement
 until a rendering request or full system shutdown stops it.
@@ -187,32 +193,29 @@ The test Executive, deliberate missing-export/failed-startup DLLs, and a renderi
 fixture that posts disposals during exit remain fixtures; production rendering
 contains no test switches.
 
-## Module pumps and requested threads
+## Common execution contexts and requested children
 
-Every bound module exports `morphic_module_host_pump_v1` and coordinates its
-lifecycle through `SHostPumpV1`. Host validates this capability on the binding
-worker, then installs module-local context for activation and subsequent Host
-invocations. A passive module uses a minimal pump with no child thread.
+Every bound module exports `morphic_module_execution_v1`. Host validates the
+version-1 `SExecutionV1` descriptor on the binding worker. Custom contexts supply
+thin create/handle/destroy adapters to a module-owned class with a bound facade;
+an entirely absent callback set selects the Host standard coordinator, optionally
+with one initial serviced child. Partial callbacks and unsupported layouts fail.
 
-Each pump and requested thread owns a separate common endpoint. Either may
-submit `CreateThreadRequest`; Host provisions and prepares the native execution
-asynchronously and reports its outcome to both requester and coordinator.
-Creation, execution end and endpoint retirement are distinct facts. Requests
-already admitted remain module obligations when the requester exits. Exact
-endpoint identities prevent stale results from reaching replacements.
+Each pumped or serviced context has its own Host preamble, private lifecycle rings,
+ordinary POD rings and owning lane towards Host. Contexts submit child creation
+and stop intents through the facade. Creation outcome, readiness, native end and
+endpoint retirement are distinct private lifecycle facts, reported as typed
+notifications. Accepted creation remains an obligation after requester departure.
+The standard coordinator waits for successful creation and matching readiness;
+a stopped/failed child cannot complete startup.
 
-The built-in minimal coordinator waits for both successful creation and the
-matching child's `EndpointReady` notice. Children publish readiness after local
-initialization and direct-service registration. Host validates registration
-before forwarding readiness in the same FIFO. Failed, stopped or retired
-children cannot complete module startup. A no-child pump is ready immediately.
-
-Stopping remains durable while Host continues fair queue and service progress.
-Host joins only returned native execution and drains its final submissions before
-retiring resources. Pumps close provider admission and seal their POD and owning
-submission boundaries after child retirement. Unload waits for accepted work,
-borrowers, batch publishers and notification users before local destruction and
-worker-side unbinding. Executive replacement preserves independent modules.
+Ordinary stop reaches the coordinator first so custom ordered child shutdown is
+preserved. Host continues cleanup, accounts final publication prefixes and grants
+affine destruction only after module-state users are safe. Native return, join,
+final ingress/resource retirement and worker-side unbinding remain separate gates.
+Executive replacement preserves independent modules. See the
+[execution reference](host_pump_foundation.md) for the current boundary and failure
+retention rules.
 
 ## Host-pumped services
 
@@ -245,7 +248,9 @@ and notification pins remain alive until both participants relinquish them, or
 Host proves an abandoned participant's final queue drain and native join.
 
 Lifecycle fixtures exercise Rendering as caller and Executive as worker, final
-replies, worker exit without a reply, and caller unload during a conversation.
+replies, cooperative Executive self-stop with a pending POD conversation, and
+caller unload during a conversation. Separate native lifetime tests cover
+return/join retention; cooperative self-stop is not abrupt-thread-return evidence.
 Platform's window/input protocols continue to use service commands. Direct POD
 transport itself supports pumps and service threads; this test conversation's
 participants are an application choice. Its shell fixtures check repeated unsupported
@@ -311,21 +316,28 @@ destruction or unbinding; see the Host foundation's process-ownership contract.
 - `framework/filesystem/filesystem_messages.hpp`: logical filesystem refresh messages in `filesystem`.
 - `host/runtime/host_payloads.hpp`: private worker exchange, registered in the
   Host's LOCAL catalogue (and separately in the service-test binary).
-- `host/runtime/module_service.*`: admission, stable records, worker-job lifetime
-  and completion routing, including thread-start completion.
+- `host/module/module_service.*`: admission, stable records, worker-job lifetime
+  and completion routing, including execution-start completion and retained results.
 - `host/runtime/host.cpp`: bootstrap, queue draining and thread/package lifetime.
-- `host/runtime/client_record.*`, `pumped_client.*`, `service_router.*` and
-  `service_borrows.*`: exact clients, pumped execution, routes and borrow retirement.
-- `host/runtime/host_worker_thread.cpp`: shared binding/unbinding handlers.
+- `host/runtime/execution/client_record.*` and `pumped_client.*`: exact clients
+  and pumped execution.
+- `host/runtime/services/service_router.*` and `service_borrows.*`: routes and
+  borrow retirement.
+- `host/runtime/execution/module_preamble.*`, `module_preamble_communication.cpp`
+  and `module_preamble_lifecycle.cpp`: common dispatch, facade routing and private
+  lifecycle/frontier processing.
+- `host/runtime/host_endpoints.cpp` and `host_ingress.cpp`: Host endpoint lifetime,
+  retained input and bounded admission/output progression.
+- `host/runtime/workers/host_worker_thread.cpp`: shared binding/unbinding handlers.
 - `rendering/module/binding/*` and `rendering/runtime/*`: module binding and the
   Rendering service, module-local tests and conditioning work.
-- `executive/runtime/executive_thread.cpp`: Rendering/Audio selection and acceptance gates.
+- `executive/runtime/executive_execution.cpp`: Rendering/Audio selection and acceptance gates.
 - `platform/runtime/*` and `platform/native/*`: portable pumped window service and native adapters.
 
 ## Validation
 
 Run `tests/module_lifecycle/run_tests.ps1 -Configuration Debug -Platform x64`
-from PowerShell. The script builds the solution and four roles of the standalone
+from PowerShell. The script builds the solution and six roles of the standalone
 `MorphicLifecycleFixture.vcxproj`, then launches isolated Host processes.
 Use `Release` and/or `Win32` for other configurations; `-SkipBuild` requires all
 matching solution and fixture binaries to have already been built.
@@ -335,8 +347,9 @@ the harness in each Debug/Release and x64/Win32 job with one and two requested
 Host workers, retaining the isolated runtime logs and test output.
 
 The fixture project is maintained test infrastructure outside the solution.
-It produces the Executive driver, missing-thread-export, failed-thread-start
-and disposal-at-exit DLLs. Successful rendering service cases use the real stub.
+It produces Executive, MissingExecution, RenderingFailure, RenderingDisposal,
+Service and Passive DLLs. Successful rendering service cases also use the real
+Rendering module. MissingExecution deliberately lacks the current execution export.
 The production renderer contains no test switches. Adding the fixture project
 to the solution for IDE visibility is not required by the harness.
 
@@ -353,8 +366,9 @@ The lifecycle harness covers:
   followed by filesystem refresh/cache operations and bundle persistence.
 - Explicit disposal, invalid/stale IDs, saves admitted before disposal, dependent
   cleanup and preservation of unrelated retained assets.
-- Disposal requests posted by rendering immediately before terminal publication:
-  the final queue is drained and replies finish before package destruction.
+- Disposal requests accepted immediately before domain completion: Host accounts
+  final ingress and retains operation/resource state until settlement, including
+  completion after native join but before endpoint retirement/unload.
 - Bundle persistence, deterministic rebaking, virtual-root refresh/cache rules,
   post-closure sub-file saves and final-notification ordering before root reuse.
   Batch borrowers run both queued and inline while retained records protect bytes.
@@ -380,11 +394,14 @@ assertions, exit/join/unload ordering, I/O-worker building and conditioning-work
 preparation (or shared-worker fallback). The rendering
 exit-disposal regression allows saves to finish before disposal is requested.
 When a reply is deferred, it checks deferral-to-completion ordering; in either
-case, both disposal completions must precede the Rendering thread join.
+case, both disposal completions must precede endpoint retirement and DLL unload;
+completion after native join is explicitly allowed.
 Missing/failing normal-renderer tests use isolated binary copies under `build/`.
 
 Core `MorphicTests -t1` covers dependency disposal and compact message compatibility.
 Its real-Executive protocol tests exercise successful and already-loaded replies,
 wrong identity/correlation, unavailable service, load failure, missing/duplicate
 acknowledgement and initial submission failure. The test script and suites are
-the executable coverage inventory; milestone counts describe dated runs.
+the executable coverage inventory; milestone counts describe dated runs. The
+[current qualification ledger](module_preamble_validation.md) records the final
+45-case Windows lifecycle evidence, matching consumers and failed/unrun limits.

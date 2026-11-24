@@ -4,6 +4,15 @@ Implemented and validated 10 November 2026 following approval of this contract.
 This integration and measurement pass preserves the public input contract. Its
 private fixture controls and trace hooks are confined to the acceptance build.
 
+The 23–24 November [preamble qualification ledger](module_preamble_validation.md)
+records the subsequent class/facade migration, current builds, physical input
+observations and corrected unfocused freeze/cleanup fixture. Host now owns the
+serviced wait/dispatch loop. The sections below retain earlier acceptance and
+measurement evidence; their counts and timings belong to those binaries. Current
+`wait_requests` counts successful callback requests to park, and `service_passes`
+counts bounded consumer invocations; neither proves an actual native wait. The
+original failed native cleanup is preserved separately from the accepted correction.
+
 The [desktop](desktop_input.md) and [controller](controller_input.md) records cover
 Windows physical behaviour in a fixture that directly pumps Platform. This record
 adds the actual Host scheduler, module boundaries and independently scheduled
@@ -15,15 +24,16 @@ software-path baseline; they do not measure physical actuation or display latenc
 Use the existing `tests/host_pump` real-module fixture pattern in an isolated test
 root. Run the actual engine/Host and load Platform normally. A fixture Executive
 acts as an ordinary module consumer on its own service thread. It does not call
-`CPlatformRuntime::pump`, sleep on the Host thread or submit arbitrary worker jobs.
+Platform handlers directly, sleep on the Host thread or submit arbitrary worker jobs.
 Host workers retain their nominated schema-conditioning/binding responsibilities;
 batch-runner fallback and Host scheduling policy are unchanged.
 
 Publish/acquire the fixture schema asset through normal Host services, install it
 through Platform, then acquire the window, controller catalogue, desktop connection
 and controller pipes through public requests. Retain the source asset through
-installation completion. Use `CServiceBorrowClient` and `CInputReader` for prepared
-replies, notification registration, readiness and initial/subsequent boundaries.
+installation completion. The module-owned `CBorrowExecution` helper retains
+prepared replies, notification registration and borrow retirement; `CInputReader`
+handles readiness and initial/subsequent boundaries.
 Exercise one desktop connection and up to four independently assigned controller
 pipes. A focused second-consumer case checks distinct ownership and retirement;
 one designated reader owns each connection throughout its lifetime.

@@ -48,13 +48,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
-    <FixtureRole Condition="'$(FixtureRole)'==''">MissingPump</FixtureRole>
+    <FixtureRole Condition="'$(FixtureRole)'==''">MissingExecution</FixtureRole>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(FixtureRole)\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>MorphicLifecycle$(FixtureRole)</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='MissingPump'">MV_LIFECYCLE_MISSING_PUMP=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='MissingExecution'">MV_LIFECYCLE_MISSING_EXECUTION=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='Executive'">MV_LIFECYCLE_EXECUTIVE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingFailure'">MV_LIFECYCLE_RENDERING_FAILURE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingDisposal'">MV_LIFECYCLE_RENDERING_DISPOSAL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -97,19 +97,21 @@
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
     <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v1=_morphic_module_bootstrap_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And '$(FixtureRole)'!='MissingPump'">
-    <Link><AdditionalOptions>/EXPORT:morphic_module_host_pump_v1=_morphic_module_host_pump_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And ('$(FixtureRole)'=='Executive' Or '$(FixtureRole)'=='Service' Or '$(FixtureRole)'=='Passive' Or '$(FixtureRole)'=='RenderingFailure' Or '$(FixtureRole)'=='RenderingDisposal')">
+    <Link><AdditionalOptions>/EXPORT:morphic_module_execution_v1=_morphic_module_execution_v1@8 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\module_lifecycle\fixture.cpp" />
-    <ClCompile Include="..\tests\module_lifecycle\bundle_cases.cpp" />
     <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\tests\module_lifecycle\bundle_cases.hpp" />
     <ClInclude Include="..\tests\support\host_test_paths.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp" />
-    <ClInclude Include="..\tests\module_lifecycle\direct_service.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\service_execution.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\fixture_io.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\executive_execution.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\save_execution.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\bundle_execution.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def" />
     <ClInclude Include="..\tests\module_lifecycle\local_types.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\erased_owner_payloads.def" />

@@ -12,6 +12,7 @@
 #pragma once
 
 #include "framework/threading/messages/CErasedPodMsg.hpp"
+#include "framework/module/module_execution.hpp"
 
 #include "framework/assets/asset_messages.hpp"
 #include "runtime/texture_requests.hpp"
@@ -36,7 +37,7 @@ struct SResourceResult
 struct SAssetChannel
 {
     void* context{ nullptr };
-    bool(*post)(void*, const threading::CErasedPodMsg&) noexcept{ nullptr };
+    modules::ESubmission(*post)(void* const, const threading::CErasedPodMsg&) noexcept{ nullptr };
 };
 
 class CResourceRequests final
@@ -54,12 +55,15 @@ public:
     [[nodiscard]] bool pending() const noexcept { return !m_operations.is_empty(); }
     [[nodiscard]] bool jobs_pending() const noexcept { return m_textures.pending() || m_shaders.pending(); }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
+    //  A bounded pass schedules continuation only while publication succeeds.
+    //  Full output waits for the facade's capacity notification.
+    [[nodiscard]] bool progress() noexcept;
 
     //  These positive slots cannot collide with test/asset-publication slots.
     static constexpr std::int32_t k_first_slot = 0x10000000;
 
 private:
-    enum class EPhase : std::uint8_t { acquiring, running, releasing, ready };
+    enum class EPhase : std::uint8_t { acquire_pending, acquiring, running, release_pending, releasing, ready };
     struct SOperation
     {
         TextureEncodeRequest encode;
@@ -71,16 +75,20 @@ private:
         std::int32_t correlation{ -1 };
         EResourceKind kind{ EResourceKind::none };
         EPhase phase{ EPhase::acquiring };
+        CAssetId source;
+        EAssetAcquireView view{};
     };
     [[nodiscard]] SOperation* reserve(std::int32_t correlation, EResourceKind kind) noexcept;
     [[nodiscard]] SOperation* find(std::int32_t identity) noexcept;
     void acquire(SOperation& operation, CAssetId source, EAssetAcquireView view) noexcept;
     void finish(SOperation& operation) noexcept;
+    [[nodiscard]] bool publish(SOperation& operation) noexcept;
     static void texture_complete(void* self, std::int32_t identity, STextureResult&& result) noexcept;
     static void shader_complete(void* self, std::int32_t identity, ShaderCompileResult&& result) noexcept;
     SAssetChannel m_assets;
     TUnorderedCollection<SOperation> m_operations;
     std::int32_t m_next{ k_first_slot };
+    std::int32_t m_output_cursor{ -1 };
     bool m_failed{ false };
     CTextureRequests m_textures;
     CShaderRequests m_shaders;

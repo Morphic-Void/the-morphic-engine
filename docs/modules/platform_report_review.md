@@ -45,7 +45,7 @@ failed_query=21 known_fields=61 malformed_reason=0
 retained_requested_bytes=0
 ```
 
-The Host's [import/publication path](../../host/runtime/asset_platform_report.cpp)
+The Host's [import/publication path](../../host/assets/asset_platform_report.cpp)
 uses this validator, so its independent semantic admission does not reject this
 contradiction. The native producer currently clears missing GDI settings correctly;
 the finding concerns the independent admission boundary and protection against

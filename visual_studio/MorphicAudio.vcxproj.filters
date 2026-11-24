@@ -18,7 +18,7 @@
     <ClInclude Include="..\audio\module\types\local_type_ids.hpp"><Filter>Audio\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\audio\module\types\local_types.hpp"><Filter>Audio\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\audio\runtime\audio_run.hpp"><Filter>Audio\include\runtime</Filter></ClInclude>
-    <ClInclude Include="..\audio\runtime\audio_thread.hpp"><Filter>Audio\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\audio\runtime\audio_execution.hpp"><Filter>Audio\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\audio\runtime\miniaudio_adapter.hpp"><Filter>Audio\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\audio\runtime\miniaudio_context.inl"><Filter>Audio\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\audio\runtime\tone_test.hpp"><Filter>Audio\include\runtime</Filter></ClInclude>
@@ -28,7 +28,7 @@
     <ClCompile Include="..\audio\module\binding\audio_binding.cpp"><Filter>Audio\src\module\binding</Filter></ClCompile>
     <ClCompile Include="..\audio\module\types\local_type_ids.cpp"><Filter>Audio\src\module\types</Filter></ClCompile>
     <ClCompile Include="..\audio\runtime\audio_run.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
-    <ClCompile Include="..\audio\runtime\audio_thread.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\audio\runtime\audio_execution.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\audio\runtime\miniaudio_adapter.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\audio\runtime\tone_test.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\audio\runtime\vendor_allocator.cpp"><Filter>Audio\src\runtime</Filter></ClCompile>
