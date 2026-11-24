@@ -90,6 +90,10 @@ step and retained operation identity. A deadline failure records per-pipe applie
 counts and the pause mask. The synthetic source logs the first history expiry's
 age, configured limit and queued count. These diagnostics do not change history
 expiry, acceptance thresholds or conservative cleanup policies.
+Configuration installation refusals record the request, service status, an explicit
+timeout flag and payload size; supplied configuration diagnostics also record the
+error, category, definition and field. A refused installation still releases and
+disposes its source through the existing acknowledged cleanup path.
 Reports include window durations/counts, generator lateness, expected/traced
 outputs, stage percentiles in nanoseconds, Platform pump activity, queue high-water marks,
 losses, counter frequency and process/build identification. Percentiles are

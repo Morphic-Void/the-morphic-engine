@@ -16,6 +16,7 @@
 #include "framework/platform/input.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 #include "platform/threading/wait_deadline.hpp"
+#include "debug/macros.hpp"
 #include <cstring>
 
 namespace input_host
@@ -169,12 +170,18 @@ public:
                 }
                 else
                 {
+                    MV_LOG(info, "Input Host: configuration install refused, request {}, status {}, timed out {}, payload bytes {}",
+                        m_request.value, static_cast<unsigned>(result.status),
+                        (result.status == services::EServiceStatus::timed_out), static_cast<unsigned>(result.payload_size));
                     // Invalid authored configuration may carry a diagnostic,
                     // but cannot confer an installed configuration identity.
                     platform::input::SInstallationResult diagnostic;
                     if (result.payload_size == sizeof(diagnostic))
                     {
                         std::memcpy(&diagnostic, result.payload, sizeof(diagnostic));
+                        MV_LOG(info, "Input Host: configuration diagnostic error {}, category {}, definition {}, field {}",
+                            static_cast<unsigned>(diagnostic.error), static_cast<unsigned>(diagnostic.category),
+                            diagnostic.definition, diagnostic.field);
                     }
                     if ((result.payload_size && (result.payload_size != sizeof(diagnostic))) ||
                         diagnostic.installation.value || diagnostic.reserved ||

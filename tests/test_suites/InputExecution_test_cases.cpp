@@ -161,7 +161,7 @@ void input_source_custody(tests::TTestContext& ctx)
     const std::uint8_t bytes[16]{};
     // Stop before publication and at each accepted-custody transition. Other
     // cases distinguish terminal refusal from contradictory/unsafe outcomes.
-    for (unsigned scenario = 0u; scenario < 15u; ++scenario)
+    for (unsigned scenario = 0u; scenario < 16u; ++scenario)
     {
         SInputSourceFacade facade;
         const modules::CCommunication communication{ functions, &facade };
@@ -274,6 +274,11 @@ void input_source_custody(tests::TTestContext& ctx)
                 else installed.installation.value = 51u;
                 result.payload_size = sizeof(installed);
                 std::memcpy(result.payload, &installed, sizeof(installed));
+                if (scenario == 15u)
+                {
+                    result.status = services::EServiceStatus::timed_out;
+                    result.payload_size = 0u;
+                }
                 if (scenario == 14u) ++result.request.value;
                 reply(result);
                 if (scenario == 14u)
@@ -282,7 +287,7 @@ void input_source_custody(tests::TTestContext& ctx)
                     TEST_EXPECT(ctx, (source.failed() && !source.complete() && (facade.attempts == attempts)));
                     continue;
                 }
-                TEST_EXPECT(ctx, (source.installation().value == ((scenario == 9u) ? 0u : 51u)));
+                TEST_EXPECT(ctx, (source.installation().value == (((scenario == 9u) || (scenario == 15u)) ? 0u : 51u)));
             }
             if (scenario != 8u)
             {
@@ -306,7 +311,7 @@ void input_source_custody(tests::TTestContext& ctx)
         const unsigned attempts = facade.attempts;
         step();
         TEST_EXPECT(ctx, ((facade.attempts == attempts) && (source.complete() == (scenario != 11u)) &&
-            (source.failed() == ((scenario == 8u) || (scenario == 9u) || (scenario == 11u)))));
+            (source.failed() == ((scenario == 8u) || (scenario == 9u) || (scenario == 11u) || (scenario == 15u)))));
     }
 }
 }

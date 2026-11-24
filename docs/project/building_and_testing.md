@@ -342,8 +342,17 @@ the codec breadcrumbs' producer identity in every configuration. Lifecycle load
 failures are matched as specific errors, separately from contract assertions.
 The debug-service suite verifies filtering and explicit immediate delivery.
 
-Windows CI runs the ordinary suites, Host-worker harness and all registered lifecycle
-cases with one and two requested workers in Debug/Release on x64 and x86.
+Windows CI builds Debug/Release on x64 and x86. Lifecycle, Pump and Input acceptance
+normally run with one and two requested workers. x86 Debug uses one complete
+Pump/Input pass to reduce duplicated coverage. The Host-worker harness and focused execution
+fixture regressions remain enabled in every configuration. All Input cases,
+including the unresolved `work-pressure` and `load-smoke` checks, remain enabled.
+
+Temporarily, while diagnosing the November 24 Debug Input failures, x86 Debug
+skips the ordinary suites and lifecycle fixture compilation/tests that passed at
+`5d7750a9`; its solution and Pump/Input fixtures still build. Restore the ordinary
+suites and lifecycle fixture build/tests after diagnosis. Other configurations continue
+running the ordinary suites and both acceptance worker counts.
 Its diagnostics include the isolated Host-worker and lifecycle logs and output.
 [Linux CI](linux_ci.md) runs GCC/Clang Debug/Release builds, ordinary suites and
 the normal Host acceptance flow with one and two requested workers through CTest.
