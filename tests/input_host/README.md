@@ -90,6 +90,17 @@ step and retained operation identity. A deadline failure records per-pipe applie
 counts and the pause mask. The synthetic source logs the first history expiry's
 age, configured limit and queued count. These diagnostics do not change history
 expiry, acceptance thresholds or conservative cleanup policies.
+At the first history expiry, pump diagnostics summarize the expired reading's
+lifetime using up to 256 completed service-call traces and the current call.
+They report completed calls, covered time, total/max time inside calls, maximum
+time outside calls and current elapsed time, all durations in nanoseconds and
+clipped to that lifetime. Partial coverage, disabled tracing and trace overflow
+are explicit. These owner-thread observations precede diagnostic logging; they
+measure elapsed time, not CPU time or OS scheduling alone. Frequent calls with
+short outside gaps suggest inadequate progress within calls, while large outside
+gaps show a lack of service opportunities without identifying its cause.
+Focus, admission and pressure may intentionally block progress, so interpret
+these timings alongside the scenario rather than as proof of a scheduler defect.
 Configuration installation refusals record the request, service status, an explicit
 timeout flag and payload size; supplied configuration diagnostics also record the
 error, category, definition and field. A refused installation still releases and

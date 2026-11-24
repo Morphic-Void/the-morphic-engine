@@ -11,6 +11,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include "tests/input_host/platform_access.hpp"
 #include "platform/runtime/platform_runtime.hpp"
 #include "platform/runtime/input_acceptance.hpp"
@@ -467,7 +468,11 @@ static bool ticks(std::uint64_t& value) noexcept
 }
 void pump_begin(runtime::CPlatformRuntime& runtime) noexcept
 {
-    if (state_owner()) state_owner()->runtime = &runtime;
+    if (state_owner())
+    {
+        state_owner()->runtime = &runtime;
+        state_owner()->pump_start = 0u;
+    }
     if (!state_owner() || state_owner()->shared.frozen.load() || !state_owner()->shared.tracing)
     {
         return;
@@ -491,6 +496,7 @@ void pump_end() noexcept
             else ++state.shared.pump_overflow;
         }
     }
+    state.pump_start = 0u;
     if (state.freeze_requested && state.runtime)
     {
         SFreezeProgress& progress = state.shared.freeze;
@@ -745,6 +751,69 @@ static bool initialise_controllers(native::SControllers& source) noexcept
     for (std::uint32_t index = 0u; index < 4u; ++index) arrival(*source.runtime, index, true);
     return true;
 }
+static void log_history_pump_timing(const SState& state, const std::uint64_t offered, const std::uint64_t now) noexcept
+{
+    if (!state.shared.tracing || state.shared.pump_overflow)
+    {
+        MV_LOG(info, "Input fixture: expiry pump timing unavailable, tracing {}, overflow {}",
+            state.shared.tracing, state.shared.pump_overflow);
+        return;
+    }
+    // Read only on the Platform owner thread. Clip every interval to the expired
+    // reading's lifetime, excluding unrelated startup work. Bound this one-off
+    // diagnostic scan; partial coverage is reported rather than extrapolated.
+    constexpr std::uint32_t k_max_samples = 256u;
+    std::uint64_t frontier = now, work = 0u, max_work = 0u, max_outside = 0u;
+    std::uint32_t completed = 0u, index = state.shared.pump_count;
+    const auto include = [&](const std::uint64_t begin, const std::uint64_t end) noexcept
+    {
+        if ((begin > end) || (end > frontier))
+        {
+            return false;
+        }
+        const std::uint64_t clipped_end = std::max(end, offered);
+        const std::uint64_t clipped_begin = std::max(begin, offered);
+        max_outside = std::max(max_outside, frontier - clipped_end);
+        const std::uint64_t duration = clipped_end - clipped_begin;
+        work += duration;
+        max_work = std::max(max_work, duration);
+        frontier = clipped_begin;
+        return true;
+    };
+    bool valid = offered <= now;
+    std::uint64_t current = 0u;
+    if (valid && state.pump_start)
+    {
+        valid = include(state.pump_start, now);
+        if (valid) current = now - std::max(state.pump_start, offered);
+    }
+    while (valid && index && (frontier > offered) && (completed < k_max_samples))
+    {
+        const SPumpTrace& pump = state.shared.pumps[--index];
+        valid = include(pump.begin, pump.end);
+        if (pump.end > offered) ++completed;
+    }
+    const bool complete = valid && (!index || (frontier == offered));
+    if (complete)
+    {
+        max_outside = std::max(max_outside, frontier - offered);
+        frontier = offered;
+    }
+    std::uint64_t span_ns{}, work_ns{}, max_work_ns{}, max_outside_ns{}, current_ns{};
+    if (!valid || !state.conversion.to_nanoseconds_u64((now - frontier), span_ns) ||
+        !state.conversion.to_nanoseconds_u64(work, work_ns) ||
+        !state.conversion.to_nanoseconds_u64(max_work, max_work_ns) ||
+        !state.conversion.to_nanoseconds_u64(max_outside, max_outside_ns) ||
+        !state.conversion.to_nanoseconds_u64(current, current_ns))
+    {
+        MV_LOG(info, "Input fixture: expiry pump timing unavailable, invalid interval or conversion");
+        return;
+    }
+    MV_LOG(info, "Input fixture: expiry pump completed {}, complete window {}, covered ns {}",
+        completed, complete, span_ns);
+    MV_LOG(info, "Input fixture: expiry pump ns work {}, max work {}, max outside {}, current elapsed {}",
+        work_ns, max_work_ns, max_outside_ns, current_ns);
+}
 static bool expire_history(SDevice& device) noexcept
 {
     if (!device.count) return true;
@@ -764,6 +833,7 @@ static bool expire_history(SDevice& device) noexcept
         {
             MV_LOG(info, "Input fixture: controller history expired at age {} ns, limit {} ns, queued {}",
                 age, native::k_controller_history_age_ns, queued);
+            log_history_pump_timing(*state_owner(), offered, now);
         }
     }
     return true;
