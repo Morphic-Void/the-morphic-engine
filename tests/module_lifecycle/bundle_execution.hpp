@@ -46,10 +46,15 @@ public:
         if ((std::strcmp(selected, "bundle") == 0) || (std::strcmp(selected, "bundle-inline") == 0) || m_stop_batch)
         {
             m_scenario = EScenario::workflow;
-            if (!m_batch || ((std::strcmp(selected, "bundle-inline") == 0) && m_batch->has_runners()) ||
-                (m_stop_batch && !m_batch->has_runners()))
+            if (!m_batch || ((std::strcmp(selected, "bundle-inline") == 0) && m_batch->has_runners()))
             {
                 return false;
+            }
+            if (m_stop_batch && !m_batch->has_runners())
+            {
+                MV_LOG(info, "Bundle fixture: batch stop skipped without runners");
+                m_complete = true;
+                return true;
             }
         }
         else if (std::strcmp(selected, "bundle-rendering") == 0)

@@ -85,7 +85,17 @@ were corrected without relaxing diagnostic text, count, identity or ordering
 checks. Recorded-log replay accepts both Linux Host-acceptance and Pump failures
 and the Windows Host-acceptance log; missing/duplicate/altered acceptance errors
 still fail. Seven affected Windows lifecycle cases also pass. Evidence is under
-`build/ci-checker-fix`; the complete hosted pipeline has not yet been rerun.
+`build/ci-checker-fix`; the complete hosted pipeline had not yet been rerun at
+that checkpoint.
+
+The next Windows CI run passed worker acceptance, then exposed an unavailable
+batch-runner assumption in `bundle-batch-stop`: its four-thread runner correctly
+received zero batch runners from Host. The fixture now explicitly skips that
+workload when no runner exists, with teardown still mandatory. Windows x64 Debug
+component checks pass (527 assertions), as do a forced-zero-runner process and the
+normal queued cancellation, inline bundle and Rendering-owned bundle cases.
+Host sizing policy is unchanged. Scoped builds and logs are in
+`build/ci-batch-runner-fix`; subsequent hosted stages remain to be qualified.
 
 ## Module execution preamble consolidation
 

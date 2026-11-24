@@ -837,6 +837,25 @@ void lifecycle_bundle_requests(tests::TTestContext& ctx)
     const modules::CCommunication communication{ functions, &facade };
     modules::SExecutionContext context;
     context.communication = &communication;
+    {
+        module_lifecycle_tests::CBundleExecution missing{ context };
+        TEST_EXPECT(ctx, !missing.begin("bundle-batch-stop"));
+        threading::SBatchShared shared;
+        threading::CThreadControlState control;
+        std::atomic<std::uint32_t> pending{ 0u };
+        threading::CBatchClient batch{ shared, control, pending, module_ids::executive, nullptr };
+        modules::SExecutionContext batch_context = context;
+        batch_context.batch = &batch;
+        module_lifecycle_tests::CBundleExecution skipped{ batch_context };
+        TEST_EXPECT(ctx, skipped.begin("bundle-batch-stop"));
+        TEST_EXPECT(ctx, (skipped.complete() && skipped.quiescent() && !skipped.runnable() && !skipped.poll_batch_start()));
+        TEST_EXPECT(ctx, (skipped.advance() && skipped.service_batch() && !batch.outstanding()));
+        skipped.cancel();
+        TEST_EXPECT(ctx, (skipped.complete() && skipped.quiescent() && !facade.owners && !facade.pods));
+        shared.runner_count = 1u;
+        module_lifecycle_tests::CBundleExecution queued{ batch_context };
+        TEST_EXPECT(ctx, (queued.begin("bundle-batch-stop") && !queued.complete()));
+    }
     module_lifecycle_tests::CBundleExecution execution{ context };
     TEST_EXPECT(ctx, execution.begin("bundle-resume"));
     const auto publish = [&]

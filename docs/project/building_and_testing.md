@@ -314,6 +314,13 @@ lifetimes, including queued and inline batch borrowers. See
 the [asset](../assets/asynchronous_asset_services.md) and
 [module](../modules/asynchronous_module_lifecycle.md) references for details.
 
+Requested batch-runner counts remain subject to Host's hardware budget.
+`bundle-batch-stop` explicitly skips its queued-cancellation workload when the
+effective count is zero, while still checking clean Executive teardown. With a
+runner available it requires the active borrow to settle before join/retirement.
+The existing `batch-exit` case likewise reports an unavailable-runner skip;
+ordinary bundle and batch cases continue exercising their inline fallback.
+
 After building, `tests/host_workers/run_tests.ps1` checks invalid bootstrap settings,
 default/shared/dedicated-worker acceptance, reduction diagnostics and worker
 lifetime. Both scripts accept `-Configuration` and `-Platform`; the lifecycle

@@ -209,10 +209,24 @@ foreach ($case in $Cases) {
             $saved = [IO.File]::ReadAllBytes((Join-Path $runtime 'development/logical-roots/test-output/bundle-subfile.bin'))
             if (($saved.Length -ne 128) -or @($saved | Where-Object { $_ -ne 0x5a }).Count) { throw 'Closed bundle sub-file save was corrupted.' }
         }
-        if ($case.StartsWith('bundle') -and !$events.Contains('Bundle fixture: Executive allocation baseline restored')) {
+        $bundleBatchSkipped = ($case -eq 'bundle-batch-stop') -and ($events -match 'Host: Batch runners 0(?:\r?\n|$)')
+        if ($case -eq 'bundle-batch-stop') {
+            $skipCount = [regex]::Matches($events, 'Bundle fixture: batch stop skipped without runners').Count
+            if ($skipCount -ne [int]$bundleBatchSkipped) { throw 'Bundle batch-stop skip does not match effective runner availability.' }
+            if ($bundleBatchSkipped) {
+                foreach ($marker in @('Host: Module executive service thread joined', 'Host: Module executive endpoint retired',
+                    'Module unloaded on Host worker, mount executive')) {
+                    if ([regex]::Matches($events, [regex]::Escape($marker)).Count -ne 1) { throw "Skipped bundle batch-stop did not complete teardown: $marker" }
+                }
+                if ($events.Contains('Worker bundle build request') -or $events.Contains('Bundle fixture: requesting stop with active batch borrow after closure')) {
+                    throw 'Skipped bundle batch-stop unexpectedly started its workload.'
+                }
+            }
+        }
+        if ($case.StartsWith('bundle') -and !$bundleBatchSkipped -and !$events.Contains('Bundle fixture: Executive allocation baseline restored')) {
             throw "$case did not restore its allocation attribution baseline."
         }
-        if ($case -eq 'bundle-batch-stop') {
+        if (($case -eq 'bundle-batch-stop') -and !$bundleBatchSkipped) {
             $requested = & $ordinal 'Bundle fixture: requesting stop with active batch borrow after closure'
             $settled = & $ordinal 'Bundle fixture: stopped batch borrow retired'
             $joined = & $ordinal 'Host: Module executive service thread joined'
@@ -221,7 +235,7 @@ foreach ($case in $Cases) {
                 throw 'Bundle shutdown did not retain the active batch item and bytes through completion consumption.'
             }
         }
-        if (($Configuration -eq 'Debug') -and $case.StartsWith('bundle')) {
+        if (($Configuration -eq 'Debug') -and $case.StartsWith('bundle') -and !$bundleBatchSkipped) {
             $builds = [regex]::Matches($events, '\[executable:([^]]+)\].*Worker bundle build request')
             if (($builds.Count -eq 0) -or @($builds | Where-Object { $_.Groups[1].Value -ne 'bg_file_io' }).Count) {
                 throw "$case did not build exclusively on the I/O worker."
@@ -463,7 +477,8 @@ foreach ($case in $Cases) {
             }
             if (($line -match 'Module (loaded|unloaded)') -and ($line -notmatch '\[executable:bg_file_io\]')) { throw "Module operation ran outside the I/O worker: $line" }
         }
-        Write-Output "$Configuration/$Platform $case passed: $log"
+        if ($bundleBatchSkipped) { Write-Output "$Configuration/$Platform $case skipped (no batch runners; teardown passed): $log" }
+        else { Write-Output "$Configuration/$Platform $case passed: $log" }
     }
     finally {
         $process.Dispose()
