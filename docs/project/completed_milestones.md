@@ -97,6 +97,18 @@ normal queued cancellation, inline bundle and Rendering-owned bundle cases.
 Host sizing policy is unchanged. Scoped builds and logs are in
 `build/ci-batch-runner-fix`; subsequent hosted stages remain to be qualified.
 
+The following CI run passed Linux and Windows Release x64. Release Win32 exposed
+a Provider fixture ordering assumption: observing a publisher's data store does
+not prove its subsequent notification signal has completed. The fixture now waits
+for that signal with its existing bounded wait; rebuilt Release Win32 coverage
+passes 23,951 assertions. Separate Debug Input failures remain unresolved:
+x64 reported controller-history loss, while Win32 stalled and could not complete
+cleanup. Added first-failure stage/operation, deadline and history-age diagnostics
+without changing acceptance thresholds or custody policy. Current x64 Debug
+history-freshness, work-pressure and load-smoke processes pass locally, as do
+694 cleanup assertions; these do not establish that the hosted failures are fixed.
+Evidence and initial local build/setup failures are under `build/ci-windows-followup`.
+
 ## Module execution preamble consolidation
 
 Completed and coordinator-reviewed on 23 November 2026, with the scoped Input

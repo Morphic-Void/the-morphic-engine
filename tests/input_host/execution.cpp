@@ -52,6 +52,14 @@ bool CInputExecution::complete() const noexcept
 
 void CInputExecution::fail(const bool retain) noexcept
 {
+    if (!failed)
+    {
+        MV_LOG(error, "Input Host: failed stage {}, setup {}, step {}, cleanup {}, retain {}",
+            static_cast<unsigned>(stage), static_cast<unsigned>(setup), scenario_step, static_cast<unsigned>(cleanup), retain);
+        MV_LOG(error, "Input Host: failed operation {}, request {}, opcode {}, sent {}, done {}",
+            static_cast<unsigned>(operation.kind), operation.request.request.value,
+            static_cast<unsigned>(operation.request.opcode), operation.sent, operation.done);
+    }
     if (!failed && (stage == EStage::freeze) && shared)
     {
         const SFreezeProgress& progress = shared->freeze;
@@ -76,6 +84,11 @@ void CInputExecution::fail(const bool retain) noexcept
 
 void CInputExecution::deadline_expired() noexcept
 {
+    if (!failed)
+    {
+        MV_LOG(error, "Input Host: deadline expired; applied per pipe [{}, {}, {}, {}, {}], pause mask {}",
+            pipes[0].applied, pipes[1].applied, pipes[2].applied, pipes[3].applied, pipes[4].applied, pause_mask);
+    }
     // A failed measurement is not unknown resource custody. Only this named
     // native freeze may continue known cleanup after coherent clock expiry.
     const bool safe_freeze = native && !secondary && (stage == EStage::freeze) && !failed && !unsafe &&

@@ -389,7 +389,9 @@ int run_provider_execution_focused(const bool refusals_only, const bool retireme
                     acknowledge(binding_message, {}, notification.endpoint());
                     (void)completion();
                     until([&] { return notification_data->value.load(std::memory_order_acquire) == 1u; });
-                    require(notification.reader().pending(), __LINE__);
+                    // The publisher stores the value before signalling. Seeing
+                    // that value does not prove the later signal has run yet.
+                    until([&] { return notification.reader().pending(); });
                 }
             }
         }

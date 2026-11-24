@@ -85,6 +85,11 @@ state, observed pump count, last feed/controller queue counts, desktop activity,
 per-pipe mapper/baseline/boundary/ingress/action-ring/text-ring blocker masks and
 consumed/drained frontiers. Mask bit N denotes pipe N. These atomic diagnostics
 are best-effort last observations, not a coherent frozen measurement snapshot.
+The first failure also records the consumer stage, setup/cleanup phase, scenario
+step and retained operation identity. A deadline failure records per-pipe applied
+counts and the pause mask. The synthetic source logs the first history expiry's
+age, configured limit and queued count. These diagnostics do not change history
+expiry, acceptance thresholds or conservative cleanup policies.
 Reports include window durations/counts, generator lateness, expected/traced
 outputs, stage percentiles in nanoseconds, Platform pump activity, queue high-water marks,
 losses, counter frequency and process/build identification. Percentiles are

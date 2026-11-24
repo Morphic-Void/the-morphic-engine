@@ -757,9 +757,14 @@ static bool expire_history(SDevice& device) noexcept
     }
     if (age > native::k_controller_history_age_ns)
     {
+        const std::uint32_t queued = device.count;
         device.head = device.count = 0u;
         device.lost = true;
-        state_owner()->shared.history_loss.fetch_add(1u);
+        if (state_owner()->shared.history_loss.fetch_add(1u) == 0u)
+        {
+            MV_LOG(info, "Input fixture: controller history expired at age {} ns, limit {} ns, queued {}",
+                age, native::k_controller_history_age_ns, queued);
+        }
     }
     return true;
 }
