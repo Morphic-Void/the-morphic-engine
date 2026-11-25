@@ -16,6 +16,7 @@
 #include "framework/services/service_protocol.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 #include "platform/threading/wait_deadline.hpp"
+#include "platform/threading/awake_clock.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/host_pump/fixture_types.hpp"
 #include "tests/host_pump/credit_execution.hpp"
@@ -71,7 +72,7 @@ public:
             {
                 if (!invocation.source.is_host() || !invocation.message || !receive(*invocation.message))
                 {
-                    m_failed = true;
+                    fail("message");
                 }
                 break;
             }
@@ -93,7 +94,7 @@ public:
             }
             default:
             {
-                m_failed = true;
+                fail("invocation");
                 break;
             }
         }
@@ -114,24 +115,44 @@ public:
         bool native_runnable = false;
         m_native.advance(native_runnable, remaining);
         if (m_credits.failed() || m_borrow.failed() || m_notification.failed() || m_modal.failed() || m_schema.failed() ||
-            m_report.failed() || m_native.failed()) m_failed = true;
-        if (!m_failed && !m_finished && !advance()) m_failed = true;
+            m_report.failed() || m_native.failed())
+        {
+            fail("domain");
+        }
+        if (!m_failed && !m_finished && !advance())
+        {
+            fail("advance");
+        }
         if (!m_failed && !m_finished && m_timing)
         {
             std::uint64_t operation_remaining = 0u;
-            m_failed |= (m_deadline.remaining_nanoseconds(operation_remaining).code != platform::threading::EWaitError::none) || !operation_remaining;
+            const platform::threading::WaitError error = m_deadline.remaining_nanoseconds(operation_remaining);
+            if (error.code != platform::threading::EWaitError::none)
+            {
+                fail("operation_clock", error);
+            }
+            else if (!operation_remaining) fail("operation_deadline");
             if (operation_remaining < remaining) remaining = operation_remaining;
         }
         if (!m_failed && !m_finished && m_delayed_pending && !m_delayed_done)
         {
             std::uint64_t delayed = 0u;
-            m_failed |= (m_delayed_deadline.remaining_nanoseconds(delayed).code != platform::threading::EWaitError::none) || !delayed;
+            const platform::threading::WaitError error = m_delayed_deadline.remaining_nanoseconds(delayed);
+            if (error.code != platform::threading::EWaitError::none)
+            {
+                fail("delayed_clock", error);
+            }
+            else if (!delayed) fail("delayed_deadline");
             if (delayed < remaining) remaining = delayed;
         }
         if (!m_failed && m_close_retry_pending)
         {
             std::uint64_t retry = 0u;
-            m_failed |= m_close_retry.remaining_nanoseconds(retry).code != platform::threading::EWaitError::none;
+            const platform::threading::WaitError error = m_close_retry.remaining_nanoseconds(retry);
+            if (error.code != platform::threading::EWaitError::none)
+            {
+                fail("retry_clock", error);
+            }
             if (retry < remaining) remaining = retry;
         }
         if (m_failed) m_owner = {};
@@ -155,7 +176,7 @@ public:
         if (m_failed && !m_reported)
         {
             m_reported = true;
-            MV_LOG(error, "Pump fixture failed at stage {}", static_cast<unsigned>(m_stage));
+            log_failure(invocation.event);
             return modules::EExecutionStatus::failed;
         }
         return modules::EExecutionStatus::success;
@@ -201,6 +222,10 @@ private:
     bool m_sent{ false }, m_acknowledged{ false }, m_done{ false }, m_timing{ false };
     bool m_runnable{ false }, m_stopping{ false }, m_finished{ false }, m_failed{ false }, m_reported{ false }, m_logged{ false };
     platform::threading::CWaitDeadline m_deadline;
+    const char* m_failure_reason{ "initial_state" };
+    platform::threading::WaitError m_clock_failure;
+    std::uint64_t m_operation_started_ns{}, m_operation_allowance_ns{};
+    bool m_operation_clock_valid{};
     platform::threading::CWaitDeadline m_delayed_deadline;
     platform::threading::CWaitDeadline m_close_retry;
     bool m_close_retry_pending{ false }, m_close_retried{ false };
@@ -248,10 +273,44 @@ private:
             scenario("platform-native-report");
     }
     module_ids::id_type provider_module() const noexcept { return (scenario("platform-shell") || native_scenario()) ? module_ids::platform : module_ids::rendering; }
-    bool start_deadline() noexcept
+    void fail(const char* const reason, const platform::threading::WaitError error = {}) noexcept
+    {
+        if (m_failed) return;
+        m_failed = true;
+        m_failure_reason = reason;
+        m_clock_failure = error;
+    }
+    void log_failure(const modules::EExecutionEvent event) const noexcept
+    {
+        std::uint64_t now = 0u, remaining = 0u;
+        const bool elapsed_valid = m_timing && m_operation_clock_valid &&
+            (platform::threading::query_awake_nanoseconds(now).code == platform::threading::EWaitError::none) &&
+            (now >= m_operation_started_ns);
+        const bool remaining_valid = m_timing &&
+            (m_deadline.remaining_nanoseconds(remaining).code == platform::threading::EWaitError::none);
+        MV_LOG_RICH(error, "Pump fixture failed at stage %u: reason %s, operation %u, event %u",
+            static_cast<unsigned>(m_stage), m_failure_reason, static_cast<unsigned>(m_operation), static_cast<unsigned>(event));
+        MV_LOG(error, "Pump fixture timing: allowance_ns {}, elapsed_ns {}, remaining_ns {}",
+            m_operation_allowance_ns, (elapsed_valid ? (now - m_operation_started_ns) : 0u), remaining);
+        MV_LOG(error, "Pump fixture clock: elapsed_valid {}, remaining_valid {}, error {}, native_error {}",
+            elapsed_valid, remaining_valid, static_cast<unsigned>(m_clock_failure.code), m_clock_failure.native_error);
+        MV_LOG(error, "Pump fixture operation: route {}, request {}, opcode {}, slot {}, sent {}, ack {}, done {}, stopping {}",
+            m_expected_route.value, m_expected_request.value, static_cast<unsigned>(m_opcode), m_slot,
+            m_sent, m_acknowledged, m_done, m_stopping);
+    }
+    bool start_deadline(const std::uint64_t allowance_ms = 10000u) noexcept
     {
         m_timing = true;
-        return m_deadline.set_after_milliseconds(10000u).code == platform::threading::EWaitError::none;
+        m_operation_allowance_ns = allowance_ms * 1000000u;
+        m_operation_clock_valid = platform::threading::query_awake_nanoseconds(m_operation_started_ns).code ==
+            platform::threading::EWaitError::none;
+        const platform::threading::WaitError error = m_deadline.set_after_milliseconds(allowance_ms);
+        if (error.code != platform::threading::EWaitError::none)
+        {
+            fail("deadline_start", error);
+            return false;
+        }
+        return true;
     }
     void next(const EStage stage) noexcept
     {
@@ -319,7 +378,11 @@ private:
         m_slot = slot;
         m_pod = threading::make_pod_message(slot, command);
         m_operation = EOperation::service;
-        return start_deadline();
+        // This fixture setup serialises 512 transfer/acquire pairs before
+        // reserving 512 disposal replies. It is not a production latency test.
+        const bool bulk_setup = scenario("cleanup-credits") && (m_stage == EStage::scenario_work) && (opcode == 4u);
+        if (bulk_setup) MV_LOG(info, "Pump fixture: bulk credit setup allowance 20000 ms");
+        return start_deadline(bulk_setup ? 20000u : 10000u);
     }
     bool publish() noexcept
     {

@@ -18,6 +18,7 @@
 #include "framework/filesystem/filesystem_messages.hpp"
 #include "framework/threading/messages/message_helpers.hpp"
 #include "platform/threading/wait_deadline.hpp"
+#include "platform/threading/awake_clock.hpp"
 #include "platform/threading/thread_lifetime.hpp"
 #include "platform/threading/native_thread_id.hpp"
 #include "system/system_context.hpp"
@@ -84,6 +85,7 @@ public:
             case modules::EExecutionEvent::stop:
             {
                 m_stop = true;
+                if (m_credits) log_credit_progress("stop");
                 if (scenario("stop-timeout"))
                 {
                     m_stop_delay_complete = false;
@@ -238,6 +240,8 @@ private:
     unsigned m_disposed{ 0u }, m_released{ 0u }, m_control_reposts{ 0u };
     bool m_credits{ false }, m_credit_sent{ false }, m_credits_ready{ false }, m_credits_drained{ false };
     bool m_credit_creation_complete{ false };
+    std::uint64_t m_credit_started_ns{};
+    bool m_credit_clock_valid{};
     bool m_test_unsafe{ false }, m_credit_unsafe{ false };
     platform::threading::CWaitDeadline m_delay;
     platform::threading::CWaitDeadline m_stop_deadline;
@@ -642,7 +646,13 @@ private:
         }
         else if (command.opcode == 4u)
         {
-            m_credits = true;
+            if (!m_credits)
+            {
+                m_credits = true;
+                m_credit_clock_valid = platform::threading::query_awake_nanoseconds(m_credit_started_ns).code ==
+                    platform::threading::EWaitError::none;
+                log_credit_progress("start");
+            }
             if (!m_credits_ready) return true;
         }
         else if (command.opcode == 11u)
@@ -1031,6 +1041,18 @@ private:
         MV_LOG(info, "Pump provider: nested modal maintenance preserved accepted command state");
         return true;
     }
+    void log_credit_progress(const char* const checkpoint) const noexcept
+    {
+        std::uint64_t now = 0u;
+        const bool valid = m_credit_clock_valid &&
+            (platform::threading::query_awake_nanoseconds(now).code == platform::threading::EWaitError::none) &&
+            (now >= m_credit_started_ns);
+        MV_LOG_RICH(info, "Pump provider credit checkpoint: %s", checkpoint);
+        MV_LOG(info, "Pump provider credit progress: elapsed_ns {}, clock_valid {}, created {}, phase {}, awaiting_result {}",
+            (valid ? (now - m_credit_started_ns) : 0u), valid, m_created, m_credit_phase, m_credit_sent);
+        MV_LOG(info, "Pump provider credit settlement: disposals_posted {}, releases_posted {}, disposed {}, released {}",
+            m_disposals_posted, m_releases_posted, m_disposed, m_released);
+    }
     bool credit_message(const threading::CErasedPodMsg& message) noexcept
     {
         const std::int32_t slot = message.query_async_slot();
@@ -1076,6 +1098,11 @@ private:
             }
             else return false;
             m_credit_sent = false;
+            constexpr unsigned k_credit_progress_mask = 127u;
+            if ((slot == 211) && ((m_created & k_credit_progress_mask) == 0u))
+            {
+                log_credit_progress("acquired");
+            }
             return true;
         }
         if ((slot >= 1000) && (slot < 1512))
@@ -1162,6 +1189,7 @@ private:
         {
             m_credits_ready = true;
             m_runnable = true;
+            log_credit_progress("ready");
             if (m_created == 512u) MV_LOG(info, "Pump provider: 512 disposal credits retained by live acquisitions");
         }
         if (!m_stop) return true;
@@ -1186,6 +1214,7 @@ private:
         if ((m_released == m_created) && (m_disposed == m_created) && !m_credits_drained)
         {
             m_credits_drained = true;
+            log_credit_progress("drained");
             if (m_created == 512u) MV_LOG(info, "Pump provider: 512 retained disposals completed through common FIFO settlement");
         }
         return true;

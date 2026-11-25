@@ -60,6 +60,16 @@ coverage on Win32 Debug. Production deadlines and acceptance thresholds are
 unchanged. The temporary ordinary-suite and lifecycle-build/test exclusions
 used during Input CI diagnosis have been removed.
 
+The Pump `cleanup-credits` case remains required on every configuration. Its
+512 sequential transfer/acquisition pairs and disposal-credit setup have a fixed
+20-second fixture allowance; subsequent operations retain the ordinary
+10-second allowance. Progress and busy retries do not restart either deadline.
+The process watchdog remains 35 seconds. Failure logs identify the cause,
+operation state, elapsed time and allowance; provider checkpoints record setup
+and settlement progress. Each Pump process also writes `process-result.json`,
+including on failure, so its elapsed time and exit status survive checker errors.
+These are fixture limits, not production service deadlines.
+
 Every job attempts to upload a separate diagnostics artifact, including after
 failure. It contains the MSBuild text and binary logs, test console output,
 test logs and output files, Host-worker/lifecycle console output and isolated

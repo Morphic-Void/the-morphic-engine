@@ -60,17 +60,27 @@ def main():
                           "log-directory=development/logical-roots/test-logs\n", encoding="utf-8")
         env = dict(os.environ, MORPHIC_PUMP_CASE=case)
         started = time.monotonic()
-        with (runtime / "console.log").open("w", encoding="utf-8") as console:
-            result = subprocess.run([str(args.engine.resolve()), str(config)], cwd=runtime, env=env,
-                                    stdout=console, stderr=subprocess.STDOUT, timeout=35)
-        elapsed = time.monotonic() - started
+        result = None
+        try:
+            with (runtime / "console.log").open("w", encoding="utf-8") as console:
+                result = subprocess.run([str(args.engine.resolve()), str(config)], cwd=runtime, env=env,
+                                        stdout=console, stderr=subprocess.STDOUT, timeout=35)
+        finally:
+            elapsed = time.monotonic() - started
+            # Preserve timing even when the process or subsequent validation fails.
+            (runtime / "process-result.json").write_text(json.dumps({
+                "case": case, "requested_workers": args.host_workers,
+                "elapsed_seconds": elapsed, "completed": result is not None,
+                "exit_code": result.returncode if result is not None else None,
+                "watchdog_seconds": 35,
+            }, indent=2) + "\n", encoding="utf-8")
         logs = list((development / "logical-roots/test-logs").glob("morphic_debug*.log"))
         events = "\n".join(log.read_text(encoding="utf-8") for log in logs)
         fatal_cases = ("activation-failed", "activation-null", "activation-timeout", "unauthorised-native-stop",
                        "unauthorised-native-events", "invalid-submission", "pump-failed", "borrow-provider-failed")
         expected_exit = 1 if case in fatal_cases + ("deactivate-failed", "emergency", "stop-timeout") else 0
         if result.returncode != expected_exit or f"Pump fixture: {case} passed" not in events or "Pump fixture failed" in events:
-            raise RuntimeError(f"{case}: exit {result.returncode}, expected {expected_exit}; inspect {runtime}")
+            raise RuntimeError(f"{case}: exit {result.returncode}, expected {expected_exit}, after {elapsed:.3f}s; inspect {runtime}")
         for line in events.splitlines():
             if not re.search(r"\[(assert|error|critical|fatal):", line):
                 continue

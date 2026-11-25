@@ -48,6 +48,40 @@ struct SModalExecutionTestAccess
 };
 struct SExecutiveExecutionTestAccess
 {
+    static bool credit_operation(CExecutiveExecution& execution, const bool setup, const std::uint16_t opcode) noexcept
+    {
+        execution.next(setup ? CExecutiveExecution::EStage::scenario_work : CExecutiveExecution::EStage::credit_control);
+        return execution.begin_service({ 17u }, 5u, opcode, 44);
+    }
+    static std::uint64_t allowance(const CExecutiveExecution& execution) noexcept
+    {
+        return execution.m_operation_allowance_ns;
+    }
+    static std::uint64_t started(const CExecutiveExecution& execution) noexcept
+    {
+        return execution.m_operation_started_ns;
+    }
+    static bool deadline(const CExecutiveExecution& execution, const std::uint64_t allowance) noexcept
+    {
+        std::uint64_t remaining = 0u;
+        return (execution.m_deadline.remaining_nanoseconds(remaining).code == platform::threading::EWaitError::none) &&
+            remaining && (remaining <= allowance);
+    }
+    static bool expire_operation(CExecutiveExecution& execution, const bool invalidate) noexcept
+    {
+        if (invalidate)
+        {
+            execution.m_deadline = {};
+            return true;
+        }
+        return execution.m_deadline.set_after_milliseconds(0u).code == platform::threading::EWaitError::none;
+    }
+    static bool failure(const CExecutiveExecution& execution, const char* const reason,
+        const platform::threading::EWaitError error) noexcept
+    {
+        return execution.m_failed && (std::strcmp(execution.m_failure_reason, reason) == 0) &&
+            (execution.m_clock_failure.code == error);
+    }
     static bool pending_shutdown(CExecutiveExecution& execution) noexcept
     {
         // Accepted delayed service and self-stop intents, before either stop or
@@ -2473,9 +2507,78 @@ int run_pump_credits_focused()
     return ctx.report("PumpCredits");
 }
 
+static void pump_operation_timing(tests::TTestContext& ctx)
+{
+    using Access = pump_tests::SExecutiveExecutionTestAccess;
+    using platform::threading::EWaitError;
+    static const modules::SCommunicationV1 functions{ &SPodCapture::pod };
+    for (unsigned mode = 0u; mode < 6u; ++mode)
+    {
+        SPodCapture facade;
+        const modules::CCommunication communication{ functions, &facade };
+        modules::SExecutionContext context;
+        context.communication = &communication;
+        pump_tests::CExecutiveExecution execution{ context, ((mode == 1u) ? "normal" : "cleanup-credits"), false };
+        const bool setup = mode != 2u;
+        const std::uint16_t opcode = ((mode == 2u) || (mode == 3u)) ? 11u : 4u;
+        const std::uint64_t allowance = ((mode == 0u) || (mode >= 4u)) ? UINT64_C(20000000000) : UINT64_C(10000000000);
+        TEST_EXPECT(ctx, Access::credit_operation(execution, setup, opcode));
+        TEST_EXPECT(ctx, ((Access::allowance(execution) == allowance) && Access::deadline(execution, allowance)));
+        const std::uint64_t started = Access::started(execution);
+        modules::SInvocation invocation;
+        invocation.event = modules::EExecutionEvent::service_async;
+        modules::SExecutionProgress progress;
+        for (unsigned retry = 0u; retry < 3u; ++retry)
+        {
+            TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::success));
+            TEST_EXPECT(ctx, (!progress.work_pending && !facade.count && (Access::started(execution) == started)));
+        }
+        facade.result = modules::ESubmission::published_wake_failed;
+        TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::success));
+        services::ServiceRequest request;
+        TEST_EXPECT(ctx, ((facade.count == 1u) && facade.posts[0].copy_payload_to(request) &&
+            (request.route.value == 17u) && (request.request.value == 5u) && (request.opcode == opcode)));
+        services::ServiceReply reply;
+        reply.route = { 17u };
+        reply.request = { 5u };
+        reply.opcode = opcode;
+        reply.status = services::EServiceStatus::success;
+        reply.notice = services::EServiceNotice::acknowledged;
+        threading::CErasedPodMsg message = threading::make_pod_message(44, reply);
+        invocation.event = modules::EExecutionEvent::message;
+        invocation.message = &message;
+        TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::success));
+        TEST_EXPECT(ctx, ((Access::started(execution) == started) && (facade.count == 1u)));
+        if (mode == 5u)
+        {
+            reply.route = { 99u };
+            reply.notice = services::EServiceNotice::completed;
+            message = threading::make_pod_message(44, reply);
+        }
+        else
+        {
+            TEST_EXPECT(ctx, Access::expire_operation(execution, (mode == 4u)));
+            invocation.event = modules::EExecutionEvent::service_async;
+            invocation.message = nullptr;
+        }
+        TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::failed));
+        const char* const reason = (mode == 5u) ? "message" : ((mode == 4u) ? "operation_clock" : "operation_deadline");
+        const EWaitError error = (mode == 4u) ? EWaitError::invalid_argument : EWaitError::none;
+        TEST_EXPECT(ctx, Access::failure(execution, reason, error));
+        invocation.event = modules::EExecutionEvent::stop;
+        invocation.message = nullptr;
+        TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::success));
+        TEST_EXPECT(ctx, (progress.work_complete && !progress.work_pending && (facade.count == 1u)));
+        invocation.event = modules::EExecutionEvent::service_async;
+        TEST_EXPECT(ctx, (execution.handle(invocation, progress) == modules::EExecutionStatus::success));
+        TEST_EXPECT(ctx, (progress.work_complete && Access::failure(execution, reason, error)));
+    }
+}
+
 int run_pump_executive_focused()
 {
     tests::TTestContext ctx;
+    pump_operation_timing(ctx);
     static const modules::SCommunicationV1 functions{ nullptr, &SLifecycleExecutiveFacade::owner };
     for (const modules::ESubmission accepted : { modules::ESubmission::accepted, modules::ESubmission::published_wake_failed })
     {
@@ -2543,6 +2646,7 @@ int run_pump_executive_focused()
 
 void run_pump_fixture_tests(tests::TTestContext& ctx)
 {
+    pump_operation_timing(ctx);
     pump_credit_custody(ctx);
     pump_borrow_custody(ctx);
     pump_close_retry(ctx);
