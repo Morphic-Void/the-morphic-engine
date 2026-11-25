@@ -78,7 +78,7 @@ static FUnbiasedClock resolve_unbiased_clock() noexcept
 }
 #endif
 
-static WaitError query_wait_clock(std::uint64_t& value, std::uint32_t& numerator, std::uint32_t& denominator) noexcept
+static WaitError query_wait_ticks(std::uint64_t& value) noexcept
 {
 #if MV_PLATFORM_WINDOWS
     static const FUnbiasedClock clock = resolve_unbiased_clock();
@@ -86,8 +86,6 @@ static WaitError query_wait_clock(std::uint64_t& value, std::uint32_t& numerator
     ULONGLONG ticks = 0u;
     clock(&ticks);
     value = ticks;
-    numerator = 100u;
-    denominator = 1u;
 #elif MV_PLATFORM_LINUX || MV_PLATFORM_ANDROID
     timespec now{};
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
@@ -97,13 +95,27 @@ static WaitError query_wait_clock(std::uint64_t& value, std::uint32_t& numerator
         (static_cast<std::uint64_t>(now.tv_sec) > (maximum - now.tv_nsec) / 1000000000u))
         return { EWaitError::native_failure, static_cast<std::uint32_t>(EOVERFLOW) };
     value = static_cast<std::uint64_t>(now.tv_sec) * 1000000000u + now.tv_nsec;
+#elif MV_PLATFORM_MAC_OS
+    value = mach_absolute_time();
+#else
+    (void)value;
+    return { EWaitError::unsupported, 0u };
+#endif
+    return {};
+}
+
+static WaitError query_wait_clock(std::uint64_t& value, std::uint32_t& numerator, std::uint32_t& denominator) noexcept
+{
+#if MV_PLATFORM_WINDOWS
+    numerator = 100u;
+    denominator = 1u;
+#elif MV_PLATFORM_LINUX || MV_PLATFORM_ANDROID
     numerator = denominator = 1u;
 #elif MV_PLATFORM_MAC_OS
     mach_timebase_info_data_t ratio{};
     const auto result = mach_timebase_info(&ratio);
     if ((result != KERN_SUCCESS) || (ratio.numer == 0u) || (ratio.denom == 0u))
         return { EWaitError::native_failure, static_cast<std::uint32_t>(result) };
-    value = mach_absolute_time();
     numerator = ratio.numer;
     denominator = ratio.denom;
 #else
@@ -112,7 +124,7 @@ static WaitError query_wait_clock(std::uint64_t& value, std::uint32_t& numerator
     (void)denominator;
     return { EWaitError::unsupported, 0u };
 #endif
-    return {};
+    return query_wait_ticks(value);
 }
 
 static WaitWordResult clock_error_result(const WaitError error) noexcept
@@ -183,6 +195,31 @@ WaitError query_awake_nanoseconds(std::uint64_t& value) noexcept
     if ((numerator == 0u) || (denominator == 0u)) return { EWaitError::native_failure, 0u };
     if (!internal::scale_awake_observation(ticks, numerator, denominator, value)) return { EWaitError::overflow, 0u };
     return {};
+}
+
+WaitError SAwakeClock::begin_budget(const std::uint64_t duration_ns,
+    std::uint64_t& start, std::uint64_t& limit) const noexcept
+{
+    start = limit = 0u;
+    if (query)
+    {
+        const WaitError error = query(context, start);
+        if (error.code == EWaitError::none) limit = duration_ns;
+        return error;
+    }
+    std::uint32_t numerator = 0u, denominator = 0u;
+    const WaitError error = internal::query_wait_clock(start, numerator, denominator);
+    if (error.code != EWaitError::none) return error;
+    if (!internal::scale_wait_duration(duration_ns, denominator, numerator, limit))
+    {
+        return { EWaitError::overflow, 0u };
+    }
+    return {};
+}
+
+WaitError SAwakeClock::read_ticks(std::uint64_t& value) const noexcept
+{
+    return query ? query(context, value) : internal::query_wait_ticks(value);
 }
 
 //==============================================================================

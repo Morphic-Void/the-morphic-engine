@@ -35,6 +35,18 @@ namespace platform::runtime
 {
 struct SPlatformInputTestAccess
 {
+    static std::uint32_t mapper_turn(const CPlatformRuntime& runtime) noexcept
+    {
+        return runtime.m_mapper_turn;
+    }
+    static void progress_mappers(CPlatformRuntime& runtime,
+        const platform::threading::SAwakeClock clock, const std::uint64_t budget) noexcept
+    {
+        const platform::threading::SAwakeClock saved = runtime.m_clock;
+        runtime.m_clock = clock;
+        runtime.progress_mappers(budget);
+        runtime.m_clock = saved;
+    }
     static unsigned configuration_storage(const CPlatformRuntime& runtime) noexcept
     {
         unsigned count = 0u;
@@ -1382,6 +1394,75 @@ SInstallationToken installation_token(const SFixture& fixture, const std::uint64
         }
     }
     return {};
+}
+
+void mapper_clock_batch(TTestContext& ctx)
+{
+    using namespace platform::threading;
+    struct SBudgetClock
+    {
+        unsigned calls{};
+        unsigned expire_at{ 2u };
+        bool failed{}, backwards{};
+        static WaitError read(void* const context, std::uint64_t& value) noexcept
+        {
+            SBudgetClock& clock = *static_cast<SBudgetClock*>(context);
+            const unsigned call = clock.calls++;
+            if (call && clock.failed)
+            {
+                return { EWaitError::native_failure, 1u };
+            }
+            value = (call && clock.backwards) ? 99u :
+                ((call >= clock.expire_at) ? 101u : 100u);
+            return {};
+        }
+    };
+    for (unsigned mode = 0u; mode < 4u; ++mode)
+    {
+        SFixture fixture{ ctx };
+        SUse use;
+        if (!use.acquire(fixture, EConnection::controller)) return;
+        use.activate(fixture);
+        platform::runtime::CInputMapper& mapper =
+            SPlatformInputTestAccess::connection(*fixture.runtime, EConnection::controller)->mapper();
+        mapper.device(51u);
+        platform::runtime::SInputObservation observation;
+        observation.device = 51u;
+        observation.ordinal = 1u;
+        observation.kind = platform::runtime::EObservationKind::snapshot;
+        observation.baseline = true;
+        TEST_EXPECT(ctx, (mapper.submit(observation) == platform::runtime::EInputAdmission::accepted));
+        SBudgetClock clock;
+        clock.expire_at = (mode == 0u) ? 1u : 2u;
+        clock.failed = mode == 2u;
+        clock.backwards = mode == 3u;
+        const SAwakeClock source{ &clock, &SBudgetClock::read };
+        const std::uint32_t before = SPlatformInputTestAccess::mapper_turn(*fixture.runtime);
+        SPlatformInputTestAccess::progress_mappers(*fixture.runtime, source, 0u);
+        TEST_EXPECT(ctx, !clock.calls);
+        const bool expected_failure = mode >= 2u;
+        SPlatformInputTestAccess::progress_mappers(*fixture.runtime, source, 1u);
+        const std::uint32_t after = SPlatformInputTestAccess::mapper_turn(*fixture.runtime);
+        if (mode == 1u)
+        {
+            // Sixteen one-slot visits, not sixteen steps on the same connection.
+            TEST_EXPECT(ctx, (clock.calls == 3u));
+            TEST_EXPECT(ctx, (after == ((before + 16u) % 5u)));
+            TEST_EXPECT(ctx, mapper.pending());
+            SPlatformInputTestAccess::progress_mappers(*fixture.runtime, fixture.clock.source(), 500000u);
+            TEST_EXPECT(ctx, !mapper.pending());
+        }
+        else
+        {
+            TEST_EXPECT(ctx, (after == before));
+            TEST_EXPECT(ctx, (clock.calls == 2u));
+            if (!expected_failure) TEST_EXPECT(ctx, mapper.pending());
+        }
+        // This seam invokes the mapper outside handle(); observe its failure
+        // directly. Later callbacks must still make normal cleanup progress.
+        TEST_EXPECT(ctx, (fixture.runtime->failed() == expected_failure));
+        fixture.step();
+    }
 }
 
 void mapper_runtime_integration(TTestContext& ctx)
@@ -2990,6 +3071,7 @@ void run_platform_input_tests(tests::TTestContext& ctx)
     run_gameinput_ownership_tests(ctx);
     run_input_mapper_tests(ctx);
     mapper_runtime_integration(ctx);
+    mapper_clock_batch(ctx);
     installation_lifecycle(ctx);
     installation_cancellation(ctx);
     installation_shutdown_retention(ctx);

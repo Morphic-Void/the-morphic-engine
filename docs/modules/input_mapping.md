@@ -226,6 +226,15 @@ and shares this allowance. Busy callers retain their observation; adapters that
 cannot retain it must report history loss. Waiting solely for new input or an
 acknowledgement does not report runnable mapper work.
 
+Clock checks occur before work and after at most 16 connection visits, while
+each visit still advances only one connection step. Page preparation costing
+more than one credit forces a check before the next visit. Each mapper pass
+scales its time allowance once to native awake-clock ticks (rounding up by less
+than one tick), then compares elapsed ticks without repeated time conversion.
+Injected test clocks retain nanosecond units. The cooperative slice can overrun
+by the work between checks; the existing time allowances, work credits and
+output limits are unchanged.
+
 Controller copy/reset steps cover only the controller control range (256 through
 273). Desktop observations retain the existing full-range handling. Controller
 observations, bindings and modifiers cannot refer to desktop controls, so visiting

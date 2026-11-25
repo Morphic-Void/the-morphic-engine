@@ -25,6 +25,7 @@
 #include "tests/test_suites/Schema_test_suite.hpp"
 #include "tests/test_suites/SchemaModel_test_cases.hpp"
 #include "tests/test_suites/SchemaTraversal_test_cases.hpp"
+#include "tests/test_suites/TimedWait_test_suite.hpp"
 
 int run_schema_process_focused();
 int run_module_preamble_focused();
@@ -109,6 +110,11 @@ int main(const int argc, char** const argv)
 
     for (int i = 1; i < argc; ++i)
     {
+        if (std::strcmp(argv[i], "--timed-wait") == 0)
+        {
+            const int result = run_timed_wait_tests();
+            return test_environment::is_clean() ? result : 1;
+        }
         if (std::strcmp(argv[i], "--schema-process") == 0)
         {
             const int result = run_schema_process_focused();

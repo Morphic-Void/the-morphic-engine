@@ -191,6 +191,7 @@ void print_usage()
         "  --ordered-execution  Run ordered common child retirement checks\n"
         "  --platform-window  Run focused portable window/Host tests\n"
         "  --platform-input   Run synthetic portable input/Host tests\n"
+        "  --timed-wait       Run awake-clock and timed-wait tests\n"
         "  --platform-native  Explicit Windows visible-window/modal acceptance\n"
         "  --platform-input-native  Windows desktop native-message acceptance\n"
         "  --platform-input-interactive  30-second physical desktop observation\n"

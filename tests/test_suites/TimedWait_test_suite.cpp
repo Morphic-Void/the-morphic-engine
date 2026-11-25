@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "platform/platform_defines.hpp"
+#include "platform/threading/awake_clock.hpp"
 #include "platform/threading/wait_deadline_math.hpp"
 #include "platform/threading/wait_word.hpp"
 #include "platform/threading/wait_word_internal.hpp"
@@ -94,6 +95,48 @@ void test_conversion_and_invalid_requests(TTestContext& ctx)
     TEST_EXPECT(ctx, predicate.wait_until_equal(ticket, ~0u, now).status == EWaitStatus::invalid_argument);
     TEST_EXPECT(ctx, predicate.wait_until_not_equal(ticket, 0u, invalid).status == EWaitStatus::invalid_argument);
     predicate.release_control();
+}
+
+void test_awake_budget(TTestContext& ctx)
+{
+    struct SClock
+    {
+        std::uint64_t value{ UINT64_MAX - 100u };
+        WaitError error{};
+        static WaitError read(void* const context, std::uint64_t& value) noexcept
+        {
+            const SClock& clock = *static_cast<SClock*>(context);
+            value = clock.value;
+            return clock.error;
+        }
+    } source;
+    const SAwakeClock injected{ &source, &SClock::read };
+    std::uint64_t start = 0u, limit = 0u, now = 0u;
+    // Elapsed comparisons need no potentially overflowing absolute deadline.
+    TEST_EXPECT(ctx, (injected.begin_budget(500000u, start, limit).code == EWaitError::none));
+    TEST_EXPECT(ctx, ((start == source.value) && (limit == 500000u)));
+    ++source.value;
+    TEST_EXPECT(ctx, (injected.read_ticks(now).code == EWaitError::none));
+    TEST_EXPECT(ctx, ((now - start) == 1u));
+    TEST_EXPECT(ctx, (injected.begin_budget(0u, start, limit).code == EWaitError::none));
+    TEST_EXPECT(ctx, !limit);
+    source.error = { EWaitError::native_failure, 7u };
+    TEST_EXPECT(ctx, (injected.begin_budget(1u, start, limit).code == EWaitError::native_failure));
+    TEST_EXPECT(ctx, !limit);
+    TEST_EXPECT(ctx, (injected.read_ticks(now).native_error == 7u));
+
+    const SAwakeClock native;
+    TEST_EXPECT(ctx, (native.begin_budget(101u, start, limit).code == EWaitError::none));
+    TEST_EXPECT(ctx, (limit > 0u));
+#if MV_PLATFORM_WINDOWS
+    TEST_EXPECT(ctx, (limit == 2u)); // Round 101 ns up to two 100 ns ticks.
+#elif MV_PLATFORM_LINUX || MV_PLATFORM_ANDROID
+    TEST_EXPECT(ctx, (limit == 101u));
+#endif
+    TEST_EXPECT(ctx, (native.read_ticks(now).code == EWaitError::none));
+    TEST_EXPECT(ctx, (now >= start));
+    TEST_EXPECT(ctx, (native.begin_budget(0u, start, limit).code == EWaitError::none));
+    TEST_EXPECT(ctx, !limit);
 }
 
 void test_immediate_and_expired(TTestContext& ctx)
@@ -460,6 +503,7 @@ int run_timed_wait_tests()
     TTestContext ctx;
     run_host_wait_tests(ctx);
     test_conversion_and_invalid_requests(ctx);
+    test_awake_budget(ctx);
     test_immediate_and_expired(ctx);
     test_notification_and_release(ctx);
     test_wake_storm_and_shared_deadline(ctx, false);

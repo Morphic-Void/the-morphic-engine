@@ -506,24 +506,31 @@ void CPlatformRuntime::progress_mappers(const std::uint64_t budget_ns) noexcept
     {
         return;
     }
-    std::uint64_t start = 0u;
-    if (m_clock.read(start).code != platform::threading::EWaitError::none)
+    std::uint64_t start = 0u, limit = 0u;
+    if (m_clock.begin_budget(std::min(budget_ns, UINT64_C(500000)), start, limit).code !=
+        platform::threading::EWaitError::none)
     {
         native_failure(UINT32_MAX);
         return;
     }
-    const std::uint64_t limit = std::min(budget_ns, UINT64_C(500000));
+    constexpr std::uint32_t k_steps_per_clock_check = 16u;
+    std::uint32_t steps_until_check = 0u;
     SMapperBudget budget;
     std::uint32_t idle = 0u;
     while (budget.work && (idle < k_input_slots))
     {
-        std::uint64_t now = 0u;
-        if ((m_clock.read(now).code != platform::threading::EWaitError::none) || (now < start))
+        if (!steps_until_check)
         {
-            native_failure(UINT32_MAX);
-            return;
+            std::uint64_t now = 0u;
+            if ((m_clock.read_ticks(now).code != platform::threading::EWaitError::none) || (now < start))
+            {
+                native_failure(UINT32_MAX);
+                return;
+            }
+            if ((now - start) >= limit) break;
+            steps_until_check = k_steps_per_clock_check;
         }
-        if ((now - start) >= limit) break;
+        --steps_until_check;
         TInstance<CInputConnection>& owned = m_inputs[m_mapper_turn];
         ++m_mapper_turn;
         if (m_mapper_turn == k_input_slots) m_mapper_turn = 0u;
@@ -538,6 +545,8 @@ void CPlatformRuntime::progress_mappers(const std::uint64_t budget_ns) noexcept
                 if (budget.work >= cost)
                 {
                     budget.work -= cost;
+                    // Page preparation is larger than one elementary step.
+                    if (cost > 1u) steps_until_check = 0u;
                     advanced = true;
                     if (!mapper.prepare_step()) close_input(*owned, EServiceStatus::allocation_failed);
                 }
