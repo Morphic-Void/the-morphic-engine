@@ -22,10 +22,10 @@
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/macros.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/TExecutionInstance.hpp"
 #include "texture/texture_requests.hpp"
 
 #include <utility>
-#include <new>
 
 namespace rendering
 {
@@ -33,7 +33,7 @@ namespace rendering
 class CRenderingExecution
 {
 public:
-    CRenderingExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept;
+    CRenderingExecution(const modules::SExecutionContext& context) noexcept;
 
     static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context, void** const runtime) noexcept;
     static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept;
@@ -45,7 +45,6 @@ private:
     void service() noexcept;
     modules::EExecutionStatus dispatch(const modules::SInvocation& invocation, modules::SExecutionProgress& progress) noexcept;
 
-    memory::CMemoryToken m_allocation;
     const modules::CCommunication m_communication;
     threading::CBatchClient& m_batch;
     CResourceRequests m_requests;
@@ -54,8 +53,8 @@ private:
     bool m_codec{ false }, m_enabled{ false }, m_stopping{ false }, m_failed{ false }, m_continuation{ false };
 };
 
-CRenderingExecution::CRenderingExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept
-    : m_allocation{ std::move(allocation) }, m_communication{ *context.communication }, m_batch{ *context.batch }
+CRenderingExecution::CRenderingExecution(const modules::SExecutionContext& context) noexcept
+    : m_communication{ *context.communication }, m_batch{ *context.batch }
     , m_requests{ m_batch, { this, &post_asset } }, m_tests{ m_communication, module_ids::rendering, m_requests }
 {
 }
@@ -68,14 +67,8 @@ modules::EExecutionStatus MV_STD_ABI_CALL CRenderingExecution::create(const modu
         return modules::EExecutionStatus::invalid_argument;
     }
     *runtime = nullptr;
-    memory::CMemoryToken allocation{ 1u, alignof(CRenderingExecution) };
-    if (!allocation.allocate(sizeof(CRenderingExecution)))
-    {
-        return modules::EExecutionStatus::failed;
-    }
-    void* const storage = allocation.data();
-    *runtime = ::new (storage) CRenderingExecution{ std::move(allocation), *context };
-    return modules::EExecutionStatus::success;
+    *runtime = modules::TExecutionInstance<CRenderingExecution>::create(*context);
+    return (*runtime != nullptr) ? modules::EExecutionStatus::success : modules::EExecutionStatus::failed;
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CRenderingExecution::handle(void* const runtime, const modules::SInvocation* const invocation,
@@ -85,16 +78,18 @@ modules::EExecutionStatus MV_STD_ABI_CALL CRenderingExecution::handle(void* cons
     {
         return modules::EExecutionStatus::invalid_argument;
     }
-    return static_cast<CRenderingExecution*>(runtime)->dispatch(*invocation, *progress);
+    return modules::TExecutionInstance<CRenderingExecution>::get(runtime)->dispatch(*invocation, *progress);
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CRenderingExecution::destroy(void* const runtime) noexcept
 {
-    CRenderingExecution* const self = static_cast<CRenderingExecution*>(runtime);
-    if (!self || !self->complete()) return modules::EExecutionStatus::failed;
+    CRenderingExecution* const self = modules::TExecutionInstance<CRenderingExecution>::get(runtime);
+    if (!self || !self->complete())
+    {
+        return modules::EExecutionStatus::failed;
+    }
     if (self->m_codec) basis_codec::shutdown();
-    memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-    self->~CRenderingExecution();
+    modules::TExecutionInstance<CRenderingExecution>::destroy(runtime);
     return modules::EExecutionStatus::success;
 }
 

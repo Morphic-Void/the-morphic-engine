@@ -44,6 +44,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_execution.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\TExecutionInstance.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_execution_context.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_messages.hpp" />

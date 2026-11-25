@@ -71,6 +71,55 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     binary = parser.parse_args().binary.resolve(strict=True)
 
+    # Token ownership is confined to the two implementation layers. Permissions
+    # are exact test files, not general application or fixture grandfathering.
+    for source in (
+        "memory::CMemoryToken owner;\n",
+        "using Owner = memory::CMemoryToken;\n",
+        "using memory::CMemoryToken;\n",
+        "void inspect(const memory::CMemoryToken&);\n",
+        "TSlots<memory::CMemoryToken> owners;\n",
+        "#define OWNER memory::CMemoryToken\n",
+        "#define OWNER() memory::CMemoryToken{}\n",
+        "#define OWNER() memory::\\\nCMemoryToken{}\n",
+        "#if 0\nmemory::CMemoryToken owner;\n#endif\n",
+    ):
+        check(binary, "token use outside implementation layers", source, errors=1, rules=("MEM004",))
+    for path in ("foundation/probe.hpp", "framework/probe.hpp"):
+        check(binary, "token implementation layer", "memory::CMemoryToken owner;\n", path=path)
+    for path in ("tests/probe.cpp", "host/framework/probe.cpp", "framework_extra/probe.cpp"):
+        extra_scan = "scan|framework_extra|engine\n" if path.startswith("framework_extra/") else ""
+        check(binary, "token layer prefix boundary", "CMemoryToken owner;\n", extra=extra_scan,
+              path=path, errors=1, rules=("MEM004",))
+    check(binary, "token literals and longer names",
+          '// CMemoryToken\nconst char* name = "CMemoryToken";\n'
+          'const char* raw = R"(CMemoryToken)";\nstruct CMemoryTokenProbe {};\n')
+    permission = "memory-token|tests/probe.cpp|token-ownership-test\n"
+    check(binary, "exact token test permission", "CMemoryToken owner;\n", permission, path="tests/probe.cpp")
+    check(binary, "token macro uses test permission", "#define OWNER CMemoryToken\n", permission, path="tests/probe.cpp")
+    check(binary, "unused token permission", 'const char* name = "CMemoryToken";\n', permission,
+          path="tests/probe.cpp", warnings=1, rules=("CFG101",))
+    check(binary, "token permission is not a directory exemption", "CMemoryToken owner;\n", permission,
+          path="tests/other.cpp", files={"tests/probe.cpp": "CMemoryToken owner;\n"}, errors=1, rules=("MEM004",))
+    check(binary, "token permission cannot exempt application code", "CMemoryToken owner;\n",
+          "memory-token|host/probe.cpp|not-a-test\n", errors=1, rules=("CFG001",))
+    check(binary, "token permission requires a scanned test", extra="memory-token|tools/probe.cpp|test\n",
+          files={"tools/probe.cpp": "CMemoryToken owner;\n"}, errors=1, rules=("CFG001",))
+    check(binary, "token permission requires an existing file", extra="memory-token|tests/missing.cpp|test\n",
+          errors=1, rules=("CFG001",))
+    for record in ("memory-token|tests/probe.cpp", "memory-token|tests/probe.cpp|",
+                   "memory-token|../probe.cpp|test", "memory-token|tests/|test", "memory-token|*|test"):
+        check(binary, "invalid token permission", extra=record + "\n", exit_code=2)
+    check(binary, "duplicate token permission reasons", extra=permission +
+          "memory-token|tests/probe.cpp|another-reason\n", exit_code=2)
+    for source in ("CMemoryToken owner;\n", "#define OWNER CMemoryToken\n"):
+        check(binary, "narrow token suppression",
+              '// morphic-policy: suppress-next-line MEM004 reason="negative ownership test"\n' + source,
+              suppressed=1, rules=("MEM004",))
+    check(binary, "stale token suppression",
+          '// morphic-policy: suppress-next-line MEM004 reason="negative ownership test"\nint value;\n',
+          errors=1, rules=("SUP001",))
+
     # Schema errors are policy-loading failures, distinct from source violations.
     invalid_records = (
         "version|1", "version|2", "scan|host|engnie", "scan|host/|engine", "project|fixture.vcxproj|toool",

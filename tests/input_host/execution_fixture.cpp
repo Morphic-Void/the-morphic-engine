@@ -14,6 +14,7 @@
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/input_host/execution.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/TExecutionInstance.hpp"
 #include "platform/threading/thread_lifetime.hpp"
 #include "system/system_context.hpp"
 
@@ -32,8 +33,8 @@ static constexpr bool k_secondary = false;
 class CInputFixture
 {
 public:
-    CInputFixture(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept
-        : m_allocation{ std::move(allocation) }, m_execution{ context, k_secondary },
+    CInputFixture(const modules::SExecutionContext& context) noexcept
+        : m_execution{ context, k_secondary },
           m_thread{ platform::threading::query_current_thread_id() } {}
     static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context, void** const runtime) noexcept
     {
@@ -51,12 +52,12 @@ public:
             return modules::EExecutionStatus::failed;
         }
         memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
-        if (!memory) return modules::EExecutionStatus::failed;
-        memory::CMemoryToken allocation{ 1u, alignof(CInputFixture), memory };
-        if (!allocation.allocate(sizeof(CInputFixture))) return modules::EExecutionStatus::failed;
-        void* const storage = allocation.data();
-        *runtime = ::new (storage) CInputFixture{ std::move(allocation), *context };
-        return modules::EExecutionStatus::success;
+        if (!memory)
+        {
+            return modules::EExecutionStatus::failed;
+        }
+        *runtime = modules::TExecutionInstance<CInputFixture>::create_in(*memory, *context);
+        return (*runtime != nullptr) ? modules::EExecutionStatus::success : modules::EExecutionStatus::failed;
     }
     static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation,
         modules::SExecutionProgress* const progress) noexcept
@@ -65,19 +66,21 @@ public:
         {
             return modules::EExecutionStatus::invalid_argument;
         }
-        CInputFixture& self = *static_cast<CInputFixture*>(runtime);
-        if (!self.context_valid()) return modules::EExecutionStatus::failed;
+        CInputFixture& self = *modules::TExecutionInstance<CInputFixture>::get(runtime);
+        if (!self.context_valid())
+        {
+            return modules::EExecutionStatus::failed;
+        }
         return self.m_execution.handle(*invocation, *progress);
     }
     static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept
     {
-        CInputFixture* const self = static_cast<CInputFixture*>(runtime);
+        CInputFixture* const self = modules::TExecutionInstance<CInputFixture>::get(runtime);
         if (!self || !self->context_valid() || !self->m_execution.complete())
         {
             return modules::EExecutionStatus::failed;
         }
-        memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-        self->~CInputFixture();
+        modules::TExecutionInstance<CInputFixture>::destroy(runtime);
         MV_LOG(info, "Input Host: consumer destroyed after local custody cleanup");
         return modules::EExecutionStatus::success;
     }
@@ -88,7 +91,6 @@ private:
             (system_context::get_ambient_thread_id() == k_thread) &&
             (system_context::get_ambient_module_id() == k_advertised_module_id) && memory::get_ambient_memory_context();
     }
-    memory::CMemoryToken m_allocation;
     CInputExecution m_execution;
     const platform::threading::CPlatformThreadId m_thread;
 };

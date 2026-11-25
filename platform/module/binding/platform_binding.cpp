@@ -12,10 +12,10 @@
 #include "framework/system/system_ids.hpp"
 #include "module/types/local_type_ids.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/TExecutionInstance.hpp"
 #include "framework/module/service_provider.hpp"
 #include "runtime/platform_runtime.hpp"
 #include "runtime/input_acceptance.hpp"
-#include <new>
 
 namespace platform::module_binding
 {
@@ -35,19 +35,18 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 class CPlatformExecution
 {
 public:
-    CPlatformExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept;
+    CPlatformExecution(const modules::SExecutionContext& context) noexcept;
 
     static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context, void** const runtime) noexcept;
     static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept;
     static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept;
 
 private:
-    memory::CMemoryToken m_allocation;
     runtime::CPlatformRuntime m_runtime;
 };
 
-CPlatformExecution::CPlatformExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept
-    : m_allocation{ std::move(allocation) }, m_runtime{ context
+CPlatformExecution::CPlatformExecution(const modules::SExecutionContext& context) noexcept
+    : m_runtime{ context
 #if defined(MV_INPUT_ACCEPTANCE)
         , acceptance::window_adapter(), platform::threading::SAwakeClock{},
         acceptance::controller_adapter(), acceptance::report_adapter()
@@ -64,29 +63,23 @@ modules::EExecutionStatus MV_STD_ABI_CALL CPlatformExecution::create(const modul
         return modules::EExecutionStatus::invalid_argument;
     }
     *runtime = nullptr;
-    memory::CMemoryToken allocation{ 1u, alignof(CPlatformExecution) };
-    if (!allocation.allocate(sizeof(CPlatformExecution)))
-    {
-        return modules::EExecutionStatus::failed;
-    }
 #if defined(MV_INPUT_ACCEPTANCE)
     if (!acceptance::initialise(*context))
     {
         return modules::EExecutionStatus::failed;
     }
 #endif
-    void* const storage = allocation.data();
-    CPlatformExecution* const self = ::new (storage) CPlatformExecution{ std::move(allocation), *context };
-    if (!self->m_runtime.initialise())
+    void* const handle = modules::TExecutionInstance<CPlatformExecution>::create(*context);
+    CPlatformExecution* const self = modules::TExecutionInstance<CPlatformExecution>::get(handle);
+    if (!self || !self->m_runtime.initialise())
     {
-        memory::CMemoryToken rejected{ std::move(self->m_allocation) };
-        self->~CPlatformExecution();
+        modules::TExecutionInstance<CPlatformExecution>::destroy(handle);
 #if defined(MV_INPUT_ACCEPTANCE)
         acceptance::destroy();
 #endif
         return modules::EExecutionStatus::failed;
     }
-    *runtime = self;
+    *runtime = handle;
     return modules::EExecutionStatus::success;
 }
 
@@ -96,18 +89,17 @@ modules::EExecutionStatus MV_STD_ABI_CALL CPlatformExecution::handle(void* const
     {
         return modules::EExecutionStatus::invalid_argument;
     }
-    return static_cast<CPlatformExecution*>(runtime)->m_runtime.handle(*invocation, *progress);
+    return modules::TExecutionInstance<CPlatformExecution>::get(runtime)->m_runtime.handle(*invocation, *progress);
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CPlatformExecution::destroy(void* const runtime) noexcept
 {
-    CPlatformExecution* const self = static_cast<CPlatformExecution*>(runtime);
+    CPlatformExecution* const self = modules::TExecutionInstance<CPlatformExecution>::get(runtime);
     if (!self || !self->m_runtime.stopped())
     {
         return modules::EExecutionStatus::failed;
     }
-    memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-    self->~CPlatformExecution();
+    modules::TExecutionInstance<CPlatformExecution>::destroy(runtime);
 #if defined(MV_INPUT_ACCEPTANCE)
     acceptance::destroy();
 #endif

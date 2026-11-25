@@ -122,6 +122,7 @@ struct SPolicyUsage
     std::unordered_set<std::size_t> macros;
     std::unordered_set<std::string> placements;
     std::unordered_set<std::string> allocations;
+    std::unordered_set<std::string> memory_tokens;
 };
 
 struct SProjectRule
@@ -139,6 +140,7 @@ struct SPolicy
     std::vector<SProjectRule> projects;
     std::unordered_set<std::string> placement_paths;
     std::unordered_set<std::string> allocation_paths;
+    std::unordered_set<std::string> memory_token_paths;
 };
 
 struct SProjectConfiguration
@@ -278,7 +280,8 @@ struct SCompilerGroup
         }
         for (const SPolicyRecord& record : policy.records)
         {
-            const std::size_t key_size = (fields[0] == "include") ? std::min(std::size_t{ 5u }, fields.size()) : fields.size();
+            const std::size_t key_size = (fields[0] == "include") ? std::min(std::size_t{ 5u }, fields.size()) :
+                ((fields[0] == "memory-token") ? std::min(std::size_t{ 2u }, fields.size()) : fields.size());
             if ((record.fields.size() == fields.size()) &&
                 std::equal(fields.begin(), (fields.begin() + key_size), record.fields.begin()))
             {
@@ -318,6 +321,10 @@ struct SCompilerGroup
         else if ((fields[0] == "allocation") && (fields.size() == 2u))
         {
             policy.allocation_paths.insert(fields[1]);
+        }
+        else if ((fields[0] == "memory-token") && (fields.size() == 3u))
+        {
+            policy.memory_token_paths.insert(fields[1]);
         }
         else if ((fields[0] == "macro") && (fields.size() == 5u))
         {
@@ -924,7 +931,8 @@ static void audit_policy_targets(
             [&](const SScanRoot& scan)
             {
                 const std::string prefix = normalise_relative_path(scan.path) + '/';
-                const bool scope_matches = (fields[0] != "include") || (fields[2] == "all") || (fields[2] == scan.scope);
+                const bool scope_matches = (fields[0] == "memory-token") ? (scan.scope == "tests") :
+                    ((fields[0] != "include") || (fields[2] == "all") || (fields[2] == scan.scope));
                 return scope_matches && ((path.rfind(prefix, 0u) == 0u) ||
                     (directory && (prefix.rfind(path, 0u) == 0u)));
             });
@@ -995,6 +1003,10 @@ static void audit_policy_usage(
         else if (fields[0] == "allocation")
         {
             unused = usage.allocations.find(fields[1]) == usage.allocations.end();
+        }
+        else if (fields[0] == "memory-token")
+        {
+            unused = usage.memory_tokens.find(fields[1]) == usage.memory_tokens.end();
         }
         if (unused)
         {
@@ -1346,7 +1358,18 @@ static void check_memory_tokens(
     for (std::size_t index = 0u; index < tokens.size(); ++index)
     {
         const SToken& token = tokens[index];
-        if (token.text == "new")
+        if (token.text == "CMemoryToken")
+        {
+            usage.memory_tokens.insert(path);
+            if ((path.rfind("foundation/", 0u) != 0u) && (path.rfind("framework/", 0u) != 0u) &&
+                (policy.memory_token_paths.find(path) == policy.memory_token_paths.end()))
+            {
+                add_diagnostic(diagnostics, relative_path, token.line, token.column,
+                    ESeverity::error, "MEM004",
+                    "CMemoryToken use is restricted to Foundation, Framework and approved tests; use a provided owner or container");
+            }
+        }
+        else if (token.text == "new")
         {
             if ((index > 0u) && (tokens[index - 1u].text == "operator"))
             {
@@ -1428,7 +1451,7 @@ static void apply_decorations(
     std::vector<SDiagnostic>& diagnostics)
 {
     static const std::unordered_set<std::string> suppressible_rules = {
-        "MEM001", "MEM002", "MEM003", "GID001", "GID002", "GID003",
+        "MEM001", "MEM002", "MEM003", "MEM004", "GID001", "GID002", "GID003",
         "INC001", "INC002", "INC003", "INC004", "INC005", "INC006", "INC101", "INC102", "LIB001"
     };
 

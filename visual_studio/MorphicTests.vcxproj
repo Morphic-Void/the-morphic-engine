@@ -213,6 +213,7 @@
     <ClCompile Include="..\tests\test_suites\StringBuffers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\SystemTypeIdentity_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TInstance_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\ExecutionInstance_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TProcessLifetime_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TMpmcTransport_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TOrderedCollection_test_suite.cpp" />
@@ -302,6 +303,7 @@
     <ClInclude Include="..\tests\test_suites\StringBuffers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\SystemTypeIdentity_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TInstance_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\ExecutionInstance_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TProcessLifetime_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TMpmcTransport_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TOrderedCollection_test_suite.hpp" />

@@ -15,6 +15,7 @@
 
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/TExecutionInstance.hpp"
 #include "tests/module_lifecycle/service_execution.hpp"
 #include "tests/module_lifecycle/executive_execution.hpp"
 #include "memory/memory_context.hpp"
@@ -56,16 +57,15 @@ static modules::CModuleBindingContext s_binding{ k_binding_config };
 class CNativeLifecycleExecution
 {
 public:
-    CNativeLifecycleExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context,
+    CNativeLifecycleExecution(const modules::SExecutionContext& context,
         const char* const selected) noexcept
-        : m_allocation{ std::move(allocation) }
 #if MV_LIFECYCLE_EXECUTIVE
-        , m_executive{ context, selected }
+        : m_executive{ context, selected }
 #elif MV_LIFECYCLE_SERVICE
-        , m_service{ context, (std::strcmp(selected, "service-lifecycle") == 0),
+        : m_service{ context, (std::strcmp(selected, "service-lifecycle") == 0),
             (std::strcmp(selected, "service-start-failure") == 0) }
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL
-        , m_service{ context, false, false, scenario(selected) }
+        : m_service{ context, false, false, scenario(selected) }
         , m_final{ context }, m_bundle{ context }
         , m_final_mode{ std::strcmp(selected, "render-exit-disposal") == 0 }
         , m_bundle_mode{ std::strcmp(selected, "bundle-rendering") == 0 }
@@ -83,9 +83,7 @@ public:
         }
         *runtime = nullptr;
         memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
-        if (!memory) return modules::EExecutionStatus::failed;
-        memory::CMemoryToken allocation{ 1u, alignof(CNativeLifecycleExecution), memory };
-        if (!allocation.allocate(sizeof(CNativeLifecycleExecution)))
+        if (!memory)
         {
             return modules::EExecutionStatus::failed;
         }
@@ -102,17 +100,20 @@ public:
             return modules::EExecutionStatus::failed;
         }
 #endif
-        void* const storage = allocation.data();
-        CNativeLifecycleExecution* const self = ::new (storage) CNativeLifecycleExecution{ std::move(allocation), *context, selected };
+        void* const handle = modules::TExecutionInstance<CNativeLifecycleExecution>::create_in(*memory, *context, selected);
+        if (!handle)
+        {
+            return modules::EExecutionStatus::failed;
+        }
 #if MV_LIFECYCLE_RENDERING_DISPOSAL
+        CNativeLifecycleExecution* const self = modules::TExecutionInstance<CNativeLifecycleExecution>::get(handle);
         if (self->m_final_mode && !self->m_final.configure())
         {
-            memory::CMemoryToken failed_allocation{ std::move(self->m_allocation) };
-            self->~CNativeLifecycleExecution();
+            modules::TExecutionInstance<CNativeLifecycleExecution>::destroy(handle);
             return modules::EExecutionStatus::failed;
         }
 #endif
-        *runtime = self;
+        *runtime = handle;
         return modules::EExecutionStatus::success;
     }
     static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation,
@@ -122,14 +123,17 @@ public:
         {
             return modules::EExecutionStatus::invalid_argument;
         }
-        CNativeLifecycleExecution& self = *static_cast<CNativeLifecycleExecution*>(runtime);
+        CNativeLifecycleExecution& self = *modules::TExecutionInstance<CNativeLifecycleExecution>::get(runtime);
 #if MV_LIFECYCLE_EXECUTIVE
         return self.m_executive.handle(*invocation, *progress);
 #elif MV_LIFECYCLE_SERVICE
         return self.m_service.handle(*invocation, *progress);
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL
         if (invocation->event == modules::EExecutionEvent::start) MV_LOG(info, "Rendering: Running");
-        if (self.m_bundle_mode) return self.m_bundle.handle_rendering(*invocation, *progress);
+        if (self.m_bundle_mode)
+        {
+            return self.m_bundle.handle_rendering(*invocation, *progress);
+        }
         return self.m_final_mode ? self.m_final.handle(*invocation, *progress) : self.m_service.handle(*invocation, *progress);
 #else
         // A deliberate once-reported startup failure still permits cleanup.
@@ -144,8 +148,11 @@ public:
     }
     static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept
     {
-        CNativeLifecycleExecution* const self = static_cast<CNativeLifecycleExecution*>(runtime);
-        if (!self) return modules::EExecutionStatus::invalid_argument;
+        CNativeLifecycleExecution* const self = modules::TExecutionInstance<CNativeLifecycleExecution>::get(runtime);
+        if (!self)
+        {
+            return modules::EExecutionStatus::invalid_argument;
+        }
 #if MV_LIFECYCLE_EXECUTIVE
         if (!self->m_executive.complete())
         {
@@ -164,13 +171,15 @@ public:
             return modules::EExecutionStatus::failed;
         }
 #else
-        if (!self->m_stopping) return modules::EExecutionStatus::failed;
+        if (!self->m_stopping)
+        {
+            return modules::EExecutionStatus::failed;
+        }
 #endif
-        memory::CMemoryToken allocation{ std::move(self->m_allocation) };
 #if MV_LIFECYCLE_RENDERING_DISPOSAL
         MV_LOG(info, "Rendering: Exited");
 #endif
-        self->~CNativeLifecycleExecution();
+        modules::TExecutionInstance<CNativeLifecycleExecution>::destroy(runtime);
         return modules::EExecutionStatus::success;
     }
 private:
@@ -193,7 +202,6 @@ private:
             EAcquisitionScenario::rendering_release : EAcquisitionScenario::rendering_abandon;
     }
 #endif
-    memory::CMemoryToken m_allocation;
 #if MV_LIFECYCLE_EXECUTIVE
     CExecutiveExecution m_executive;
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL

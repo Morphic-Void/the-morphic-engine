@@ -24,6 +24,7 @@
 #include "runtime/request_preparation.hpp"
 #include "runtime/execution_timing.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/TExecutionInstance.hpp"
 
 #include "debug/macros.hpp"
 #include "image/codec/tga.hpp"
@@ -32,7 +33,6 @@
 #include "data_model/document_writer.hpp"
 #include "platform/system/performance_counter.hpp"
 #include "platform/module/binding.hpp"
-#include <new>
 #include "system/system_id_registry.hpp"
 #include "framework/assets/asset_messages.hpp"
 #include "foundation/platform/threading/wait_deadline.hpp"
@@ -244,8 +244,12 @@ private:
     CExecutiveExecution& operator=(const CExecutiveExecution&) noexcept = delete;
     CExecutiveExecution(CExecutiveExecution&&) noexcept = delete;
     CExecutiveExecution& operator=(CExecutiveExecution&&) noexcept = delete;
-    CExecutiveExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept;
+
+public:
+    CExecutiveExecution(const modules::SExecutionContext& context) noexcept;
     ~CExecutiveExecution() noexcept = default;
+
+private:
     modules::EExecutionStatus dispatch(const modules::SInvocation& invocation, modules::SExecutionProgress& progress) noexcept;
     void service() noexcept;
     void receive(const connections::SSource& source, const threading::CErasedPodMsg& message) noexcept;
@@ -290,7 +294,6 @@ private:
     void shutdown() noexcept;
     void fail(const EFailure failure, const char* const reason) noexcept;
 
-    memory::CMemoryToken m_allocation;
     const modules::SExecutionContext m_context;
     const modules::CCommunication m_communication;
     //  Fixed operation records: one sequential/module/bundle request, 32 saves,
@@ -334,8 +337,8 @@ private:
 
 
 
-CExecutiveExecution::CExecutiveExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context) noexcept
-    : m_allocation{ std::move(allocation) }, m_context{ context }, m_communication{ *context.communication }
+CExecutiveExecution::CExecutiveExecution(const modules::SExecutionContext& context) noexcept
+    : m_context{ context }, m_communication{ *context.communication }
 {
 }
 
@@ -1234,14 +1237,8 @@ modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::create(const modu
         return modules::EExecutionStatus::invalid_argument;
     }
     *runtime = nullptr;
-    memory::CMemoryToken allocation{ 1u, alignof(CExecutiveExecution) };
-    if (!allocation.allocate(sizeof(CExecutiveExecution)))
-    {
-        return modules::EExecutionStatus::failed;
-    }
-    void* const storage = allocation.data();
-    *runtime = ::new (storage) CExecutiveExecution{ std::move(allocation), *context };
-    return modules::EExecutionStatus::success;
+    *runtime = modules::TExecutionInstance<CExecutiveExecution>::create(*context);
+    return (*runtime != nullptr) ? modules::EExecutionStatus::success : modules::EExecutionStatus::failed;
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::handle(void* const runtime,
@@ -1251,18 +1248,17 @@ modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::handle(void* cons
     {
         return modules::EExecutionStatus::invalid_argument;
     }
-    return static_cast<CExecutiveExecution*>(runtime)->dispatch(*invocation, *progress);
+    return modules::TExecutionInstance<CExecutiveExecution>::get(runtime)->dispatch(*invocation, *progress);
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CExecutiveExecution::destroy(void* const runtime) noexcept
 {
-    CExecutiveExecution* const self = static_cast<CExecutiveExecution*>(runtime);
+    CExecutiveExecution* const self = modules::TExecutionInstance<CExecutiveExecution>::get(runtime);
     if (!self || !self->m_stopping)
     {
         return modules::EExecutionStatus::failed;
     }
-    memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-    self->~CExecutiveExecution();
+    modules::TExecutionInstance<CExecutiveExecution>::destroy(runtime);
     return modules::EExecutionStatus::success;
 }
 

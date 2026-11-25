@@ -25,6 +25,7 @@
 #include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "framework/module/module_binding_context.hpp"
+#include "framework/module/TExecutionInstance.hpp"
 #include "framework/services/provider_client.hpp"
 #include "framework/module/host_eligible_budget.hpp"
 #include "framework/module/service_provider.hpp"
@@ -74,8 +75,8 @@ static constexpr auto k_advertised_module_id = module_ids::executive;
 class CExecutiveFixture
 {
 public:
-    CExecutiveFixture(memory::CMemoryToken&& allocation, const SExecutionContext& context) noexcept
-        : m_allocation{ std::move(allocation) }, m_execution{ context, selected(), (MV_PUMP_REPLACEMENT != 0) },
+    CExecutiveFixture(const SExecutionContext& context) noexcept
+        : m_execution{ context, selected(), (MV_PUMP_REPLACEMENT != 0) },
           m_thread{ platform::threading::query_current_thread_id() } {}
     static EExecutionStatus MV_STD_ABI_CALL create(const SExecutionContext* const context, void** const runtime) noexcept
     {
@@ -95,14 +96,8 @@ public:
         }
         memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
         if (!memory) return EExecutionStatus::failed;
-        memory::CMemoryToken allocation{ 1u, alignof(CExecutiveFixture), memory };
-        if (!allocation.allocate(sizeof(CExecutiveFixture)))
-        {
-            return EExecutionStatus::failed;
-        }
-        void* const storage = allocation.data();
-        *runtime = ::new (storage) CExecutiveFixture{ std::move(allocation), *context };
-        return EExecutionStatus::success;
+        *runtime = modules::TExecutionInstance<CExecutiveFixture>::create_in(*memory, *context);
+        return (*runtime != nullptr) ? EExecutionStatus::success : EExecutionStatus::failed;
     }
     static EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const SInvocation* const invocation,
         SExecutionProgress* const progress) noexcept
@@ -111,19 +106,21 @@ public:
         {
             return EExecutionStatus::invalid_argument;
         }
-        CExecutiveFixture& self = *static_cast<CExecutiveFixture*>(runtime);
-        if (!self.context_valid()) return EExecutionStatus::failed;
+        CExecutiveFixture& self = *modules::TExecutionInstance<CExecutiveFixture>::get(runtime);
+        if (!self.context_valid())
+        {
+            return EExecutionStatus::failed;
+        }
         return self.m_execution.handle(*invocation, *progress);
     }
     static EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept
     {
-        CExecutiveFixture* const self = static_cast<CExecutiveFixture*>(runtime);
+        CExecutiveFixture* const self = modules::TExecutionInstance<CExecutiveFixture>::get(runtime);
         if (!self || !self->context_valid() || !self->m_execution.complete())
         {
             return EExecutionStatus::failed;
         }
-        memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-        self->~CExecutiveFixture();
+        modules::TExecutionInstance<CExecutiveFixture>::destroy(runtime);
         return EExecutionStatus::success;
     }
 private:
@@ -133,7 +130,6 @@ private:
             (system_context::get_ambient_thread_id() == thread_ids::executive) &&
             (system_context::get_ambient_module_id() == module_ids::executive) && memory::get_ambient_memory_context();
     }
-    memory::CMemoryToken m_allocation;
     CExecutiveExecution m_execution;
     const platform::threading::CPlatformThreadId m_thread;
 };
@@ -142,8 +138,8 @@ static constexpr auto k_advertised_module_id = module_ids::rendering;
 class CProviderFixture
 {
 public:
-    CProviderFixture(memory::CMemoryToken&& allocation, const SExecutionContext& context) noexcept
-        : m_allocation{ std::move(allocation) }, m_provider{ context, selected() } {}
+    CProviderFixture(const SExecutionContext& context) noexcept
+        : m_provider{ context, selected() } {}
     static EExecutionStatus MV_STD_ABI_CALL create(const SExecutionContext* const context, void** const runtime) noexcept
     {
         if (!context || !runtime || !context->communication || (context->size != sizeof(*context)) || (context->version != 1u))
@@ -151,23 +147,20 @@ public:
             return EExecutionStatus::invalid_argument;
         }
         *runtime = nullptr;
-        if (scenario("activation-null")) return EExecutionStatus::failed;
+        if (scenario("activation-null"))
+        {
+            return EExecutionStatus::failed;
+        }
         memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
         if (!memory) return EExecutionStatus::failed;
-        memory::CMemoryToken allocation{ 1u, alignof(CProviderFixture), memory };
-        if (!allocation.allocate(sizeof(CProviderFixture)))
+        void* const handle = modules::TExecutionInstance<CProviderFixture>::create_in(*memory, *context);
+        CProviderFixture* const self = modules::TExecutionInstance<CProviderFixture>::get(handle);
+        if (!self || !self->m_provider.context_valid())
         {
+            modules::TExecutionInstance<CProviderFixture>::destroy(handle);
             return EExecutionStatus::failed;
         }
-        void* const storage = allocation.data();
-        CProviderFixture* const self = ::new (storage) CProviderFixture{ std::move(allocation), *context };
-        if (!self->m_provider.context_valid())
-        {
-            memory::CMemoryToken failed{ std::move(self->m_allocation) };
-            self->~CProviderFixture();
-            return EExecutionStatus::failed;
-        }
-        *runtime = self;
+        *runtime = handle;
         return EExecutionStatus::success;
     }
     static EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const SInvocation* const invocation,
@@ -177,11 +170,11 @@ public:
         {
             return EExecutionStatus::invalid_argument;
         }
-        return static_cast<CProviderFixture*>(runtime)->m_provider.handle(*invocation, *progress);
+        return modules::TExecutionInstance<CProviderFixture>::get(runtime)->m_provider.handle(*invocation, *progress);
     }
     static EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept
     {
-        CProviderFixture* const self = static_cast<CProviderFixture*>(runtime);
+        CProviderFixture* const self = modules::TExecutionInstance<CProviderFixture>::get(runtime);
         if (!self || !self->m_provider.context_valid() || !self->m_provider.complete())
         {
             return EExecutionStatus::failed;
@@ -191,13 +184,11 @@ public:
             MV_LOG(info, "Pump provider: quiescent state retained");
             return EExecutionStatus::failed;
         }
-        memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-        self->~CProviderFixture();
+        modules::TExecutionInstance<CProviderFixture>::destroy(runtime);
         MV_LOG(info, "Pump provider: deactivated");
         return EExecutionStatus::success;
     }
 private:
-    memory::CMemoryToken m_allocation;
     CProviderExecution m_provider;
 };
 #endif

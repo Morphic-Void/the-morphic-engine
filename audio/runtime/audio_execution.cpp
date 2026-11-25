@@ -15,7 +15,7 @@
 #include "audio/runtime/audio_execution.hpp"
 #include "miniaudio_adapter.hpp"
 #include "framework/module/module_binding_context.hpp"
-#include <new>
+#include "framework/module/TExecutionInstance.hpp"
 
 namespace audio
 {
@@ -195,20 +195,19 @@ modules::EExecutionStatus CAudioExecution::handle(const modules::SInvocation& in
 class CNativeAudioExecution
 {
 public:
-    CNativeAudioExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context, memory::CMemoryContext& memory) noexcept;
+    CNativeAudioExecution(const modules::SExecutionContext& context, memory::CMemoryContext& memory) noexcept;
 
     static modules::EExecutionStatus MV_STD_ABI_CALL create(const modules::SExecutionContext* const context, void** const runtime) noexcept;
     static modules::EExecutionStatus MV_STD_ABI_CALL handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept;
     static modules::EExecutionStatus MV_STD_ABI_CALL destroy(void* const runtime) noexcept;
 
 private:
-    memory::CMemoryToken m_allocation;
     CMiniaudioOutput m_output;
     CAudioExecution m_execution;
 };
 
-CNativeAudioExecution::CNativeAudioExecution(memory::CMemoryToken&& allocation, const modules::SExecutionContext& context, memory::CMemoryContext& memory) noexcept
-    : m_allocation{ std::move(allocation) }, m_output{ memory }, m_execution{ context, m_output }
+CNativeAudioExecution::CNativeAudioExecution(const modules::SExecutionContext& context, memory::CMemoryContext& memory) noexcept
+    : m_output{ memory }, m_execution{ context, m_output }
 {
 }
 
@@ -225,14 +224,8 @@ modules::EExecutionStatus MV_STD_ABI_CALL CNativeAudioExecution::create(const mo
     {
         return modules::EExecutionStatus::failed;
     }
-    memory::CMemoryToken allocation{ 1u, alignof(CNativeAudioExecution), memory };
-    if (!allocation.allocate(sizeof(CNativeAudioExecution)))
-    {
-        return modules::EExecutionStatus::failed;
-    }
-    void* const storage = allocation.data();
-    *runtime = ::new (storage) CNativeAudioExecution{ std::move(allocation), *context, *memory };
-    return modules::EExecutionStatus::success;
+    *runtime = modules::TExecutionInstance<CNativeAudioExecution>::create_in(*memory, *context, *memory);
+    return (*runtime != nullptr) ? modules::EExecutionStatus::success : modules::EExecutionStatus::failed;
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CNativeAudioExecution::handle(void* const runtime, const modules::SInvocation* const invocation, modules::SExecutionProgress* const progress) noexcept
@@ -241,18 +234,17 @@ modules::EExecutionStatus MV_STD_ABI_CALL CNativeAudioExecution::handle(void* co
     {
         return modules::EExecutionStatus::invalid_argument;
     }
-    return static_cast<CNativeAudioExecution*>(runtime)->m_execution.handle(*invocation, *progress);
+    return modules::TExecutionInstance<CNativeAudioExecution>::get(runtime)->m_execution.handle(*invocation, *progress);
 }
 
 modules::EExecutionStatus MV_STD_ABI_CALL CNativeAudioExecution::destroy(void* const runtime) noexcept
 {
-    CNativeAudioExecution* const self = static_cast<CNativeAudioExecution*>(runtime);
+    CNativeAudioExecution* const self = modules::TExecutionInstance<CNativeAudioExecution>::get(runtime);
     if (!self || !self->m_execution.complete())
     {
         return modules::EExecutionStatus::failed;
     }
-    memory::CMemoryToken allocation{ std::move(self->m_allocation) };
-    self->~CNativeAudioExecution();
+    modules::TExecutionInstance<CNativeAudioExecution>::destroy(runtime);
     return modules::EExecutionStatus::success;
 }
 

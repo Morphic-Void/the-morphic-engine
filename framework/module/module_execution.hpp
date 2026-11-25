@@ -207,6 +207,9 @@ inline constexpr std::uint32_t k_execution_native_events = 1u;
 struct SExecutionV1
 {
     std::uint32_t size{ sizeof(SExecutionV1) }, version{ 1u }, flags{ 0u };
+    //  Framework's TExecutionInstance<T> supplies single-allocation opaque
+    //  storage. Its handles must be accessed with get(), not cast to T*.
+    //  Handle layout is private to the creating module; Host only carries it.
     EExecutionStatus(MV_STD_ABI_CALL* create)(const SExecutionContext* const, void** const) noexcept{ nullptr };
     //  Success means this invocation supplied valid progress. A failed return
     //  latches a fatal endpoint failure and its progress is not consumed. Later

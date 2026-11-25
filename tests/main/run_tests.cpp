@@ -50,6 +50,7 @@
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/test_suites/TInstance_test_suite.hpp"
+#include "tests/test_suites/ExecutionInstance_test_suite.hpp"
 #include "tests/test_suites/TProcessLifetime_test_suite.hpp"
 #include "tests/test_suites/TOrderedCollection_test_suite.hpp"
 #include "tests/test_suites/TPodFifo_test_suite.hpp"
@@ -338,6 +339,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("ImageView", &run_image_view_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);
     cumulative_result += run_isolated_suite("TInstance", &run_instance_tests);
+    cumulative_result += run_isolated_suite("ExecutionInstance", &run_execution_instance_tests);
     cumulative_result += run_isolated_suite("TProcessLifetime", &run_process_lifetime_tests);
     cumulative_result += run_isolated_suite("DebugService", &run_debug_service_tests);
     cumulative_result += run_isolated_suite("SystemTypeIdentity", &run_system_type_identity_tests);

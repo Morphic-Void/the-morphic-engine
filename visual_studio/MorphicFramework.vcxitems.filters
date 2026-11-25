@@ -42,6 +42,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_binding.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_restriction.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\module_execution.hpp"><Filter>Framework\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\TExecutionInstance.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_execution_context.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\module\host_eligible_budget.hpp"><Filter>Framework\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\filesystem\filesystem_messages.hpp"><Filter>Framework\filesystem</Filter></ClInclude>

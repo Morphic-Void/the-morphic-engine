@@ -46,6 +46,7 @@ It contains:
 - source roots and their engine or test scope;
 - default-deny direct system-header permissions, with path and ownership scope;
 - approved placement-construction and allocation-infrastructure locations;
+- exact test-file permissions for direct memory-token use;
 - literal global/system identity macro surfaces; and
 - engine and tooling project classifications.
 
@@ -69,6 +70,11 @@ permissions, produce `CFG101`. A permission fully covered by another permission
 produces `CFG102`. Usage includes inactive preprocessor branches. `any` permissions
 are standing policy and do not need a current use; classification labels explain
 permissions but do not change their enforcement.
+
+`memory-token|tests/path.cpp|reason` permits direct `CMemoryToken` use in one
+scanned test file. The reason is required; duplicate paths, including records
+with different reasons, are rejected. These permissions cannot target engine
+scope, unscanned files or directories, and unused permissions produce `CFG101`.
 
 Project coverage is checked against `.vcxproj` files in the repository root and
 under `visual_studio/`, plus project references in `MorphicEngine.sln`. Unclassified
@@ -143,6 +149,8 @@ silently accumulate.
 The principal conclusive rules are:
 
 - `MEM001`: ordinary naked `new` expression;
+- `MEM004`: direct `CMemoryToken` identifier outside `foundation/`, `framework/`
+  or an explicitly permitted test file;
 - `LIB001`: prohibited `stable_sort` identifier in source or a macro definition;
 - `GID001` and `GID002`: catalogue or registration macro outside its permitted
   surface;
@@ -213,6 +221,18 @@ redirections such as `#define malloc engine_allocate` do not count as raw
 allocation. Comments and literals are ignored. Macro expansion, token pasting,
 and allocations introduced only through those mechanisms remain outside the
 scanner's guarantees. `MEM002` and `MEM003` retain their warning severity.
+
+`MEM004` also examines literal macro replacement bodies, including inactive and
+continued definitions. It matches the identifier in declarations, aliases,
+parameters and template arguments without resolving C++ types. Comments,
+literals and longer identifiers do not match. A local alias declaration using
+`CMemoryToken` is checked; uses of aliases provided elsewhere, inferred types,
+macro expansion and token pasting are outside the rule's guarantees. Foundation
+and Framework remain the implementation layers for raw token ownership. Other
+engine code should use their owners and containers; the Foundation allocators
+remain the intended interface for controlled external-system allocations. This
+rule does not restrict direct context allocation or change placement-new rules.
+
 Project override checks examine each compiler option, including mixed `/std`
 selections and MSVC's `-` option spelling; a permitted C++17 option cannot conceal
 another conflicting standard selection.

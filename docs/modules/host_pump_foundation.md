@@ -22,6 +22,28 @@ serviced wait loop. Invocation views expire on return. Handler success reports
 valid progress for that invocation; a previously latched fatal state stays fatal,
 while later successful cleanup callbacks can still advance retirement.
 
+Execution adapters use `modules::TExecutionInstance<T>` from
+`framework/module/TExecutionInstance.hpp`. `create(...)` selects the ambient
+memory context; `create_in(context, ...)` selects an explicit context. Both
+return a null handle on allocation failure and otherwise construct one object
+with its allocation token in a single aligned block. Construction and destruction
+must be non-throwing. Execution classes do not carry their own allocation token.
+
+The handle identifies the private block, not a `T` pointer. Module callbacks use
+`get(handle)` to borrow the object and `destroy(handle)` to consume it exactly
+once. Null access returns null and null destruction is harmless. Other handles
+must be live and belong to the same template specialisation and originating
+module; there is no stale-handle registry or runtime type validation. Construction
+arguments are forwarded only after successful allocation. Destruction retains
+the original allocation context and backing until the object's destructor and
+member cleanup finish, even if another context is currently ambient.
+
+The execution adapter still decides when destruction is safe. It checks domain
+completion before calling the helper; refusal retains the handle and DLL under
+the existing lifecycle contract. Failed post-construction initialization destroys
+the unpublished handle before returning failure. `TInstance` remains the ordinary
+scoped/member owner and does not gain release or adoption operations.
+
 The facade contains two pointers: one immutable Host-lifetime function table and
 an opaque endpoint cookie. This is the DLL-to-Host boundary, not registration or
 discovery. Entries authenticate the cookie against the active invocation before
