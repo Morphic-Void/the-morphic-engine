@@ -67,9 +67,6 @@ jobs:
           exit $LASTEXITCODE
 
       - name: Run ordinary test suites
-        # TEMPORARY: restore x86 Debug ordinary suites after Input CI diagnosis.
-        # They passed at 5d7750a9; retain the build and all focused acceptance.
-        if: matrix.configuration != 'Debug' || matrix.platform != 'x86'
         run: |
           # The solution calls this platform x86; its projects output to Win32.
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
@@ -86,8 +83,6 @@ jobs:
             Tee-Object -FilePath build/ci/host-workers-console.log
 
       - name: Build lifecycle fixtures and test with one Host worker
-        # TEMPORARY: restore x86 Debug lifecycle build/tests after Input CI diagnosis.
-        if: matrix.configuration != 'Debug' || matrix.platform != 'x86'
         run: |
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
           $msbuild = (Get-Command msbuild -CommandType Application).Source
@@ -96,7 +91,7 @@ jobs:
             Tee-Object -FilePath build/ci/lifecycle-one-worker-console.log
 
       - name: Test lifecycle with two requested Host workers
-        # Follows the temporary x86 Debug lifecycle skip above.
+        # x86 Debug retains one worker pass for compatibility coverage.
         if: matrix.configuration != 'Debug' || matrix.platform != 'x86'
         run: |
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
@@ -113,6 +108,7 @@ jobs:
             Tee-Object -FilePath build/ci/pump-one-worker-console.log
 
       - name: Test Host pump fixtures with two requested workers
+        # x86 Debug retains one worker pass for compatibility coverage.
         if: matrix.configuration != 'Debug' || matrix.platform != 'x86'
         run: |
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
@@ -131,6 +127,7 @@ jobs:
             Tee-Object -FilePath build/ci/input-one-worker-console.log
 
       - name: Test real Host input fixtures with two requested workers
+        # x86 Debug retains one worker pass for compatibility coverage.
         if: matrix.configuration != 'Debug' || matrix.platform != 'x86'
         run: |
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }

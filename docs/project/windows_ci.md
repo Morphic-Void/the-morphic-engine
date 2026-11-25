@@ -33,20 +33,32 @@ their output beneath `build/ci/tests`.
 
 Each job builds the six standalone lifecycle fixture roles using the MSBuild
 selected by CI, reusing the solution build through `-SkipSolutionBuild`. It runs
-all 46 lifecycle cases with one requested Host worker, then reuses those binaries
-with `-SkipBuild` for two requested workers. The Host may reduce the latter to
-one worker according to its hardware-thread policy; this does not guarantee a
+the lifecycle cases with one requested Host worker, then reuses those binaries
+with `-SkipBuild` for two requested workers except on x86 Debug. The Host may
+reduce the latter to one worker according to its hardware-thread policy; this does not guarantee a
 dedicated conditioning worker on every runner. Cases include replacement,
 dependent-asset disposal, startup failures, rendering drain, bundle ownership and
 notification lifetimes, and normal Host/Executive/Rendering acceptance. Debug
 bundle cases verify I/O building and conditioning-worker preparation, including
 the shared-worker fallback.
 
-Each job also builds the three Host-pump fixture roles and runs all 45 portable
-pump cases with one and two requested Host workers. These cover Platform startup,
+Each job also builds the three Host-pump fixture roles and runs the portable
+pump cases with one requested Host worker, with a second pass requesting two
+workers except on x86 Debug. These cover Platform startup,
 provider validation, replacement, service borrows, notifications, modal work,
 deadlines, and shutdown. The visible native-window cases require an interactive
 desktop and are not part of CI.
+
+The real Host Input fixtures use the same worker-pass selection. Windows x86
+Debug is a compatibility check: it runs the ordinary suites, Host-worker checks,
+all lifecycle and portable pump cases, and execution fixture regressions, but
+does not duplicate the lifecycle/pump/Input matrices with two requested workers.
+Its Input runner receives `-CompatibilityCheck`, excluding only `load-smoke`
+and `work-pressure` from the eleven synthetic cases. Other Windows jobs retain
+both worker passes and all eleven Input cases. Local runners still permit full
+coverage on Win32 Debug. Production deadlines and acceptance thresholds are
+unchanged. The temporary ordinary-suite and lifecycle-build/test exclusions
+used during Input CI diagnosis have been removed.
 
 Every job attempts to upload a separate diagnostics artifact, including after
 failure. It contains the MSBuild text and binary logs, test console output,
